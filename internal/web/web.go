@@ -13,7 +13,7 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/swaggest/openapi-go"
 	"github.com/swaggest/swgui"
-	v5 "github.com/swaggest/swgui/v5"
+	"github.com/swaggest/swgui/v5"
 
 	"tyr/internal/core"
 	"tyr/internal/util"

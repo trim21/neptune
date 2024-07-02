@@ -19,16 +19,14 @@ var pool = zeropool.New(func() []byte {
 })
 
 func CopyReaderAt(dst io.Writer, ra io.ReaderAt, offset int64, size int64) (int64, error) {
+	buf := pool.Get()
+	defer pool.Put(buf)
+
 	if size >= units.MiB*4 {
-		buf := pool.Get()
-		defer pool.Put(buf)
 		return io.CopyBuffer(dst, io.NewSectionReader(ra, offset, size), buf)
 	}
 
 	// read and write it in one shot.
-
-	buf := pool.Get()
-	defer pool.Put(buf)
 
 	n, err := ra.ReadAt(buf[:size], offset)
 
