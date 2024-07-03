@@ -55,6 +55,8 @@ jobs:
       - run: go install gotest.tools/gotestsum@latest
         working-directory: tools
 
+      - run: go get -t ./...
+
       - run: >-
           gotestsum --format=pkgname --format-hide-empty-pkg
           -- -race -tags=assert -count=1 -coverprofile=coverage.txt -covermode=atomic ./...
