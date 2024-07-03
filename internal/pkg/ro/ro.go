@@ -41,15 +41,16 @@ import (
 // RO backed by a later-mutating []byte doesn't break invariants in
 // Go's map implementation.
 type RO struct {
-	_ [0]func() // not comparable; don't want to be a map key or support ==
-	m unsafeString
+	m string
 }
 
-// str returns the unsafeString as a string. Only for use with standard
-// library funcs known to not let the string escape, as it doesn't
-// obey the language/runtime's expectations of a real string (it can
-// change underfoot).
-func (r RO) str() string { return string(r.m) }
+func S(s string) RO { return RO{m: s} }
+
+func B(b []byte) RO {
+	return RO{m: string(b)}
+}
+
+func (r RO) str() string { return r.m }
 
 func (r RO) bytes() []byte {
 	s := r.str()
@@ -63,22 +64,9 @@ func (r RO) Len() int { return len(r.m) }
 // At returns r[i].
 func (r RO) At(i int) byte { return r.m[i] }
 
-// Slice returns r[from:to].
-func (r RO) Slice(from, to int) RO { return RO{m: r.m[from:to]} }
-
-// SliceFrom returns r[from:].
-func (r RO) SliceFrom(from int) RO { return RO{m: r.m[from:]} }
-
-// SliceTo returns r[:to].
-func (r RO) SliceTo(to int) RO { return RO{m: r.m[:to]} }
-
 // Copy copies up to len(dest) bytes into dest from r and returns the
 // number of bytes copied, the min(r.Len(), len(dest)).
 func (r RO) Copy(dest []byte) int { return copy(dest, r.m) }
-
-// Equal reports whether r and r2 are the same length and contain the
-// same bytes.
-func (r RO) Equal(r2 RO) bool { return r.m == r2.m }
 
 // EqualString reports whether r and s are the same length and contain
 // the same bytes.
@@ -99,36 +87,4 @@ func (r RO) WriteTo(w io.Writer) (int64, error) {
 // StringCopy returns m's contents in a newly allocated string.
 func (r RO) StringCopy() string {
 	return string(r.bytes())
-}
-
-// unsafeString is a string that's not really a Go string.
-// It might be pointing into a []byte. Don't let it escape to callers.
-// We contain the unsafety to this package.
-type unsafeString string
-
-// stringHeader is a safer version of reflect.StringHeader.
-// See https://github.com/golang/go/issues/40701.
-type stringHeader struct {
-	P   *byte
-	Len int
-}
-
-// S returns a read-only view of the string s.
-//
-// The compiler should compile this call to nothing. Think of it as a
-// free type conversion. The returned RO view is the same size as a
-// string.
-func S(s string) RO { return RO{m: unsafeString(s)} }
-
-// B returns a read-only view of the byte slice b.
-//
-// The compiler should compile this call to nothing. Think of it as a
-// free type conversion. The returned value is actually smaller than a
-// []byte though (16 bytes instead of 24 bytes on 64-bit
-// architectures).
-func B(b []byte) RO {
-	if len(b) == 0 {
-		return RO{m: ""}
-	}
-	return RO{m: *(*unsafeString)(unsafe.Pointer(&stringHeader{&b[0], len(b)}))}
 }

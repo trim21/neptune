@@ -73,26 +73,9 @@ tasks:
           TAG: release
           OUT_PATH: dist/tyr.exe
 
-  build:dev:
-    generates:
-      - dist/dev/server.exe
-    sources:
-      - go.mod
-      - go.sum
-      - "**/*.go"
-    cmds:
-      - task: binary
-        vars:
-          TAG: assert
-          OUT_PATH: dist/dev/tmp.exe
-          EXTRA_FLAGS: -race
-      - cp -p dist/dev/tmp.exe dist/dev/server.exe
-
   dev:
-    deps:
-      - build:dev
     generates:
-      - tmp/non-exists-file-so-it-always-run
+      - dist/a-file-not-exists-so-task-always-run
     sources:
       - .env
       - go.mod
@@ -101,6 +84,9 @@ tasks:
     dotenv:
       - .env
     cmds:
+      - go build -race -tags assert -o dist/dev/tmp.exe
+      - sleep 1
+      - cp dist/dev/tmp.exe dist/dev/server.exe
       - dist/dev/server.exe --debug --web 127.0.0.1:8002 --config-file ./config.toml
 
   dev:release:
@@ -121,3 +107,6 @@ tasks:
   heap:
     cmds:
       - go tool pprof -http=:8001 http://127.0.0.1:8002/debug/pprof/heap
+
+  update-swagger:
+    cmd: cp ./node_modules/swagger-ui-dist/  internal/web/frontend/docs/ -r

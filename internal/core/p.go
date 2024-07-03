@@ -90,7 +90,9 @@ func newPeer(
 		QueueLimit:           *atomic.NewUint32(250),
 
 		//ResChan:   make(chan req.Response, 1),
-		requests: xsync.NewMapOf[proto.ChunkRequest, empty.Empty](),
+		requests:       xsync.NewMapOf[proto.ChunkRequest, empty.Empty](),
+		requestHistory: xsync.NewMapOf[proto.ChunkRequest, empty.Empty](),
+
 		Rejected: xsync.NewMapOf[proto.ChunkRequest, empty.Empty](),
 
 		peerRequests: xsync.NewMapOf[proto.ChunkRequest, empty.Empty](),
@@ -122,6 +124,8 @@ type Peer struct {
 	cancel   context.CancelFunc
 	Bitmap   *bm.Bitmap
 	requests *xsync.MapOf[proto.ChunkRequest, empty.Empty]
+
+	requestHistory *xsync.MapOf[proto.ChunkRequest, empty.Empty]
 
 	peerRequests *xsync.MapOf[proto.ChunkRequest, empty.Empty]
 
@@ -165,7 +169,6 @@ func (p *Peer) Response(res proto.ChunkResponse) {
 
 func (p *Peer) Request(req proto.ChunkRequest) {
 	if p.requests.Size() > int(p.QueueLimit.Load()) {
-		p.log.Trace().Msg("too many pending requests")
 		return
 	}
 
@@ -187,10 +190,6 @@ func (p *Peer) Request(req proto.ChunkRequest) {
 }
 
 func (p *Peer) Have(index uint32) {
-	if p.Bitmap.Get(index) {
-		return
-	}
-
 	err := p.sendEvent(Event{
 		Index: index,
 		Event: proto.Have,
@@ -372,6 +371,16 @@ func (p *Peer) start(skipHandshake bool) {
 func (p *Peer) sendEvent(e Event) error {
 	p.wm.Lock()
 	defer p.wm.Unlock()
+
+	err := p.write(e)
+	if err != nil {
+		return err
+	}
+
+	return p.w.Flush()
+}
+
+func (p *Peer) write(e Event) error {
 	p.log.Trace().Msgf("send %s", color.BlueString(e.Event.String()))
 
 	_ = p.Conn.SetWriteDeadline(time.Now().Add(time.Minute * 3))

@@ -14,6 +14,7 @@ import (
 	"github.com/anacrolix/torrent/mse"
 	"github.com/go-resty/resty/v2"
 	"github.com/jellydator/ttlcache/v3"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog/log"
 	"github.com/samber/lo"
 	"go.uber.org/atomic"
@@ -77,6 +78,14 @@ func New(cfg config.Config, sessionPath string) *Client {
 		v4Addr:      *atomic.NewPointer(v4),
 		v6Addr:      *atomic.NewPointer(v6),
 	}
+}
+
+func (c *Client) initMetrics() {
+	prometheus.MustRegister(prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+		Name: "tyr_client_connections_count",
+	}, func() float64 {
+		return float64(c.connectionCount.Load())
+	}))
 }
 
 type incomingConn struct {

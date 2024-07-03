@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
-	"runtime"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -17,6 +16,8 @@ import (
 )
 
 func (c *Client) Start() error {
+	c.initMetrics()
+
 	if err := c.startListen(); err != nil {
 		return err
 	}
@@ -27,7 +28,6 @@ func (c *Client) Start() error {
 		go func() {
 			for {
 				time.Sleep(time.Second * 5)
-				fmt.Printf("\n\ngoroutine count %v connection count %v\n", runtime.NumGoroutine(), c.connectionCount.Load())
 				fmt.Printf(" %10s | %20s%-20s | percent |    total |     left |      speed   |   ETA | conns\n", "state", "", "info hash")
 				c.m.RLock()
 				for _, d := range c.downloads {

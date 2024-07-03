@@ -124,7 +124,7 @@ func main() {
 
 	if global.Dev {
 		if global.IsWindows {
-			//lo.Must0(os.RemoveAll("D:\\downloads\\2"))
+			lo.Must0(os.RemoveAll("D:\\downloads\\2"))
 			m := lo.Must(metainfo.LoadFromFile(`C:\Users\Trim21\Downloads\2.torrent`))
 			lo.Must0(app.AddTorrent(m, lo.Must(meta.FromTorrent(*m)), "D:\\Downloads\\2", nil))
 		}

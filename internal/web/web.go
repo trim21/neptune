@@ -11,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-playground/validator/v10"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/swaggest/openapi-go"
 	"github.com/swaggest/swgui"
 	"github.com/swaggest/swgui/v5"
@@ -53,6 +54,8 @@ func New(c *core.Client, token string, enableDebug bool) http.Handler {
 
 	r := chi.NewMux()
 	r.Use(middleware.Recoverer)
+
+	r.Handle("GET /metrics", promhttp.Handler())
 
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		res.Text(w, http.StatusOK, ".")

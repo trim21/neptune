@@ -11,6 +11,7 @@ import (
 
 	"tyr/internal/meta"
 	"tyr/internal/pkg/as"
+	"tyr/internal/pkg/empty"
 	"tyr/internal/pkg/global/tasks"
 	"tyr/internal/pkg/mempool"
 	"tyr/internal/proto"
@@ -22,11 +23,11 @@ type downloadReq struct {
 }
 
 func (d *Download) have(index uint32) {
-	d.conn.Range(func(addr netip.AddrPort, p *Peer) bool {
-		tasks.Submit(func() {
+	tasks.Submit(func() {
+		d.conn.Range(func(addr netip.AddrPort, p *Peer) bool {
 			p.Have(index)
+			return true
 		})
-		return true
 	})
 }
 
@@ -41,6 +42,10 @@ func (d *Download) handleRes(res proto.ChunkResponse) {
 	d.ioDown.Update(len(res.Data))
 	d.downloaded.Add(int64(len(res.Data)))
 
+	if d.bm.Get(res.PieceIndex) {
+		return
+	}
+
 	d.pdMutex.Lock()
 	defer d.pdMutex.Unlock()
 
@@ -49,8 +54,7 @@ func (d *Download) handleRes(res proto.ChunkResponse) {
 		chunks = make([]*proto.ChunkResponse, pieceChunkLen(d.info, res.PieceIndex))
 	}
 
-	pi := res.Begin / defaultBlockSize
-	chunks[pi] = &res
+	chunks[res.Begin/defaultBlockSize] = &res
 
 	filled := true
 	for _, res := range chunks {
@@ -62,9 +66,7 @@ func (d *Download) handleRes(res proto.ChunkResponse) {
 
 	if filled {
 		delete(d.pieceData, res.PieceIndex)
-
 		d.writePieceToDisk(res.PieceIndex, chunks)
-
 		return
 	}
 
@@ -72,22 +74,26 @@ func (d *Download) handleRes(res proto.ChunkResponse) {
 }
 
 func (d *Download) writePieceToDisk(pieceIndex uint32, chunks []*proto.ChunkResponse) {
+	buf := mempool.Get()
+
+	for i, chunk := range chunks {
+		buf.Write(chunk.Data)
+		chunks[i] = nil
+	}
+
+	// it's expected users have a hardware run sha1 faster than disk write
+
+	h := sha1.Sum(buf.B)
+	if h != d.info.Pieces[pieceIndex] {
+		d.corrupted.Add(d.info.PieceLength)
+		mempool.Put(buf)
+		return
+	}
+
+	d.bm.Set(pieceIndex)
+
 	tasks.Submit(func() {
-		buf := mempool.Get()
 		defer mempool.Put(buf)
-
-		for i, chunk := range chunks {
-			buf.Write(chunk.Data)
-			chunks[i] = nil
-		}
-
-		h := sha1.Sum(buf.B)
-		if h != d.info.Pieces[pieceIndex] {
-			d.corrupted.Add(d.info.PieceLength)
-			fmt.Println("data mismatch", pieceIndex)
-			mempool.Put(buf)
-			return
-		}
 
 		pieces := d.pieceInfo[pieceIndex]
 		var offset int64 = 0
@@ -210,7 +216,6 @@ func (d *Download) scheduleSeq() {
 
 		chunkLen := pieceChunkLen(d.info, index)
 
-		send := false
 		d.conn.Range(func(addr netip.AddrPort, p *Peer) bool {
 			if !p.Bitmap.Get(index) {
 				return true
@@ -228,15 +233,26 @@ func (d *Download) scheduleSeq() {
 			//}
 
 			for i := 0; i < chunkLen; i++ {
-				p.Request(pieceChunk(d.info, index, i))
+				req := pieceChunk(d.info, index, i)
+				_, exist := p.requestHistory.LoadOrStore(req, empty.Empty{})
+				if exist {
+					continue
+				}
+
+				p.Request(req)
 			}
 
-			send = true
+			if p.Rejected.Size() != 0 {
+				fmt.Println(p.Rejected)
+			}
+
+			found++
+
 			return false
 		})
 
-		if send {
-			found++
+		if found >= 5 {
+			break
 		}
 
 		if found*d.info.PieceLength >= units.GiB*2 {

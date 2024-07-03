@@ -11,6 +11,8 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/swaggest/openapi-go"
 	"github.com/swaggest/usecase"
+
+	"tyr/internal/pkg/mempool"
 )
 
 // ErrorCode is an JSON-RPC 2.0 error code.
@@ -176,14 +178,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	h.invoke(ctx, req, &resp)
 
-	data, err := json.Marshal(resp)
-	if err != nil {
+	var buf = mempool.Get()
+	defer mempool.Put(buf)
+
+	enc := json.NewEncoder(buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(resp); err != nil {
 		h.fail(w, err, CodeInternalError)
 
 		return
 	}
 
-	if _, err := w.Write(data); err != nil {
+	if _, err := w.Write(buf.Bytes()); err != nil {
 		h.fail(w, err, CodeInternalError)
 	}
 }

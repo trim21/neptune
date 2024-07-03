@@ -22,13 +22,13 @@ var handshakePstrV1 = ro.S("\x13BitTorrent protocol")
 
 // https://www.bittorrent.org/beps/bep_0006.html
 // reserved_byte[7] & 0x04
-var fastExtensionEnabled uint64 = genReversedFlag(7, 0x04)
+var fastExtensionEnabled = genReversedFlag(7, 0x04)
 
 // https://www.bittorrent.org/beps/bep_0010.html
 // reserved_byte[5] & 0x10
-var exchangeExtensionEnabled uint64 = genReversedFlag(5, 0x10)
+var exchangeExtensionEnabled = genReversedFlag(5, 0x10)
 
-var handshakeBytes = binary.BigEndian.AppendUint64(nil, exchangeExtensionEnabled|fastExtensionEnabled)
+var handshakeBytes = ro.B(binary.BigEndian.AppendUint64(nil, exchangeExtensionEnabled|fastExtensionEnabled))
 
 // SendHandshake = <pStrlen><pStr><reserved><info_hash><peer_id>
 // - pStrlen = length of pStr (1 byte)
@@ -44,7 +44,7 @@ func SendHandshake(conn io.Writer, infoHash, peerID [20]byte) error {
 		return err
 	}
 
-	_, err = conn.Write(handshakeBytes)
+	_, err = handshakeBytes.WriteTo(conn)
 	if err != nil {
 		return err
 	}
@@ -103,13 +103,13 @@ func ReadHandshake(conn io.Reader) (Handshake, error) {
 		h.ExchangeExtensions = true
 	}
 
-	n, err = conn.Read(h.InfoHash[:])
+	n, err = io.ReadFull(conn, h.InfoHash[:])
 	if err != nil {
 		return Handshake{}, err
 	}
 	assert.Equal(20, n)
 
-	n, err = conn.Read(h.PeerID[:])
+	n, err = io.ReadFull(conn, h.PeerID[:])
 	if err != nil {
 		return Handshake{}, err
 	}

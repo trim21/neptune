@@ -17,6 +17,7 @@ import (
 	"github.com/puzpuzpuz/xsync/v3"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"github.com/samber/lo"
 	"go.uber.org/atomic"
 
 	"tyr/internal/meta"
@@ -214,12 +215,27 @@ func (d *Download) Display() string {
 			for i := uint32(0); i < d.info.NumPieces; i++ {
 				if !d.bm.Get(i) {
 					fmt.Println("missing", i)
+					d.pdMutex.RLock()
+					fmt.Println(d.pieceData[i])
+					d.pdMutex.RUnlock()
 				}
 			}
 		}
 	}
 
-	_, _ = fmt.Fprintf(buf, "%11s | %s | %6.1f%% | %8s | %8s | %10s ↓ | %5s | %d",
+	d.pdMutex.RLock()
+	pieceProcessing := len(d.pieceData)
+	d.pdMutex.RUnlock()
+
+	if d.state == Uploading {
+		if pieceProcessing != 0 {
+			d.pdMutex.RLock()
+			fmt.Println(lo.Keys(d.pieceData))
+			d.pdMutex.RUnlock()
+		}
+	}
+
+	_, _ = fmt.Fprintf(buf, "%11s | %s | %6.1f%% | %8s | %8s | %10s ↓ | %5s | %d | %d/%d",
 		d.state,
 		d.info.Hash,
 		float64(completed*1000/d.info.TotalLength)/10,
@@ -228,6 +244,8 @@ func (d *Download) Display() string {
 		rate.RateString(),
 		eta.String(),
 		d.conn.Size(),
+		pieceProcessing,
+		d.info.NumPieces,
 	)
 
 	if d.err != nil {
