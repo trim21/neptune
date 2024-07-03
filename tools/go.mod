@@ -12,7 +12,7 @@ require (
 )
 
 require (
-	github.com/KimMachineGun/automemlimit v0.6.0 // indirect
+	github.com/KimMachineGun/automemlimit v0.6.1 // indirect
 	github.com/bitfield/gotestdox v0.2.2 // indirect
 	github.com/cilium/ebpf v0.15.0 // indirect
 	github.com/containerd/cgroups/v3 v3.0.3 // indirect
@@ -40,8 +40,8 @@ require (
 	golang.org/x/mod v0.18.0 // indirect
 	golang.org/x/sync v0.7.0 // indirect
 	golang.org/x/sys v0.21.0 // indirect
-	golang.org/x/telemetry v0.0.0-20240522233618-39ace7a40ae7 // indirect
+	golang.org/x/telemetry v0.0.0-20240703143146-5dc3c48f4727 // indirect
 	golang.org/x/term v0.21.0 // indirect
 	golang.org/x/text v0.16.0 // indirect
-	google.golang.org/protobuf v1.34.0 // indirect
+	google.golang.org/protobuf v1.34.2 // indirect
 )

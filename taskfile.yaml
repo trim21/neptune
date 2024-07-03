@@ -1,22 +1,41 @@
 version: 3
 
 tasks:
-  init:
-    dir: tools
-    cmds:
-      - go install gotest.tools/gotestsum@latest
-      - go install github.com/dkorunic/betteralign/cmd/betteralign@latest
-      - go install golang.org/x/vuln/cmd/govulncheck@latest
-
   lint:
-    - betteralign -apply ./...
-    - golangci-lint run
+    deps:
+      - tools:betteralign
+    cmds:
+      - ./.bin/betteralign.exe -apply ./...
+      - golangci-lint run
 
   gen: go generate ./...
 
-  test: gotestsum --format-hide-empty-pkg -- -count=1 -coverprofile=coverage.txt -covermode=atomic -tags assert ./...
+  tools:betteralign:
+    internal: true
+    dir: tools
+    generates:
+      - ../.bin/betteralign.exe
+    sources:
+      - go.mod
+      - go.sum
+    cmds:
+      - go build -o ../.bin/betteralign.exe github.com/dkorunic/betteralign/cmd/betteralign
 
-  tparse: go test -json -count=1 -coverprofile=coverage.txt -covermode=atomic -tags assert tyr/internal/web/jsonrpc | tparse
+  tools:gotestsum:
+    internal: true
+    dir: tools
+    generates:
+      - ../.bin/gotestsum.exe
+    sources:
+      - go.mod
+      - go.sum
+    cmds:
+      - go build -o ../.bin/gotestsum.exe gotest.tools/gotestsum
+
+  test:
+    deps:
+      - tools:gotestsum
+    cmd: ./.bin/gotestsum.exe --format-hide-empty-pkg -- -count=1 -coverprofile=coverage.txt -covermode=atomic -tags assert ./...
 
   mod-tidy:
     cmds:
