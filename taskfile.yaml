@@ -20,9 +20,13 @@ tasks:
 
   mod-tidy:
     cmds:
-      - cmd: go mod tidy
-        dir: tools
+      - task: mod-tidy:tools
       - go mod tidy
+
+  mod-tidy:tools:
+    internal: true
+    dir: tools
+    cmd: go mod tidy
 
   binary:
     internal: true
