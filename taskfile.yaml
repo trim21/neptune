@@ -16,6 +16,8 @@ tasks:
 
   test: gotestsum --format-hide-empty-pkg -- -count=1 -coverprofile=coverage.txt -covermode=atomic -tags assert ./...
 
+  tparse: go test -json -count=1 -coverprofile=coverage.txt -covermode=atomic -tags assert tyr/internal/web/jsonrpc | tparse
+
   mod-tidy:
     cmds:
       - cmd: go mod tidy

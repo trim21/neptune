@@ -7,10 +7,12 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/go-playground/validator/v10"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/swaggest/jsonrpc"
 	"github.com/swaggest/usecase"
+
+	"tyr/internal/web/jsonrpc"
 )
 
 func TestHandler_Add(t *testing.T) {
@@ -18,7 +20,7 @@ func TestHandler_Add(t *testing.T) {
 
 	h := jsonrpc.Handler{}
 	h.OpenAPI = &jsonrpc.OpenAPI{}
-	h.Validator = &jsonrpc.JSONSchemaValidator{}
+	h.Validator = validator.New()
 	h.Middlewares = append(h.Middlewares, usecase.MiddlewareFunc(func(next usecase.Interactor) usecase.Interactor {
 		return usecase.Interact(func(ctx context.Context, input, output any) error {
 			cnt++
@@ -28,13 +30,13 @@ func TestHandler_Add(t *testing.T) {
 	}))
 
 	type inp struct {
-		A string `json:"a" minLength:"3"`
-		B int    `json:"b" maximum:"8"`
+		A string `json:"a" validate:"required"`
+		B int    `json:"b"`
 	}
 
 	type outp struct {
 		A string `json:"a"`
-		B int    `json:"b" maximum:"10"`
+		B int    `json:"b"`
 	}
 
 	u := usecase.NewIOI(new(inp), new(outp), func(ctx context.Context, input, output any) error {
@@ -58,22 +60,24 @@ func TestHandler_Add(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
-	assert.JSONEq(t, `{"jsonrpc":"2.0","result":{"b":5,"a":"abc"},"id":1}`, w.Body.String())
-	assert.Equal(t, 1, cnt)
+	require.JSONEq(t, `{"jsonrpc":"2.0","result":{"b":5,"a":"abc"},"id":1}`, w.Body.String())
+	require.Equal(t, 1, cnt)
 
-	req, err = http.NewRequest(http.MethodPost, "/", bytes.NewReader([]byte(`{"jsonrpc":"2.0","method":"echo","params":{"a":"abc","b":"invalid"},"id":1}`)))
+	req, err = http.NewRequest(http.MethodPost, "/", bytes.NewReader([]byte(`{"jsonrpc":"2.0","method":"echo","params":{"a":"abc","b":"abc"},"id":1}`)))
 	require.NoError(t, err)
 
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, req)
-	assert.Equal(t, `{"jsonrpc":"2.0","error":{"code":-32602,"message":"failed to unmarshal parameters","data":"json: cannot unmarshal string into Go struct field inp.b of type int"},"id":1}`, w.Body.String())
-	assert.Equal(t, 2, cnt)
+	require.JSONEq(t, `{"jsonrpc":"2.0","error":{"code":-32602,"message":"failed to unmarshal parameters","data":"json: cannot unmarshal string into Go struct field inp.b of type int"},"id":1}`, w.Body.String())
+	require.Equal(t, 2, cnt)
 
 	req, err = http.NewRequest(http.MethodPost, "/", bytes.NewReader([]byte(`{"jsonrpc":"2.0","method":"echo","params":{"a":"a","b":9},"id":1}`)))
 	require.NoError(t, err)
 
+	req, err = http.NewRequest(http.MethodPost, "/", bytes.NewReader([]byte(`{"jsonrpc":"2.0","method":"echo","params":{"b":5},"id":1}`)))
+	require.NoError(t, err)
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, req)
-	assert.Equal(t, `{"jsonrpc":"2.0","error":{"code":-32602,"message":"invalid parameters","data":{"error":"validation failed","context":{"params":["#/a: length must be \u003e= 3, but got 1","#/b: must be \u003c= 8 but found 9","#: validation failed"]}}},"id":1}`, w.Body.String())
-	assert.Equal(t, 3, cnt)
+	require.JSONEq(t, `{"jsonrpc":"2.0","error":{"code":-32602,"message":"invalid parameters","data":"Key: 'inp.A' Error:Field validation for 'A' failed on the 'required' tag"},"id":1}`, w.Body.String())
+	require.Equal(t, 3, cnt)
 }

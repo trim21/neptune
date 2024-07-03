@@ -5,8 +5,9 @@ import (
 	"testing"
 
 	"github.com/swaggest/assertjson"
-	"github.com/swaggest/jsonrpc"
 	"github.com/swaggest/usecase"
+
+	"tyr/internal/web/jsonrpc"
 )
 
 func TestOpenAPI_Collect(t *testing.T) {
@@ -18,8 +19,6 @@ func TestOpenAPI_Collect(t *testing.T) {
 
 	h := &jsonrpc.Handler{}
 	h.OpenAPI = &apiSchema
-	h.Validator = &jsonrpc.JSONSchemaValidator{}
-	h.SkipResultValidation = true
 
 	type inp struct {
 		Name string `json:"name"`
@@ -51,6 +50,12 @@ func TestOpenAPI_Collect(t *testing.T) {
 		"nameLength":{
 		  "post":{
 			"summary":"Test","description":"Test Description",
+      "security": [
+        {
+          "api-key": [
+          ]
+        }
+      ],
 			"operationId":"nameLength",
 			"requestBody":{
 			  "content":{
