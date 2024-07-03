@@ -55,7 +55,7 @@ func (d *Download) initCheck() error {
 	var w io.Writer = sum
 
 	if global.Dev {
-		bucket := ratelimit.NewBucketWithQuantum(time.Second/10, units.MiB*50, units.MiB*50)
+		bucket := ratelimit.NewBucketWithQuantum(time.Second/10, units.MiB*100, units.MiB*100)
 		w = ratelimit.Writer(sum, bucket)
 	}
 
@@ -68,15 +68,18 @@ func (d *Download) initCheck() error {
 			default:
 			}
 
-			f, err := d.openFileWithCache(chunk.fileIndex)
+			f, err := d.openFile(chunk.fileIndex)
 			if err != nil {
 				return errgo.Wrap(err, fmt.Sprintf("failed to open file %q", filepath.Join(d.basePath, d.info.Files[chunk.fileIndex].Path)))
 			}
 
 			_, err = d.ioDown.IO64(gfs.CopyReaderAt(w, f.File, chunk.offsetOfFile, chunk.length))
 			if err != nil {
+				f.Release()
 				return errgo.Wrap(err, fmt.Sprintf("failed to read file %s", f.File.Name()))
 			}
+
+			f.Release()
 		}
 
 		if [sha1.Size]byte(sum.Sum(nil)) == d.info.Pieces[pieceIndex] {

@@ -9,7 +9,6 @@ import (
 	"github.com/RoaringBitmap/roaring/v2"
 	"github.com/anacrolix/torrent/bencode"
 	"github.com/docker/go-units"
-	"github.com/fatih/color"
 	"github.com/negrel/assert"
 	"github.com/trim21/errgo"
 
@@ -63,8 +62,8 @@ type extension struct {
 }
 
 func (p *Peer) DecodeEvents() (Event, error) {
-	_ = p.Conn.SetReadDeadline(time.Now().Add(time.Minute * 4))
-	n, err := io.ReadFull(p.Conn, p.readSizeBuf[:])
+	_ = p.Conn.SetReadDeadline(time.Now().Add(time.Minute * 3))
+	n, err := io.ReadFull(p.r, p.readSizeBuf[:])
 	if err != nil {
 		return Event{}, err
 	}
@@ -83,8 +82,8 @@ func (p *Peer) DecodeEvents() (Event, error) {
 		return Event{keepAlive: true}, nil
 	}
 
-	p.log.Trace().Msgf("try to decode message with length %d", size)
-	n, err = io.ReadFull(p.Conn, p.readSizeBuf[:1])
+	//p.log.Trace().Msgf("try to decode message with length %d", size)
+	n, err = io.ReadFull(p.r, p.readSizeBuf[:1])
 	if err != nil {
 		return Event{}, err
 	}
@@ -93,7 +92,7 @@ func (p *Peer) DecodeEvents() (Event, error) {
 
 	var event Event
 	event.Event = proto.Message(p.readSizeBuf[0])
-	p.log.Trace().Msgf("try to decode message event %s", color.BlueString(event.Event.String()))
+	//p.log.Trace().Msgf("try to decode message event %s", color.BlueString(event.Event.String()))
 	switch event.Event {
 	case proto.Choke, proto.Unchoke,
 		proto.Interested, proto.NotInterested,
@@ -108,32 +107,32 @@ func (p *Peer) DecodeEvents() (Event, error) {
 	case proto.Piece:
 		return p.decodePiece(size - 1)
 	case proto.Port:
-		err = binary.Read(p.Conn, binary.BigEndian, &event.Port)
+		err = binary.Read(p.r, binary.BigEndian, &event.Port)
 		return event, err
 	case proto.Have, proto.Suggest, proto.AllowedFast:
-		err = binary.Read(p.Conn, binary.BigEndian, &event.Index)
+		err = binary.Read(p.r, binary.BigEndian, &event.Index)
 		return event, err
 	case proto.Reject:
 		return p.decodeReject()
 	case proto.Extended:
-		if _, err = io.ReadFull(p.Conn, p.readSizeBuf[:1]); err != nil {
+		if _, err = io.ReadFull(p.r, p.readSizeBuf[:1]); err != nil {
 			return event, err
 		}
 
 		if p.readSizeBuf[0] == 0 {
-			err = bencode.NewDecoder(io.LimitReader(p.Conn, int64(size-2))).Decode(&event.ExtHandshake)
+			err = bencode.NewDecoder(io.LimitReader(p.r, int64(size-2))).Decode(&event.ExtHandshake)
 			return event, err
 		}
 
 		event.Ignored = true
 		// unknown events
-		_, err = io.CopyN(io.Discard, p.Conn, int64(size-2))
+		_, err = io.CopyN(io.Discard, p.r, int64(size-2))
 		return event, err
 	case proto.BitCometExtension:
 	}
 
 	// unknown events
-	_, err = io.CopyN(io.Discard, p.Conn, int64(size-1))
+	_, err = io.CopyN(io.Discard, p.r, int64(size-1))
 	return event, err
 }
 
@@ -146,7 +145,7 @@ func (p *Peer) decodeBitfield(l uint32) (Event, error) {
 	}
 
 	var b = make([]byte, l+8)
-	n, err := io.ReadFull(p.Conn, b[:l])
+	n, err := io.ReadFull(p.r, b[:l])
 	if err != nil {
 		return Event{}, err
 	}
@@ -165,7 +164,7 @@ func (p *Peer) decodeBitfield(l uint32) (Event, error) {
 }
 
 func (p *Peer) decodeCancel() (Event, error) {
-	payload, err := proto.ReadRequestPayload(p.Conn)
+	payload, err := proto.ReadRequestPayload(p.r)
 	if err != nil {
 		return Event{}, err
 	}
@@ -174,7 +173,7 @@ func (p *Peer) decodeCancel() (Event, error) {
 }
 
 func (p *Peer) decodeRequest() (Event, error) {
-	payload, err := proto.ReadRequestPayload(p.Conn)
+	payload, err := proto.ReadRequestPayload(p.r)
 	if err != nil {
 		return Event{}, err
 	}
@@ -183,7 +182,7 @@ func (p *Peer) decodeRequest() (Event, error) {
 }
 
 func (p *Peer) decodeReject() (Event, error) {
-	payload, err := proto.ReadRequestPayload(p.Conn)
+	payload, err := proto.ReadRequestPayload(p.r)
 	if err != nil {
 		return Event{}, err
 	}

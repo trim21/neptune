@@ -6,7 +6,7 @@ import (
 
 var keepAlive = []byte{0, 0, 0, 0}
 
-func SendKeepAlive(conn io.ReadWriter) error {
-	_, err := conn.Write(keepAlive)
+func SendKeepAlive(w io.Writer) error {
+	_, err := w.Write(keepAlive)
 	return err
 }

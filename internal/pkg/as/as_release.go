@@ -33,3 +33,7 @@ func Int32[T int8 | int16 | int64 | int | uint8 | uint16 | uint32 | uint64 | uin
 func Int64[T int8 | int16 | int32 | int | uint8 | uint16 | uint32 | uint64 | uint](v T) int64 {
 	return int64(v)
 }
+
+func Int[T int8 | int16 | int32 | int64 | uint8 | uint16 | uint32 | uint64 | uint](v T) int {
+	return int(v)
+}

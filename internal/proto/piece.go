@@ -3,6 +3,8 @@ package proto
 import (
 	"encoding/binary"
 	"io"
+
+	"tyr/internal/pkg/as"
 )
 
 type ChunkResponse struct {
@@ -10,6 +12,14 @@ type ChunkResponse struct {
 	Data       []byte
 	Begin      uint32
 	PieceIndex uint32
+}
+
+func (c ChunkResponse) Request() ChunkRequest {
+	return ChunkRequest{
+		PieceIndex: c.PieceIndex,
+		Begin:      c.Begin,
+		Length:     as.Uint32(len(c.Data)),
+	}
 }
 
 func SendPiece(conn io.Writer, r ChunkResponse) error {
@@ -30,19 +40,23 @@ func SendPiece(conn io.Writer, r ChunkResponse) error {
 }
 
 func ReadPiecePayload(conn io.Reader, size uint32) (ChunkResponse, error) {
+	var b [sizeUint32 * 2]byte
+
+	_, err := io.ReadFull(conn, b[:])
+	if err != nil {
+		return ChunkResponse{}, err
+	}
+
 	var payload = ChunkResponse{
-		Data: make([]byte, size-sizeUint32*2),
+		PieceIndex: binary.BigEndian.Uint32(b[:]),
+		Begin:      binary.BigEndian.Uint32(b[sizeUint32 : sizeUint32*2]),
+		Data:       make([]byte, size-sizeUint32*2),
 	}
 
-	err := binary.Read(conn, binary.BigEndian, &payload.PieceIndex)
-	if err != nil {
-		return ChunkResponse{}, err
-	}
+	//buf := mempool.GetSlice()
 
-	err = binary.Read(conn, binary.BigEndian, &payload.Begin)
-	if err != nil {
-		return ChunkResponse{}, err
-	}
+	//payload.Data = slices.Grow(buf, int(size-sizeUint32*2))
+	//payload.Data = payload.Data[:size-sizeUint32*2]
 
 	_, err = io.ReadFull(conn, payload.Data)
 

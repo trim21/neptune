@@ -1,14 +1,14 @@
-//go:build !linux
+//go:build windows || darwin
 
 package gfs
 
 import (
 	"context"
-	"os"
+	"io"
 
 	"tyr/internal/pkg/flowrate"
 )
 
-func fileCopy(ctx context.Context, dest *os.File, src *os.File, buf []byte, monitor *flowrate.Monitor) error {
-	return genericCopy(ctx, dest, monitor.WrapReader(src), buf)
+func copyImpl(ctx context.Context, dest io.Writer, src io.Reader, buf []byte, monitor *flowrate.Monitor) error {
+	return genericCopy(ctx, dest, src, buf)
 }

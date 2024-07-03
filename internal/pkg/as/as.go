@@ -19,6 +19,7 @@ var rI8 = reflect.ValueOf(int8(0))
 var rI16 = reflect.ValueOf(int16(0))
 var rI32 = reflect.ValueOf(int32(0))
 var rI64 = reflect.ValueOf(int64(0))
+var rI = reflect.ValueOf(int(0))
 
 func Uint8[T int8 | int16 | int32 | int64 | int | uint16 | uint32 | uint64 | uint](v T) uint8 {
 	rv := reflect.ValueOf(v)
@@ -122,4 +123,19 @@ func Int64[T int8 | int16 | int32 | int | uint8 | uint16 | uint32 | uint64 | uin
 	}
 
 	return int64(v)
+}
+
+func Int[T int8 | int16 | int32 | int64 | uint8 | uint16 | uint32 | uint64 | uint](v T) int {
+	rv := reflect.ValueOf(v)
+	if rv.CanUint() {
+		if rv.Uint() > math.MaxInt {
+			panic(fmt.Sprintf("%d overflow int", v))
+		}
+	} else if rv.CanInt() {
+		if rI.OverflowInt(rv.Int()) {
+			panic(fmt.Sprintf("%d overflow int", v))
+		}
+	}
+
+	return int(v)
 }

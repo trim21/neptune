@@ -24,6 +24,7 @@ import (
 	"tyr/internal/core"
 	"tyr/internal/meta"
 	"tyr/internal/pkg/empty"
+	"tyr/internal/pkg/global"
 	"tyr/internal/pkg/random"
 	_ "tyr/internal/platform" // deny compile on unsupported platform
 	"tyr/internal/web"
@@ -121,9 +122,18 @@ func main() {
 	//	lo.Must0(app.AddTorrent(m, lo.Must(meta.FromTorrent(*m)), "D:\\Downloads\\ubuntu", nil))
 	//}
 
-	{
-		m := lo.Must(metainfo.LoadFromFile(`C:\Users\Trim21\Downloads\2.torrent`))
-		lo.Must0(app.AddTorrent(m, lo.Must(meta.FromTorrent(*m)), "D:\\Downloads\\2", nil))
+	if global.Dev {
+		if global.IsWindows {
+			//lo.Must0(os.RemoveAll("D:\\downloads\\2"))
+			m := lo.Must(metainfo.LoadFromFile(`C:\Users\Trim21\Downloads\2.torrent`))
+			lo.Must0(app.AddTorrent(m, lo.Must(meta.FromTorrent(*m)), "D:\\Downloads\\2", nil))
+		}
+
+		if global.IsLinux {
+			lo.Must0(os.RemoveAll("/export/ssd-2t/try/2"))
+			m := lo.Must(metainfo.LoadFromFile(`/export/ssd-2t/2.torrent`))
+			lo.Must0(app.AddTorrent(m, lo.Must(meta.FromTorrent(*m)), "/export/ssd-2t/try/2", nil))
+		}
 	}
 
 	var done = make(chan empty.Empty)

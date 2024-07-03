@@ -23,7 +23,7 @@ repos:
 
       - id: go mod tidy
         name: go mod tidy
-        entry: go mod tidy
+        entry: task mod-tidy
         language: system
         pass_filenames: false
         types_or:

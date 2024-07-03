@@ -4,6 +4,7 @@ package gfs
 
 import (
 	"context"
+	"io"
 	"os"
 	"syscall"
 
@@ -24,11 +25,22 @@ func init() {
 
 var supportCopyFileRange bool
 
-func fileCopy(ctx context.Context, dest *os.File, src *os.File, buf []byte, monitor *flowrate.Monitor) error {
+func copyImpl(ctx context.Context, dest io.Writer, src io.Reader, buf []byte, monitor *flowrate.Monitor) error {
 	if !supportCopyFileRange {
-		return genericCopy(ctx, dest, monitor.WrapReader(src), buf)
+		return genericCopy(ctx, dest, src, buf)
 	}
 
+	in, okIn := src.(*os.File)
+	out, okOut := dest.(*os.File)
+
+	if okOut && okIn {
+		return fileCopy(ctx, out, in, monitor)
+	}
+
+	return genericCopy(ctx, dest, src, buf)
+}
+
+func fileCopy(ctx context.Context, dest *os.File, src *os.File, monitor *flowrate.Monitor) error {
 	s, err := src.Stat()
 	if err != nil {
 		return err
@@ -36,7 +48,7 @@ func fileCopy(ctx context.Context, dest *os.File, src *os.File, buf []byte, moni
 
 	totalSize := s.Size()
 
-	const size = units.MiB * 128
+	const size = units.MiB * 64
 	var srcOffset int64 = 0
 	var destOffset int64 = 0
 
@@ -47,12 +59,10 @@ func fileCopy(ctx context.Context, dest *os.File, src *os.File, buf []byte, moni
 		default:
 		}
 
-		n, err := unix.CopyFileRange(int(src.Fd()), &srcOffset, int(dest.Fd()), &destOffset, size, 0)
+		_, err := monitor.IO(unix.CopyFileRange(int(src.Fd()), &srcOffset, int(dest.Fd()), &destOffset, size, 0))
 		if err != nil {
 			return err
 		}
-
-		monitor.Update(n)
 
 		if srcOffset >= totalSize {
 			return nil

@@ -2,7 +2,7 @@ package proto
 
 import (
 	"encoding/binary"
-	"net"
+	"io"
 )
 
 var chokeMessage = func() []byte {
@@ -11,8 +11,8 @@ var chokeMessage = func() []byte {
 	return b
 }()
 
-func SendChoke(conn net.Conn) error {
-	_, err := conn.Write(chokeMessage)
+func SendChoke(w io.Writer) error {
+	_, err := w.Write(chokeMessage)
 	return err
 }
 
@@ -22,7 +22,7 @@ var unchokeMessage = func() []byte {
 	return b
 }()
 
-func SendUnchoke(conn net.Conn) error {
-	_, err := conn.Write(unchokeMessage)
+func SendUnchoke(w io.Writer) error {
+	_, err := w.Write(unchokeMessage)
 	return err
 }

@@ -9,6 +9,8 @@ import (
 
 	"github.com/docker/go-units"
 
+	"tyr/internal/meta"
+	"tyr/internal/pkg/as"
 	"tyr/internal/pkg/global/tasks"
 	"tyr/internal/pkg/mempool"
 	"tyr/internal/proto"
@@ -44,7 +46,7 @@ func (d *Download) handleRes(res proto.ChunkResponse) {
 
 	chunks, ok := d.pieceData[res.PieceIndex]
 	if !ok {
-		chunks = make([]*proto.ChunkResponse, (d.pieceLength(res.PieceIndex)+defaultBlockSize-1)/defaultBlockSize)
+		chunks = make([]*proto.ChunkResponse, pieceChunkLen(d.info, res.PieceIndex))
 	}
 
 	pi := res.Begin / defaultBlockSize
@@ -59,42 +61,39 @@ func (d *Download) handleRes(res proto.ChunkResponse) {
 	}
 
 	if filled {
-		go func() {
-			err := d.writePieceToDisk(res.PieceIndex, chunks)
-			if err != nil {
-				d.setError(err)
-			}
-		}()
-
 		delete(d.pieceData, res.PieceIndex)
+
+		d.writePieceToDisk(res.PieceIndex, chunks)
+
 		return
 	}
 
 	d.pieceData[res.PieceIndex] = chunks
 }
 
-func (d *Download) writePieceToDisk(pieceIndex uint32, chunks []*proto.ChunkResponse) error {
-	buf := mempool.Get()
-
-	for _, chunk := range chunks {
-		buf.Write(chunk.Data)
-	}
-
-	h := sha1.Sum(buf.B)
-	if h != d.info.Pieces[pieceIndex] {
-		d.corrupted.Add(d.info.PieceLength)
-		fmt.Println("data mismatch", pieceIndex)
-		mempool.Put(buf)
-		return nil
-	}
-
+func (d *Download) writePieceToDisk(pieceIndex uint32, chunks []*proto.ChunkResponse) {
 	tasks.Submit(func() {
+		buf := mempool.Get()
 		defer mempool.Put(buf)
+
+		for i, chunk := range chunks {
+			buf.Write(chunk.Data)
+			chunks[i] = nil
+		}
+
+		h := sha1.Sum(buf.B)
+		if h != d.info.Pieces[pieceIndex] {
+			d.corrupted.Add(d.info.PieceLength)
+			fmt.Println("data mismatch", pieceIndex)
+			mempool.Put(buf)
+			return
+		}
+
 		pieces := d.pieceInfo[pieceIndex]
 		var offset int64 = 0
 
 		for _, chunk := range pieces.fileChunks {
-			f, err := d.openFileWithCache(chunk.fileIndex)
+			f, err := d.openFile(chunk.fileIndex)
 			if err != nil {
 				d.setError(err)
 				return
@@ -110,10 +109,6 @@ func (d *Download) writePieceToDisk(pieceIndex uint32, chunks []*proto.ChunkResp
 			offset += chunk.length
 		}
 
-		d.pdMutex.Lock()
-		delete(d.pieceData, pieceIndex)
-		d.pdMutex.Unlock()
-
 		d.bm.Set(pieceIndex)
 
 		d.log.Trace().Msgf("buf %d done", pieceIndex)
@@ -124,14 +119,24 @@ func (d *Download) writePieceToDisk(pieceIndex uint32, chunks []*proto.ChunkResp
 			d.state = Uploading
 			d.ioDown.Reset()
 			d.m.Unlock()
+
+			d.pdMutex.Lock()
+			clear(d.pieceData)
+			d.pdMutex.Unlock()
+
+			d.conn.Range(func(addr netip.AddrPort, p *Peer) bool {
+				if p.Bitmap.Count() == d.info.NumPieces {
+					p.cancel()
+				}
+
+				return true
+			})
 		}
 	})
-
-	return nil
 }
 
 func (d *Download) backgroundReqHandle() {
-	ticker := time.NewTicker(time.Second)
+	ticker := time.NewTicker(time.Second / 10)
 	defer ticker.Stop()
 
 	for {
@@ -199,13 +204,11 @@ func (d *Download) scheduleSeq() {
 	var found int64 = 0
 
 	for index := uint32(0); index < d.info.NumPieces; index++ {
-		//for pi, chunks := range d.pieceChunks {
-		//	index := uint32(pi)
 		if d.bm.Get(index) {
 			continue
 		}
 
-		chunks := pieceChunks(d.info, index)
+		chunkLen := pieceChunkLen(d.info, index)
 
 		send := false
 		d.conn.Range(func(addr netip.AddrPort, p *Peer) bool {
@@ -213,8 +216,19 @@ func (d *Download) scheduleSeq() {
 				return true
 			}
 
-			for _, chunk := range chunks {
-				p.Request(chunk)
+			if p.requests.Size() >= int(p.QueueLimit.Load())/2 {
+				return true
+			}
+
+			// TODO: handle reject
+			//for _, chunk := range chunks {
+			//	if _, rejected := p.Rejected.Load(chunk); rejected {
+			//		return true
+			//	}
+			//}
+
+			for i := 0; i < chunkLen; i++ {
+				p.Request(pieceChunk(d.info, index, i))
 			}
 
 			send = true
@@ -225,8 +239,59 @@ func (d *Download) scheduleSeq() {
 			found++
 		}
 
-		if found*d.info.PieceLength >= units.GiB {
+		if found*d.info.PieceLength >= units.GiB*2 {
 			break
 		}
 	}
+}
+
+func pieceChunkLen(info meta.Info, index uint32) int {
+	pieceSize := info.PieceLength
+	if index == info.NumPieces-1 {
+		pieceSize = info.LastPieceSize
+	}
+
+	return as.Int((pieceSize + defaultBlockSize - 1) / defaultBlockSize)
+}
+
+func pieceChunk(info meta.Info, index uint32, chunkIndex int) proto.ChunkRequest {
+	pieceSize := info.PieceLength
+	if index == info.NumPieces-1 {
+		pieceSize = info.LastPieceSize
+	}
+
+	begin := defaultBlockSize * int64(chunkIndex)
+	end := min(begin+defaultBlockSize, pieceSize)
+
+	return proto.ChunkRequest{
+		PieceIndex: index,
+		Begin:      uint32(begin),
+		Length:     as.Uint32(end - begin),
+	}
+}
+
+func pieceChunks(info meta.Info, index uint32) []proto.ChunkRequest {
+	var numPerPiece = (info.PieceLength + defaultBlockSize - 1) / defaultBlockSize
+	var rr = make([]proto.ChunkRequest, 0, numPerPiece)
+
+	pieceStart := int64(index) * info.PieceLength
+
+	pieceLen := min(info.PieceLength, info.TotalLength-pieceStart)
+
+	for n := int64(0); n < numPerPiece; n++ {
+		begin := defaultBlockSize * int64(n)
+		length := uint32(min(pieceLen-begin, defaultBlockSize))
+
+		if length <= 0 {
+			break
+		}
+
+		rr = append(rr, proto.ChunkRequest{
+			PieceIndex: index,
+			Begin:      uint32(begin),
+			Length:     length,
+		})
+	}
+
+	return rr
 }

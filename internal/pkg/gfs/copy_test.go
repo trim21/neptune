@@ -17,7 +17,7 @@ import (
 	"tyr/internal/pkg/gfs"
 )
 
-func TestCopy(t *testing.T) {
+func TestSmartCopy(t *testing.T) {
 	dir := t.TempDir()
 
 	src := filepath.Join(dir, "src.bin")
@@ -34,6 +34,32 @@ func TestCopy(t *testing.T) {
 
 	outFile := lo.Must(os.Open(out))
 	defer outFile.Close()
+
+	same, err := sameReader(outFile, srcFile)
+
+	require.NoError(t, err)
+	require.True(t, same)
+}
+
+func TestCopy(t *testing.T) {
+	dir := t.TempDir()
+
+	src := filepath.Join(dir, "src.bin")
+	out := filepath.Join(dir, "out.bin")
+
+	srcFile := lo.Must(os.Create(src))
+	defer srcFile.Close()
+
+	lo.Must(io.CopyN(srcFile, rand.Reader, units.MiB*202))
+	lo.Must(srcFile.Seek(0, io.SeekStart))
+
+	outFile := lo.Must(os.Create(out))
+	defer outFile.Close()
+
+	require.NoError(t, gfs.Copy(context.Background(), outFile, srcFile, make([]byte, units.MiB*4), nil))
+
+	lo.Must(srcFile.Seek(0, io.SeekStart))
+	lo.Must(outFile.Seek(0, io.SeekStart))
 
 	same, err := sameReader(outFile, srcFile)
 

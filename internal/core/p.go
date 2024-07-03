@@ -1,6 +1,7 @@
 package core
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/docker/go-units"
 	"go.uber.org/atomic"
 
 	"github.com/dchest/uniuri"
@@ -19,6 +21,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/samber/lo"
 
+	"tyr/internal/pkg/as"
 	"tyr/internal/pkg/bm"
 	"tyr/internal/pkg/empty"
 	"tyr/internal/pkg/flowrate"
@@ -84,14 +87,19 @@ func newPeer(
 		ioOut:                flowrate.New(time.Second, time.Second),
 		ioIn:                 flowrate.New(time.Second, time.Second),
 		Address:              addr,
+		QueueLimit:           *atomic.NewUint32(250),
+
 		//ResChan:   make(chan req.Response, 1),
 		requests: xsync.NewMapOf[proto.ChunkRequest, empty.Empty](),
-		rejected: xsync.NewMapOf[proto.ChunkRequest, empty.Empty](),
+		Rejected: xsync.NewMapOf[proto.ChunkRequest, empty.Empty](),
+
+		peerRequests: xsync.NewMapOf[proto.ChunkRequest, empty.Empty](),
+
+		r: bufio.NewReaderSize(conn, units.KiB*18),
+		w: bufio.NewWriterSize(conn, units.KiB*8),
 
 		allowFast: bm.New(d.info.NumPieces),
 	}
-
-	p.QueueLimit.Store(250)
 
 	if ua != "" {
 		p.UserAgent.Store(&ua)
@@ -104,15 +112,20 @@ func newPeer(
 var ErrPeerSendInvalidData = errors.New("addrPort send invalid data")
 
 type Peer struct {
-	log                       zerolog.Logger
-	ctx                       context.Context
-	Conn                      net.Conn
-	d                         *Download
-	lastSend                  atomic.Pointer[time.Time]
-	cancel                    context.CancelFunc
-	Bitmap                    *bm.Bitmap
-	requests                  *xsync.MapOf[proto.ChunkRequest, empty.Empty]
-	rejected                  *xsync.MapOf[proto.ChunkRequest, empty.Empty]
+	log      zerolog.Logger
+	r        io.Reader
+	w        *bufio.Writer
+	ctx      context.Context
+	Conn     net.Conn
+	d        *Download
+	lastSend atomic.Pointer[time.Time]
+	cancel   context.CancelFunc
+	Bitmap   *bm.Bitmap
+	requests *xsync.MapOf[proto.ChunkRequest, empty.Empty]
+
+	peerRequests *xsync.MapOf[proto.ChunkRequest, empty.Empty]
+
+	Rejected                  *xsync.MapOf[proto.ChunkRequest, empty.Empty]
 	allowFast                 *bm.Bitmap
 	ioOut                     *flowrate.Monitor
 	ioIn                      *flowrate.Monitor
@@ -133,10 +146,17 @@ type Peer struct {
 }
 
 func (p *Peer) Response(res proto.ChunkResponse) {
+	_, ok := p.peerRequests.Load(res.Request())
+	if !ok {
+		panic("send response without request")
+	}
+	p.peerRequests.Delete(res.Request())
+	p.ioOut.Update(len(res.Data))
 	err := p.sendEvent(Event{
 		Event: proto.Piece,
 		Res:   res,
 	})
+
 	if err != nil {
 		p.close()
 	}
@@ -256,7 +276,7 @@ func (p *Peer) start(skipHandshake bool) {
 			continue
 		}
 
-		p.log.Trace().Msgf("receive %s event", color.BlueString(event.Event.String()))
+		//p.log.Trace().Msgf("receive %s event", color.BlueString(event.Event.String()))
 
 		switch event.Event {
 		case proto.Bitfield:
@@ -296,6 +316,10 @@ func (p *Peer) start(skipHandshake bool) {
 			p.ioIn.Update(len(event.Res.Data))
 			p.d.ResChan <- event.Res
 		case proto.Request:
+			if !p.validateRequest(event.Req) {
+				p.log.Warn().Msg("failed to validate request, maybe malicious peers")
+				return
+			}
 			//p.reqChan <- event.Req
 
 		case proto.Extended:
@@ -315,7 +339,8 @@ func (p *Peer) start(skipHandshake bool) {
 		case proto.HaveNone:
 			p.Bitmap.Clear()
 		case proto.Reject:
-			p.rejected.Store(event.Req, empty.Empty{})
+			p.log.Debug().Msgf("reject %+v", event.Req)
+			p.Rejected.Store(event.Req, empty.Empty{})
 		case proto.AllowedFast:
 			p.allowFast.Set(event.Index)
 		// currently unsupported
@@ -334,6 +359,11 @@ func (p *Peer) start(skipHandshake bool) {
 						return
 					}
 				}
+
+				// peer and us are both seeding, disconnect
+				if p.Bitmap.Count() == p.d.info.NumPieces && p.d.GetState() == Uploading {
+					p.cancel()
+				}
 			}
 		}()
 	}
@@ -349,39 +379,44 @@ func (p *Peer) sendEvent(e Event) error {
 	p.lastSend.Store(lo.ToPtr(time.Now()))
 
 	if e.keepAlive {
-		return proto.SendKeepAlive(p.Conn)
+		err := proto.SendKeepAlive(p.w)
+		if err != nil {
+			return err
+		}
+
+		return p.w.Flush()
 	}
 
 	switch e.Event {
 	case proto.Choke:
-		return proto.SendChoke(p.Conn)
+		return proto.SendChoke(p.w)
 	case proto.Unchoke:
-		return proto.SendUnchoke(p.Conn)
+		return proto.SendUnchoke(p.w)
 	case proto.Interested:
-		return proto.SendInterested(p.Conn)
+		return proto.SendInterested(p.w)
 	case proto.NotInterested:
-		return proto.SendNotInterested(p.Conn)
+		return proto.SendNotInterested(p.w)
 	case proto.Have:
-		return proto.SendHave(p.Conn, e.Index)
+		return proto.SendHave(p.w, e.Index)
 	case proto.Bitfield:
-		return proto.SendBitfield(p.Conn, e.Bitmap)
+		return proto.SendBitfield(p.w, e.Bitmap)
 	case proto.Request:
-		return proto.SendRequest(p.Conn, e.Req)
+		return proto.SendRequest(p.w, e.Req)
 	case proto.Piece:
 		p.ioOut.Update(len(e.Res.Data))
-		return proto.SendPiece(p.Conn, e.Res)
+		return proto.SendPiece(p.w, e.Res)
 	case proto.Cancel:
-		return proto.SendCancel(p.Conn, e.Req)
+		return proto.SendCancel(p.w, e.Req)
 	case proto.Port:
-		return proto.SendPort(p.Conn, e.Port)
+		return proto.SendPort(p.w, e.Port)
 	case proto.Suggest:
-		return proto.SendSuggest(p.Conn, e.Index)
+		return proto.SendSuggest(p.w, e.Index)
 	case proto.HaveAll, proto.HaveNone:
-		return proto.SendNoPayload(p.Conn, e.Event)
+		return proto.SendNoPayload(p.w, e.Event)
 	case proto.AllowedFast:
-		return proto.SendIndexOnly(p.Conn, e.Event, e.Index)
+		return proto.SendIndexOnly(p.w, e.Event, e.Index)
 	case proto.Reject:
-		return proto.SendReject(p.Conn, e.Req)
+		return proto.SendReject(p.w, e.Req)
 	case proto.Extended, proto.BitCometExtension:
 		panic("unexpected event")
 	}
@@ -389,22 +424,38 @@ func (p *Peer) sendEvent(e Event) error {
 	return nil
 }
 
-func (p *Peer) resIsValid(res proto.ChunkResponse) bool {
-	r := proto.ChunkRequest{
-		PieceIndex: res.PieceIndex,
-		Begin:      res.Begin,
-		Length:     uint32(len(res.Data)),
+func (p *Peer) validateRequest(req proto.ChunkRequest) bool {
+	if req.PieceIndex >= p.d.info.NumPieces {
+		return false
 	}
 
-	if _, ok := p.requests.LoadAndDelete(r); !ok {
+	expectedLen := as.Uint32(p.d.pieceLength(req.PieceIndex))
+
+	if req.Begin+req.Length > expectedLen {
 		return false
 	}
 
 	return true
 }
 
+func (p *Peer) resIsValid(res proto.ChunkResponse) bool {
+	r := proto.ChunkRequest{
+		PieceIndex: res.PieceIndex,
+		Begin:      res.Begin,
+		Length:     as.Uint32(len(res.Data)),
+	}
+
+	_, ok := p.requests.LoadAndDelete(r)
+
+	return ok
+}
+
 func (p *Peer) decodePiece(size uint32) (Event, error) {
-	payload, err := proto.ReadPiecePayload(p.Conn, size)
+	if size >= defaultBlockSize*2 {
+		return Event{}, ErrPeerSendInvalidData
+	}
+
+	payload, err := proto.ReadPiecePayload(p.r, size)
 	if err != nil {
 		return Event{}, err
 	}

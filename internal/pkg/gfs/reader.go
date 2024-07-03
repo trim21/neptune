@@ -1,10 +1,8 @@
 package gfs
 
 import (
-	"bytes"
 	"context"
 	"io"
-	"strings"
 )
 
 type contextReader struct {
@@ -23,12 +21,4 @@ func (r *contextReader) Read(p []byte) (int, error) {
 	default:
 		return r.r.Read(p)
 	}
-}
-
-func _() {
-	ctx := context.Background()
-	r := strings.NewReader("hello world")
-
-	var buf bytes.Buffer
-	_, _ = io.Copy(&buf, NewReader(ctx, r))
 }

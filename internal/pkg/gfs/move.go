@@ -4,8 +4,12 @@ import (
 	"context"
 	"errors"
 	"os"
+	"slices"
+
+	"github.com/docker/go-units"
 
 	"tyr/internal/pkg/flowrate"
+	"tyr/internal/pkg/mempool"
 )
 
 const invalidCrossDevice = "invalid cross-device link"
@@ -45,5 +49,10 @@ func SmartCopy(ctx context.Context, src string, dest string, monitor *flowrate.M
 	}
 	defer destFile.Close()
 
-	return fileCopy(ctx, destFile, srcFile, nil, monitor)
+	buf := mempool.Get()
+	defer mempool.Put(buf)
+
+	buf.B = slices.Grow(buf.B, units.MiB)
+
+	return Copy(ctx, destFile, srcFile, buf.B, monitor)
 }

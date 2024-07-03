@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math"
 	"net/netip"
-	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -57,8 +56,6 @@ type Download struct {
 	bm                *bm.Bitmap
 	pieceData         map[uint32][]*proto.ChunkResponse
 	peers             *heap.Heap[peerWithPriority]
-	fileOpenMutex     *sync.Cond
-	fileOpenCache     map[int]*fileOpenCache
 	basePath          string
 	key               string
 	downloadDir       string
@@ -88,10 +85,11 @@ type Download struct {
 	private           bool
 }
 
-type fileOpenCache struct {
-	file     *os.File
-	index    int
-	borrowed bool
+func (d *Download) GetState() State {
+	d.m.RLock()
+	s := d.state
+	d.m.RUnlock()
+	return s
 }
 
 var ErrTorrentNotFound = errors.New("torrent not found")
@@ -147,10 +145,6 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 		bm: bm.New(info.NumPieces),
 
 		downloadDir: basePath,
-
-		fileOpenMutex: sync.NewCond(&sync.Mutex{}),
-
-		fileOpenCache: make(map[int]*fileOpenCache),
 	}
 
 	d.cond = sync.NewCond(&d.m)
@@ -158,10 +152,24 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 	if global.Dev {
 		d.seq.Store(true)
 		d.peersMutex.Lock()
-		d.peers.Push(peerWithPriority{
-			addrPort: netip.MustParseAddrPort("192.168.1.3:50025"),
-			priority: math.MaxUint32,
-		})
+		if global.IsWindows {
+			d.peers.Push(peerWithPriority{
+				addrPort: netip.MustParseAddrPort("192.168.1.3:6885"),
+				priority: math.MaxUint32,
+			})
+		}
+
+		if global.IsLinux {
+			d.log.Info().Msgf("add debug peer %s", "127.0.0.1:6885")
+			d.peers.Push(peerWithPriority{
+				addrPort: netip.MustParseAddrPort("127.0.0.1:6885"),
+				priority: math.MaxUint32,
+			})
+		}
+		//d.peers.Push(peerWithPriority{
+		//	addrPort: netip.MustParseAddrPort("192.168.1.3:51413"),
+		//	priority: math.MaxUint32,
+		//})
 		d.peersMutex.Unlock()
 		//	piece := lo.Must(lo.Last(d.pieceChunks))
 		//	assert.LessOrEqual(piece[len(piece)-1].Length, uint32(defaultBlockSize))

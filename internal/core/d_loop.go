@@ -164,7 +164,7 @@ func (d *Download) backgroundResHandler() {
 	}
 }
 
-func (d *Download) openFileWithCache(fileIndex int) (*filepool.File, error) {
+func (d *Download) openFile(fileIndex int) (*filepool.File, error) {
 	p := filepath.Join(d.basePath, d.info.Files[fileIndex].Path)
 	err := os.MkdirAll(filepath.Dir(p), os.ModePerm)
 	if err != nil {
@@ -180,7 +180,7 @@ func (d *Download) readPiece(index uint32) ([]byte, error) {
 
 	var offset int64 = 0
 	for _, chunk := range pieces.fileChunks {
-		f, err := d.openFileWithCache(chunk.fileIndex)
+		f, err := d.openFile(chunk.fileIndex)
 		if err != nil {
 			return nil, err
 		}

@@ -61,7 +61,7 @@ tasks:
           TAG: assert
           OUT_PATH: dist/dev/tmp.exe
           EXTRA_FLAGS: -race
-      - cp dist/dev/tmp.exe dist/dev/server.exe
+      - cp -p dist/dev/tmp.exe dist/dev/server.exe
 
   dev:
     deps:
@@ -93,6 +93,6 @@ tasks:
     cmds:
       - go tool pprof -http=:8001 http://127.0.0.1:8002/debug/pprof/block
 
-  pprof:heap:
+  heap:
     cmds:
       - go tool pprof -http=:8001 http://127.0.0.1:8002/debug/pprof/heap
