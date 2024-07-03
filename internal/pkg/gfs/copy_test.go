@@ -9,11 +9,13 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/docker/go-units"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 
+	"tyr/internal/pkg/flowrate"
 	"tyr/internal/pkg/gfs"
 )
 
@@ -28,7 +30,7 @@ func TestSmartCopy(t *testing.T) {
 
 	lo.Must(io.CopyN(srcFile, rand.Reader, units.MiB*200))
 
-	require.NoError(t, gfs.SmartCopy(context.Background(), src, out, nil))
+	require.NoError(t, gfs.SmartCopy(context.Background(), src, out, flowrate.New(time.Second, time.Second)))
 
 	lo.Must(srcFile.Seek(0, io.SeekStart))
 
@@ -56,7 +58,7 @@ func TestCopy(t *testing.T) {
 	outFile := lo.Must(os.Create(out))
 	defer outFile.Close()
 
-	require.NoError(t, gfs.Copy(context.Background(), outFile, srcFile, make([]byte, units.MiB*4), nil))
+	require.NoError(t, gfs.Copy(context.Background(), outFile, srcFile, make([]byte, units.MiB*4), flowrate.New(time.Second, time.Second)))
 
 	lo.Must(srcFile.Seek(0, io.SeekStart))
 	lo.Must(outFile.Seek(0, io.SeekStart))
