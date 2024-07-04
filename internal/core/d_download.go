@@ -142,19 +142,23 @@ func (d *Download) writePieceToDisk(pieceIndex uint32, chunks []*proto.ChunkResp
 }
 
 func (d *Download) backgroundReqHandle() {
-	ticker := time.NewTicker(time.Second / 10)
-	defer ticker.Stop()
-
 	for {
 		select {
 		case <-d.ctx.Done():
 			return
-		case <-ticker.C:
-			if d.ctx.Err() != nil {
-				return
-			}
+		default:
+			time.Sleep(time.Second / 10)
+
 			d.m.Lock()
-			if d.state == Uploading {
+			if d.state != Downloading {
+				if d.state == Uploading {
+					d.conn.Range(func(addr netip.AddrPort, p *Peer) bool {
+						if p.Bitmap.Count() == d.info.NumPieces {
+							p.cancel()
+						}
+						return true
+					})
+				}
 				d.cond.Wait()
 			}
 			d.m.Unlock()

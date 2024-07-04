@@ -17,7 +17,7 @@ package null
 import (
 	"encoding/json"
 
-	"github.com/zeebo/bencode"
+	"github.com/anacrolix/torrent/bencode"
 )
 
 var _ json.Unmarshaler = (*Null[any])(nil)
@@ -84,5 +84,5 @@ func (t *Null[T]) UnmarshalJSON(data []byte) error {
 
 func (t *Null[T]) UnmarshalBencode(data []byte) error {
 	t.Set = true
-	return bencode.DecodeBytes(data, &t.Value) //nolint:wrapcheck
+	return bencode.Unmarshal(data, &t.Value) //nolint:wrapcheck
 }

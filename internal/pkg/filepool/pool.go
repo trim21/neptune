@@ -1,24 +1,41 @@
 package filepool
 
 import (
-	"fmt"
 	"os"
 	"time"
 
 	"github.com/hashicorp/golang-lru/v2/expirable"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/rs/zerolog/log"
 )
 
-func onEvict(key string, value *File) {
-	_ = value.Close()
+func init() {
+	prometheus.MustRegister(prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+		Name: "tyr_file_pool_size",
+	}, func() float64 {
+		return float64(pool.Len())
+	}))
 }
 
-var pool = expirable.NewLRU[string, *File](128, onEvict, time.Minute*10)
+func onEvict(key cacheKey, value *File) {
+	log.Debug().Str("path", key.path).Msg("close file")
+	_ = value.File.Close()
+}
+
+var pool = expirable.NewLRU[cacheKey, *File](128, onEvict, time.Minute*1)
+
+type cacheKey struct {
+	path string
+	flag int
+	perm os.FileMode
+	ttl  time.Duration
+}
 
 // Open creates and returns a file item with given file path, flag and opening permission.
 // It automatically creates an associated file pointer pool internally when it's called first time.
 // It retrieves a file item from the file pointer pool after then.
 func Open(path string, flag int, perm os.FileMode, ttl time.Duration) (file *File, err error) {
-	key := fmt.Sprintf("%s&%d&%d&%d", path, flag, ttl, perm)
+	key := cacheKey{path: path, flag: flag, perm: perm, ttl: ttl}
 	item, ok := pool.Get(key)
 	if ok {
 		return item, nil
@@ -31,9 +48,6 @@ func Open(path string, flag int, perm os.FileMode, ttl time.Duration) (file *Fil
 
 	return &File{
 		File: f,
-		flag: flag,
-		perm: perm,
-		path: path,
 		key:  key,
 	}, nil
 }
@@ -41,14 +55,7 @@ func Open(path string, flag int, perm os.FileMode, ttl time.Duration) (file *Fil
 // File is an item in the pool.
 type File struct {
 	File *os.File
-	key  string
-	path string      // Absolute path of the file.
-	perm os.FileMode // Permission for opening file.
-	flag int         // Flash for opening file.
-}
-
-func (f *File) Close() error {
-	return f.File.Close()
+	key  cacheKey
 }
 
 func (f *File) Release() {

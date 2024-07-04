@@ -2,7 +2,6 @@ package core
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 
@@ -85,8 +84,6 @@ func pruneEmptyDirectories(osDirname string) error {
 			return nil
 		},
 		PostChildrenCallback: func(osPathname string, _ *godirwalk.Dirent) error {
-			fmt.Println(osPathname)
-
 			s, err := godirwalk.NewScanner(osPathname)
 			if err != nil {
 				return err

@@ -2,7 +2,6 @@ package gfs
 
 import (
 	"io"
-	"slices"
 
 	"github.com/docker/go-units"
 
@@ -10,10 +9,8 @@ import (
 )
 
 func CopyReaderAt(dst io.Writer, ra io.ReaderAt, offset int64, size int64) (int64, error) {
-	buf := mempool.Get()
+	buf := mempool.GetWithCap(units.MiB * 4)
 	defer mempool.Put(buf)
-
-	buf.B = slices.Grow(buf.B, units.MiB*4)
 
 	if size >= units.MiB*4 {
 		return io.CopyBuffer(dst, io.NewSectionReader(ra, offset, size), buf.B[:units.MiB*4])

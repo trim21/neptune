@@ -1,21 +1,17 @@
 package mempool
 
 import (
-	"github.com/colega/zeropool"
-	"github.com/docker/go-units"
 	"github.com/valyala/bytebufferpool"
 )
 
-var pool = zeropool.New(func() []byte {
-	return make([]byte, units.MiB)
-})
+func GetWithCap(size int) *bytebufferpool.ByteBuffer {
+	buf := bytebufferpool.Get()
 
-func GetSlice() []byte {
-	return pool.Get()
-}
+	if cap(buf.B) < size {
+		buf.B = make([]byte, 0, size)
+	}
 
-func PutSlice(slice []byte) {
-	pool.Put(slice[:0])
+	return buf
 }
 
 func Get() *bytebufferpool.ByteBuffer {

@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"tyr/internal/proto"
 )
@@ -12,11 +12,11 @@ import (
 func TestSendPiece(t *testing.T) {
 	var b bytes.Buffer
 
-	assert.NoError(t, proto.SendPiece(&b, proto.ChunkResponse{
+	require.NoError(t, proto.SendPiece(&b, proto.ChunkResponse{
 		Data:       []byte("hello world"),
 		Begin:      20,
 		PieceIndex: 5,
 	}))
 
-	assert.Equal(t, "\x00\x00\x00\x14\x07\x00\x00\x00\x05\x00\x00\x00\x14hello world", b.String())
+	require.Equal(t, "\x00\x00\x00\x14\x07\x00\x00\x00\x05\x00\x00\x00\x14hello world", b.String())
 }

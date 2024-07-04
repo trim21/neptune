@@ -12,7 +12,6 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/anacrolix/torrent/metainfo"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/samber/lo"
@@ -23,6 +22,7 @@ import (
 	"tyr/internal/config"
 	"tyr/internal/core"
 	"tyr/internal/meta"
+	"tyr/internal/metainfo"
 	"tyr/internal/pkg/empty"
 	"tyr/internal/pkg/global"
 	"tyr/internal/pkg/random"
@@ -126,7 +126,7 @@ func main() {
 
 	if global.Dev {
 		if global.IsWindows {
-			lo.Must0(os.RemoveAll("D:\\downloads\\2"))
+			//lo.Must0(os.RemoveAll("D:\\downloads\\2"))
 			m := lo.Must(metainfo.LoadFromFile(`C:\Users\Trim21\Downloads\2.torrent`))
 			lo.Must0(app.AddTorrent(m, lo.Must(meta.FromTorrent(*m)), "D:\\Downloads\\2", nil))
 		}
@@ -183,7 +183,7 @@ func parseLogLevel(s string) zerolog.Level {
 		return zerolog.ErrorLevel
 	}
 
-	errExit(fmt.Sprintf("unknown log level %q, only trace/debug/info/warn/error is allowed\n", s))
+	errExit(fmt.Sprintf("unknown log level %q, only trace/debug/info/warn/error is allowed", s))
 
 	return zerolog.NoLevel
 }

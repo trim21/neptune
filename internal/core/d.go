@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/anacrolix/torrent/metainfo"
 	"github.com/anacrolix/torrent/types/infohash"
 	"github.com/dustin/go-humanize"
 	"github.com/puzpuzpuz/xsync/v3"
@@ -21,6 +20,7 @@ import (
 	"go.uber.org/atomic"
 
 	"tyr/internal/meta"
+	"tyr/internal/metainfo"
 	"tyr/internal/pkg/bm"
 	"tyr/internal/pkg/flowrate"
 	"tyr/internal/pkg/global"
@@ -215,9 +215,6 @@ func (d *Download) Display() string {
 			for i := uint32(0); i < d.info.NumPieces; i++ {
 				if !d.bm.Get(i) {
 					fmt.Println("missing", i)
-					d.pdMutex.RLock()
-					fmt.Println(d.pieceData[i])
-					d.pdMutex.RUnlock()
 				}
 			}
 		}

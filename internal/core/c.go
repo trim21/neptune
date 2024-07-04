@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/anacrolix/torrent/metainfo"
 	"github.com/anacrolix/torrent/mse"
 	"github.com/go-resty/resty/v2"
 	"github.com/jellydator/ttlcache/v3"
@@ -23,6 +22,7 @@ import (
 	"tyr/internal/bep40"
 	"tyr/internal/config"
 	"tyr/internal/meta"
+	"tyr/internal/metainfo"
 	imse "tyr/internal/mse"
 	"tyr/internal/pkg/global"
 	"tyr/internal/pkg/global/tasks"

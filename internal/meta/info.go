@@ -1,13 +1,13 @@
 package meta
 
 import (
+	"crypto/sha1"
 	"errors"
 	"path/filepath"
 
-	"github.com/anacrolix/torrent/bencode"
-	"github.com/anacrolix/torrent/metainfo"
 	"github.com/samber/lo"
 
+	"tyr/internal/metainfo"
 	"tyr/internal/pkg/null"
 )
 
@@ -31,29 +31,20 @@ type Info struct {
 var ErrNotV1Torrent = errors.New("meta info has no v1 info")
 var ErrInvalidLength = errors.New("meta info has no v1 info")
 
-func ParseV1(b []byte) (Info, error) {
-	var m metainfo.MetaInfo
-	err := bencode.Unmarshal(b, &m)
-	if err != nil {
-		return Info{}, err
-	}
-
-	return FromTorrent(m)
-}
-
 func FromTorrent(m metainfo.MetaInfo) (Info, error) {
 	info, err := m.UnmarshalInfo()
 	if err != nil {
 		return Info{}, err
 	}
 
-	if !info.HasV1() {
-		return Info{}, ErrNotV1Torrent
-	}
+	// TODO: validate here
+	//if !info.HasV1() {
+	//	return Info{}, ErrNotV1Torrent
+	//}
 
 	var pieces = make([]Hash, info.NumPieces())
 	for i := 0; i < info.NumPieces(); i++ {
-		pieces[i] = Hash(info.Piece(i).V1Hash().Unwrap())
+		pieces[i] = Hash(info.Pieces[i : i+sha1.Size])
 	}
 
 	var files []File

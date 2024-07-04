@@ -6,7 +6,6 @@ import (
 	"math"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"tyr/internal/pkg/as"
@@ -23,7 +22,7 @@ func TestUint32(t *testing.T) {
 	require.Equal(t, uint32(5), as.Uint32(uint64(5)))
 	require.Equal(t, uint32(5), as.Uint32(uint(5)))
 
-	assert.Panics(t, func() {
+	require.Panics(t, func() {
 		as.Uint32(math.MaxUint32 + 1)
 	})
 }
@@ -39,7 +38,7 @@ func TestUint64(t *testing.T) {
 	require.Equal(t, uint64(5), as.Uint64(uint32(5)))
 	require.Equal(t, uint64(5), as.Uint64(uint(5)))
 
-	assert.Panics(t, func() {
+	require.Panics(t, func() {
 		as.Uint64(-1)
 	})
 }

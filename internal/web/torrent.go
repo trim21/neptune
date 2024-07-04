@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/anacrolix/torrent/metainfo"
 	"github.com/docker/go-units"
 	"github.com/dustin/go-humanize"
 	"github.com/swaggest/usecase"
@@ -15,6 +14,7 @@ import (
 
 	"tyr/internal/core"
 	"tyr/internal/meta"
+	"tyr/internal/metainfo"
 	"tyr/internal/web/jsonrpc"
 )
 

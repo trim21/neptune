@@ -84,15 +84,15 @@ tasks:
     dotenv:
       - .env
     cmds:
-      - go build -race -o dist/dev/tmp.exe
+      - go build -o dist/dev/tmp.exe
       #
       - cmd: |
-          until rm dist/dev/server.exe && cp dist/dev/tmp.exe dist/dev/server.exe
+          until rm dist/dev/server.exe -rf && cp dist/dev/tmp.exe dist/dev/tyr.exe
           do
             echo "can't copy, try again"
             sleep 1
           done
-      - dist/dev/server.exe --debug --web 127.0.0.1:8002 --config-file ./config.toml
+      - dist/dev/tyr.exe --debug --web 127.0.0.1:8002 --config-file ./config.toml
 
   dev:release:
     deps:
@@ -112,6 +112,12 @@ tasks:
   heap:
     cmds:
       - go tool pprof -http=:8001 http://127.0.0.1:8002/debug/pprof/heap
+
+  heap-compare:
+    cmds:
+      - curl -s http://127.0.0.1:8002/debug/pprof/heap > tmp/base.heap
+      - sleep 5
+      - go tool pprof -http=:8001 --base tmp/base.heap http://127.0.0.1:8002/debug/pprof/heap
 
   update-swagger:
     cmd: cp ./node_modules/swagger-ui-dist/  internal/web/frontend/docs/ -r

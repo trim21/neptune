@@ -11,14 +11,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/anacrolix/torrent/metainfo"
+	"github.com/anacrolix/torrent/bencode"
 	"github.com/go-resty/resty/v2"
 	"github.com/rs/zerolog/log"
 	"github.com/samber/lo"
 	"github.com/trim21/errgo"
 	"github.com/valyala/bytebufferpool"
-	"github.com/zeebo/bencode"
 
+	"tyr/internal/metainfo"
 	"tyr/internal/pkg/null"
 )
 
@@ -122,7 +122,7 @@ type nonCompactAnnounceResponse struct {
 
 func parseNonCompatResponse(data []byte) []netip.AddrPort {
 	var s []nonCompactAnnounceResponse
-	if err := bencode.DecodeBytes(data, &s); err != nil {
+	if err := bencode.Unmarshal(data, &s); err != nil {
 		return nil
 	}
 
@@ -145,12 +145,12 @@ type AnnounceResult struct {
 }
 
 type trackerAnnounceResponse struct {
-	FailureReason null.Null[string]             `bencode:"failure reason"`
-	Peers         null.Null[bencode.RawMessage] `bencode:"peers"`
-	Peers6        null.Null[bencode.RawMessage] `bencode:"peers6"`
-	Interval      null.Null[int]                `bencode:"interval"`
-	Complete      null.Null[int]                `bencode:"complete"`
-	Incomplete    null.Null[int]                `bencode:"incomplete"`
+	FailureReason null.Null[string]        `bencode:"failure reason"`
+	Peers         null.Null[bencode.Bytes] `bencode:"peers"`
+	Peers6        null.Null[bencode.Bytes] `bencode:"peers6"`
+	Interval      null.Null[int]           `bencode:"interval"`
+	Complete      null.Null[int]           `bencode:"complete"`
+	Incomplete    null.Null[int]           `bencode:"incomplete"`
 }
 
 type Tracker struct {
@@ -190,14 +190,14 @@ func (t *Tracker) announce(d *Download, event string) (AnnounceResult, error) {
 	}
 
 	var r trackerAnnounceResponse
-	err = bencode.DecodeBytes(res.Body(), &r)
+	err = bencode.Unmarshal(res.Body(), &r)
 	if err != nil {
 		log.Debug().Err(err).Str("res", res.String()).Msg("failed to decode tracker response")
 		return AnnounceResult{}, errgo.Wrap(err, "failed to parse torrent announce response")
 	}
 
 	var m map[string]any
-	fmt.Println(bencode.DecodeBytes(res.Body(), &m))
+	fmt.Println(bencode.Unmarshal(res.Body(), &m))
 
 	//fmt.Println("t" res.String())
 
@@ -226,7 +226,7 @@ func (t *Tracker) announce(d *Download, event string) (AnnounceResult, error) {
 			// compact response
 			var b = bytebufferpool.Get()
 			defer bytebufferpool.Put(b)
-			err = bencode.DecodeBytes(r.Peers.Value, &b.B)
+			err = bencode.Unmarshal(r.Peers.Value, &b.B)
 			if err != nil {
 				return result, errgo.Wrap(err, "failed to parse binary format 'peers'")
 			}
@@ -257,7 +257,7 @@ func (t *Tracker) announce(d *Download, event string) (AnnounceResult, error) {
 			var b = bytebufferpool.Get()
 			defer bytebufferpool.Put(b)
 
-			err = bencode.DecodeBytes(r.Peers6.Value, &b.B)
+			err = bencode.Unmarshal(r.Peers6.Value, &b.B)
 			if err != nil {
 				return result, errgo.Wrap(err, "failed to parse binary format 'peers6'")
 			}

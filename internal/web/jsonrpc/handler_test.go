@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/go-playground/validator/v10"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swaggest/usecase"
 
@@ -41,10 +40,10 @@ func TestHandler_Add(t *testing.T) {
 
 	u := usecase.NewIOI(new(inp), new(outp), func(ctx context.Context, input, output any) error {
 		in, ok := input.(*inp)
-		assert.True(t, ok)
+		require.True(t, ok)
 
 		out, ok := output.(*outp)
-		assert.True(t, ok)
+		require.True(t, ok)
 
 		out.A = in.A
 		out.B = in.B
