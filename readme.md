@@ -1,6 +1,6 @@
-# Tyr
-[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Ftrim21%2Ftyr.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2Ftrim21%2Ftyr?ref=badge_shield)
+# TYR
 
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Ftrim21%2Ftyr.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2Ftrim21%2Ftyr?ref=badge_shield)
 
 A BitTorrent client
 
@@ -21,6 +21,8 @@ changed.
 
 `task build` build a client in release mode.
 
-
 ## License
+
+Licensed under GPL v3 only.
+
 [![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Ftrim21%2Ftyr.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2Ftrim21%2Ftyr?ref=badge_large)
