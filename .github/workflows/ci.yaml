@@ -59,7 +59,7 @@ jobs:
 
       - run: >-
           gotestsum --format=pkgname --format-hide-empty-pkg
-          -- -race -tags=assert -count=1 -coverprofile=coverage.txt -covermode=atomic ./...
+          -- -race -count=1 -coverprofile=coverage.txt -covermode=atomic ./...
         shell: bash
 
       - name: Upload coverage to Codecov
@@ -80,5 +80,5 @@ jobs:
       - run: go build -tags=release -o tmp/try.exe
       - run: ./tmp/try.exe --help
 
-      - run: go build -tags=assert -o tmp/try.exe
+      - run: go build -o tmp/try.exe
       - run: ./tmp/try.exe --help

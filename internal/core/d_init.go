@@ -10,10 +10,10 @@ import (
 
 	"github.com/docker/go-units"
 	"github.com/juju/ratelimit"
-	"github.com/negrel/assert"
 	"github.com/trim21/errgo"
 
 	"tyr/internal/meta"
+	"tyr/internal/pkg/assert"
 	"tyr/internal/pkg/fallocate"
 	"tyr/internal/pkg/gfs"
 	"tyr/internal/pkg/global"
@@ -138,7 +138,7 @@ func buildPieceInfos(info meta.Info) []pieceFileChunks {
 }
 
 func getPieceInfo(i uint32, info meta.Info) pieceFileChunks {
-	assert.False(info.Pieces[i] == [20]byte{})
+	assert.NotEqual(info.Pieces[i], [20]byte{})
 
 	return pieceFileChunks{
 		fileChunks: pieceFileInfos(i, info),

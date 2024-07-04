@@ -6,9 +6,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/negrel/assert"
-
 	"tyr/internal/meta"
+	"tyr/internal/pkg/assert"
 	"tyr/internal/pkg/ro"
 )
 

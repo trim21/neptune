@@ -84,9 +84,14 @@ tasks:
     dotenv:
       - .env
     cmds:
-      - go build -race -tags assert -o dist/dev/tmp.exe
-      - sleep 1
-      - cp dist/dev/tmp.exe dist/dev/server.exe
+      - go build -race -o dist/dev/tmp.exe
+      #
+      - cmd: |
+          until rm dist/dev/server.exe && cp dist/dev/tmp.exe dist/dev/server.exe
+          do
+            echo "can't copy, try again"
+            sleep 1
+          done
       - dist/dev/server.exe --debug --web 127.0.0.1:8002 --config-file ./config.toml
 
   dev:release:

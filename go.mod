@@ -20,7 +20,6 @@ require (
 	github.com/jellydator/ttlcache/v3 v3.2.0
 	github.com/juju/ratelimit v1.0.2
 	github.com/karrick/godirwalk v1.17.0
-	github.com/negrel/assert v0.2.0
 	github.com/panjf2000/ants/v2 v2.10.0
 	github.com/prometheus/client_golang v1.19.1
 	github.com/puzpuzpuz/xsync/v3 v3.2.0

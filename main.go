@@ -30,12 +30,6 @@ import (
 	"tyr/internal/web"
 )
 
-func init() {
-	if runtime.GOOS == "linux" {
-		_, _ = maxprocs.Set()
-	}
-}
-
 func main() {
 	pflag.String("session-path", "", "client session path (default ~/.ve/)")
 	pflag.String("config-file", "", "path to config file (default {session-path}/config.toml)")
@@ -109,6 +103,14 @@ func main() {
 	if webToken == "" {
 		webToken = random.UrlSafeStr(32)
 		_, _ = fmt.Fprintln(os.Stderr, "no web secret token, generating new token:", strconv.Quote(webToken))
+	}
+
+	if global.IsLinux {
+		if _, err := maxprocs.Set(); err != nil {
+			_, _ = fmt.Fprintln(os.Stderr, "Failed to set GOMAXPROCS automatically.")
+			_, _ = fmt.Fprintln(os.Stderr, "Consider to set env manually if you are running with cgroup.")
+			_, _ = fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		}
 	}
 
 	app := core.New(cfg, sessionPath)

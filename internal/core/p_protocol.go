@@ -9,9 +9,9 @@ import (
 	"github.com/RoaringBitmap/roaring/v2"
 	"github.com/anacrolix/torrent/bencode"
 	"github.com/docker/go-units"
-	"github.com/negrel/assert"
 	"github.com/trim21/errgo"
 
+	"tyr/internal/pkg/assert"
 	"tyr/internal/pkg/bm"
 	"tyr/internal/pkg/null"
 	"tyr/internal/proto"
