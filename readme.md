@@ -1,7 +1,5 @@
 # TYR
 
-[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Ftrim21%2Ftyr.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2Ftrim21%2Ftyr?ref=badge_shield)
-
 A BitTorrent client
 
 ## development
@@ -23,6 +21,4 @@ changed.
 
 ## License
 
-Licensed under GPL v3 only.
-
-[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Ftrim21%2Ftyr.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2Ftrim21%2Ftyr?ref=badge_large)
+Licensed under GPL v3.
