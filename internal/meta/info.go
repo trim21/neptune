@@ -18,12 +18,12 @@ type File struct {
 
 type Info struct {
 	Name          string
-	Pieces        []Hash
+	Pieces        []metainfo.Hash
 	Files         []File
 	TotalLength   int64
 	PieceLength   int64
 	LastPieceSize int64
-	Hash          Hash
+	Hash          metainfo.Hash
 	NumPieces     uint32
 	Private       bool
 }
@@ -42,9 +42,9 @@ func FromTorrent(m metainfo.MetaInfo) (Info, error) {
 	//	return Info{}, ErrNotV1Torrent
 	//}
 
-	var pieces = make([]Hash, info.NumPieces())
+	var pieces = make([]metainfo.Hash, info.NumPieces())
 	for i := 0; i < info.NumPieces(); i++ {
-		pieces[i] = Hash(info.Pieces[i : i+sha1.Size])
+		pieces[i] = metainfo.Hash(info.Pieces[i : i+sha1.Size])
 	}
 
 	var files []File
@@ -65,7 +65,7 @@ func FromTorrent(m metainfo.MetaInfo) (Info, error) {
 	}
 
 	i := Info{
-		Hash:          Hash(m.HashInfoBytes()),
+		Hash:          m.HashInfoBytes(),
 		Private:       null.NewFromPtr(info.Private).Value,
 		Name:          info.BestName(),
 		TotalLength:   info.TotalLength(),

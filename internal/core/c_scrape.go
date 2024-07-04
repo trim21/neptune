@@ -6,7 +6,7 @@ import (
 	"github.com/anacrolix/torrent/bencode"
 	"github.com/samber/lo"
 
-	"tyr/internal/meta"
+	"tyr/internal/metainfo"
 	"tyr/internal/pkg/null"
 )
 
@@ -29,7 +29,7 @@ type scrapeResponseFile struct {
 func (c *Client) scrape() {
 	r := c.http.R()
 
-	var m = make(map[string][]meta.Hash, 20)
+	var m = make(map[string][]metainfo.Hash, 20)
 	//defer p.Put(m)
 	//clear(m)
 

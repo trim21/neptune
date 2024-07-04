@@ -66,8 +66,8 @@ func New(cfg config.Config, sessionPath string) *Client {
 		cancel:      cancel,
 		ch:          ttlcache.New[netip.AddrPort, connHistory](),
 		sem:         semaphore.NewWeighted(int64(cfg.App.GlobalConnectionLimit)),
-		checkQueue:  make([]meta.Hash, 0, 3),
-		downloadMap: make(map[meta.Hash]*Download),
+		checkQueue:  make([]metainfo.Hash, 0, 3),
+		downloadMap: make(map[metainfo.Hash]*Download),
 		connChan:    make(chan incomingConn, 1),
 		http:        resty.NewWithClient(hc).SetHeader("User-Agent", global.UserAgent).SetRedirectPolicy(resty.NoRedirectPolicy()),
 		mseDisabled: mseDisabled,
@@ -97,7 +97,7 @@ type Client struct {
 	ctx         context.Context
 	http        *resty.Client
 	cancel      context.CancelFunc
-	downloadMap map[meta.Hash]*Download
+	downloadMap map[metainfo.Hash]*Download
 	mseKeys     mse.SecretKeyIter
 	connChan    chan incomingConn
 	sem         *semaphore.Weighted
@@ -107,9 +107,9 @@ type Client struct {
 	v4Addr      atomic.Pointer[netip.Addr]
 	v6Addr      atomic.Pointer[netip.Addr]
 	sessionPath string
-	infoHashes  []meta.Hash
+	infoHashes  []metainfo.Hash
 	downloads   []*Download
-	checkQueue  []meta.Hash
+	checkQueue  []metainfo.Hash
 
 	// a random key for addrPort priority
 	randKey []byte
@@ -153,7 +153,7 @@ type DownloadInfo struct {
 	Tags []string
 }
 
-func (c *Client) GetTorrent(h meta.Hash) (DownloadInfo, error) {
+func (c *Client) GetTorrent(h metainfo.Hash) (DownloadInfo, error) {
 	c.m.RLock()
 	defer c.m.RUnlock()
 

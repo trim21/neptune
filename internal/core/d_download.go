@@ -32,6 +32,8 @@ func (d *Download) have(index uint32) {
 }
 
 func (d *Download) handleRes(res proto.ChunkResponse) {
+	// TODO: flush chunks to disk instead of waiting whole piece
+
 	d.log.Trace().
 		Any("res", map[string]any{
 			"piece":  res.PieceIndex,

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"io"
 
-	"tyr/internal/meta"
+	"tyr/internal/metainfo"
 	"tyr/internal/pkg/assert"
 	"tyr/internal/pkg/ro"
 )
@@ -58,7 +58,7 @@ func SendHandshake(conn io.Writer, infoHash, peerID [20]byte) error {
 }
 
 type Handshake struct {
-	InfoHash           meta.Hash
+	InfoHash           metainfo.Hash
 	PeerID             [20]byte
 	FastExtension      bool
 	ExchangeExtensions bool

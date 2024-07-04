@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/anacrolix/torrent/types/infohash"
 	"github.com/dustin/go-humanize"
 	"github.com/puzpuzpuz/xsync/v3"
 	"github.com/rs/zerolog"
@@ -95,7 +94,7 @@ func (d *Download) GetState() State {
 
 var ErrTorrentNotFound = errors.New("torrent not found")
 
-func (c *Client) ScheduleMove(ih meta.Hash, targetBasePath string) error {
+func (c *Client) ScheduleMove(ih metainfo.Hash, targetBasePath string) error {
 	c.m.RLock()
 	d, ok := c.downloadMap[ih]
 	c.m.RUnlock()
@@ -303,7 +302,7 @@ func (d *Download) setError(err error) {
 	d.m.Unlock()
 }
 
-func canonicalName(info metainfo.Info, infoHash infohash.T) string {
+func canonicalName(info metainfo.Info, infoHash metainfo.Hash) string {
 	// yes, there are some torrent have this name
 	name := info.Name
 	if (info.NameUtf8) != "" {
@@ -311,7 +310,7 @@ func canonicalName(info metainfo.Info, infoHash infohash.T) string {
 	}
 
 	if name == "" {
-		return infoHash.HexString()
+		return infoHash.Hex()
 	}
 
 	if len(info.Files) != 0 {

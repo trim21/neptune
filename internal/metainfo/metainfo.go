@@ -2,13 +2,11 @@ package metainfo
 
 import (
 	"bufio"
+	"crypto/sha1"
 	"io"
 	"os"
 
 	"github.com/anacrolix/torrent/bencode"
-	"github.com/anacrolix/torrent/types/infohash"
-
-	"tyr/internal/pkg/null"
 )
 
 type MetaInfo struct {
@@ -24,7 +22,7 @@ type MetaInfo struct {
 	// Where's this specified? Mentioned at
 	// https://wiki.theory.org/index.php/BitTorrentSpecification: (optional) the creation time of
 	// the torrent, in standard UNIX epoch format (integer, seconds since 1-Jan-1970 00:00:00 UTC)
-	CreationDate null.Null[bencode.Bytes] `bencode:"creation date,omitempty,ignore_unmarshal_type_error"`
+	//CreationDate null.Null[bencode.Bytes] `bencode:"creation date,omitempty,ignore_unmarshal_type_error"`
 }
 
 // Load a MetaInfo from an io.Reader. Returns a non-nil error in case of failure.
@@ -54,8 +52,8 @@ func (mi MetaInfo) UnmarshalInfo() (info Info, err error) {
 	return
 }
 
-func (mi *MetaInfo) HashInfoBytes() infohash.T {
-	return infohash.HashBytes(mi.InfoBytes)
+func (mi *MetaInfo) HashInfoBytes() Hash {
+	return sha1.Sum(mi.InfoBytes)
 }
 
 // Encode to bencoded form.

@@ -66,7 +66,7 @@ func AddTorrent(h *jsonrpc.Handler, c *core.Client) {
 				return CodeError(5, errgo.Wrap(err, "failed to add torrent to download"))
 			}
 
-			res.InfoHash = m.HashInfoBytes().HexString()
+			res.InfoHash = info.Hash.Hex()
 
 			return nil
 		},
@@ -92,7 +92,7 @@ func GetTorrent(h *jsonrpc.Handler, c *core.Client) {
 				return CodeError(1, errgo.Wrap(err, "invalid info_hash"))
 			}
 
-			info, err := c.GetTorrent(meta.Hash(r))
+			info, err := c.GetTorrent(metainfo.Hash(r))
 
 			if err != nil {
 				return CodeError(2, errgo.Wrap(err, "failed to get download"))
@@ -132,7 +132,7 @@ func MoveTorrent(h *jsonrpc.Handler, c *core.Client) {
 				return CodeError(1, errgo.Wrap(err, "invalid info_hash"))
 			}
 
-			err = c.ScheduleMove(meta.Hash(ih), req.TargetBasePath)
+			err = c.ScheduleMove(metainfo.Hash(ih), req.TargetBasePath)
 			if err != nil {
 				return CodeError(2, errgo.Wrap(err, "failed to schedule move"))
 			}
