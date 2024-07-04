@@ -1,4 +1,6 @@
 # Tyr
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Ftrim21%2Ftyr.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2Ftrim21%2Ftyr?ref=badge_shield)
+
 
 A BitTorrent client
 
@@ -18,3 +20,7 @@ After you install go-task.
 changed.
 
 `task build` build a client in release mode.
+
+
+## License
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Ftrim21%2Ftyr.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2Ftrim21%2Ftyr?ref=badge_large)
