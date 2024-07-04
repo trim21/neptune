@@ -1,24 +1,11 @@
-// Package ro implement a readonly byte slice
-package ro
-
-/*
-Copyright 2020 The Go4 AUTHORS
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-     http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
 // Package mem provides the mem.RO type that allows you to cheaply pass &
 // access either a read-only []byte or a string.
+
+// https://github.com/go4org/mem
+// Copyright 2020 The Go4 AUTHORS
+// SPDX-License-Identifier: Apache-2.0
+
+package ro
 
 import (
 	"bytes"

@@ -1,3 +1,6 @@
+// Copyright 2024 trim21 <trim21.me@gmail.com>
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Package heap provides an implementation of a binary heap.
 // A binary heap (binary min-heap) is a tree with the property that each node
 // is the minimum-valued node in its subtree.

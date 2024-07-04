@@ -1,3 +1,6 @@
+// Copyright 2024 trim21 <trim21.me@gmail.com>
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Copyright 2016 The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
