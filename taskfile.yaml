@@ -92,14 +92,14 @@ tasks:
             echo "can't copy, try again"
             sleep 1
           done
-      - dist/dev/tyr.exe --debug --web 127.0.0.1:8002 --config-file ./config.toml
+      - dist/dev/tyr.exe --debug
 
   dev:release:
     deps:
       - build
     cmds:
       - cp dist/tyr.exe dist/tmp/release.exe
-      - dist/tmp/release.exe --web 127.0.0.1:8002 --config-file ./config.toml
+      - dist/tmp/release.exe --web 127.0.0.1:8002
 
   pprof:
     cmds:

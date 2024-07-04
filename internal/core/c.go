@@ -51,11 +51,11 @@ func New(cfg config.Config, sessionPath string) *Client {
 	switch cfg.App.Crypto {
 	case "force":
 		mseSelector = imse.ForceCrypto
-	case "", "prefer":
+	case "prefer":
 		mseSelector = imse.PreferCrypto
 	case "prefer-not":
 		mseSelector = mse.DefaultCryptoSelector
-	case "disable":
+	case "", "disable":
 		mseDisabled = true
 	default:
 		panic(fmt.Sprintf("invalid `application.crypto` config %q, only 'prefer'(default) 'prefer-not', 'disable' or 'force' are allowed", cfg.App.Crypto))

@@ -36,7 +36,7 @@ import (
 func main() {
 	pflag.String("session-path", "", "client session path (default ~/.ve/)")
 	pflag.String("config-file", "", "path to config file (default {session-path}/config.toml)")
-	pflag.String("web", "127.0.0.1:8003", "web interface address")
+	pflag.String("web", "127.0.0.1:8002", "web interface address")
 	pflag.String("web-secret-token", "", "web interface address secret token")
 	pflag.Uint16("p2p-port", 50047, "p2p listen port")
 
