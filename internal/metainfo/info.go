@@ -6,15 +6,17 @@
 package metainfo
 
 type Info struct {
-	PieceLength int64  `bencode:"piece length"` // BEP3
-	Pieces      []byte `bencode:"pieces"`       // BEP3
-	Name        string `bencode:"name"`         // BEP3
-	NameUtf8    string `bencode:"name.utf-8,omitempty"`
-	Length      int64  `bencode:"length,omitempty"`  // BEP3, mutually exclusive with Files
-	Private     *bool  `bencode:"private,omitempty"` // BEP27
+	Private *bool `bencode:"private,omitempty"` // BEP27
+
+	Name     string `bencode:"name"` // BEP3
+	NameUtf8 string `bencode:"name.utf-8,omitempty"`
 
 	Source string     `bencode:"source,omitempty"`
+	Pieces []byte     `bencode:"pieces"`          // BEP3
 	Files  []FileInfo `bencode:"files,omitempty"` // BEP3, mutually exclusive with Length
+
+	PieceLength int64 `bencode:"piece length"`     // BEP3
+	Length      int64 `bencode:"length,omitempty"` // BEP3, mutually exclusive with Files
 
 	// BEP 52 (BitTorrent v2)
 	MetaVersion int64 `bencode:"meta version,omitempty"`

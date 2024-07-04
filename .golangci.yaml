@@ -42,6 +42,11 @@ linters-settings:
       - unusedresult
       - unusedwrite
 
+  gofmt:
+    rewrite-rules:
+      - pattern: interface{}
+        replacement: any
+
   depguard:
     rules:
       main:

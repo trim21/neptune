@@ -15,10 +15,8 @@ import (
 )
 
 type MetaInfo struct {
-	InfoBytes    bencode.Bytes `bencode:"info,omitempty"`          // BEP 3
-	Announce     string        `bencode:"announce,omitempty"`      // BEP 3
-	AnnounceList AnnounceList  `bencode:"announce-list,omitempty"` // BEP 12
-	Comment      string        `bencode:"comment,omitempty"`
+	Announce string `bencode:"announce,omitempty"` // BEP 3
+	Comment  string `bencode:"comment,omitempty"`
 
 	//CreatedBy    string        `bencode:"created by,omitempty"`
 	//Encoding     string        `bencode:"encoding,omitempty"`
@@ -28,6 +26,8 @@ type MetaInfo struct {
 	// https://wiki.theory.org/index.php/BitTorrentSpecification: (optional) the creation time of
 	// the torrent, in standard UNIX epoch format (integer, seconds since 1-Jan-1970 00:00:00 UTC)
 	//CreationDate null.Null[bencode.Bytes] `bencode:"creation date,omitempty,ignore_unmarshal_type_error"`
+	InfoBytes    bencode.Bytes `bencode:"info,omitempty"`          // BEP 3
+	AnnounceList AnnounceList  `bencode:"announce-list,omitempty"` // BEP 12
 }
 
 // Load a MetaInfo from an io.Reader. Returns a non-nil error in case of failure.
