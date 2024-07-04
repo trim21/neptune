@@ -82,3 +82,9 @@ jobs:
 
       - run: go build -o tmp/try.exe
       - run: ./tmp/try.exe --help
+
+  license:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python tools/scan-license-header.py

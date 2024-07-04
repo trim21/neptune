@@ -1,5 +1,7 @@
 // Copyright 2024 trim21 <trim21.me@gmail.com>
-// SPDX-License-Identifier: GPL-3.0-only
+// Copyright https://github.com/anacrolix
+// SPDX-License-Identifier: MPL-2.0
+// https://github.com/anacrolix/torrent/blob/v1.56.1/LICENSE
 
 package metainfo
 

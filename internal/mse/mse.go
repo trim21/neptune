@@ -12,11 +12,6 @@ import (
 	"tyr/internal/metainfo"
 )
 
-type rw struct {
-	io.Reader
-	io.Writer
-}
-
 func ForceCrypto(provided mse.CryptoMethod) mse.CryptoMethod {
 	return mse.CryptoMethodRC4
 }

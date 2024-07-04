@@ -1,3 +1,8 @@
+// Copyright 2024 trim21 <trim21.me@gmail.com>
+// Copyright 2021 Viacheslav Poturaev
+// SPDX-License-Identifier: MIT
+// https://github.com/swaggest/jsonrpc/blob/master/LICENSE
+
 package jsonrpc
 
 import (
