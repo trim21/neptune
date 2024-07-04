@@ -22,7 +22,7 @@ func onEvict(key cacheKey, value *File) {
 	_ = value.File.Close()
 }
 
-var pool = expirable.NewLRU[cacheKey, *File](128, onEvict, time.Minute*1)
+var pool = expirable.NewLRU[cacheKey, *File](128, onEvict, time.Minute*5)
 
 type cacheKey struct {
 	path string
