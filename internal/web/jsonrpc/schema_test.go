@@ -2,9 +2,10 @@ package jsonrpc_test
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
-	"github.com/swaggest/assertjson"
+	"github.com/stretchr/testify/require"
 	"github.com/swaggest/usecase"
 
 	"tyr/internal/web/jsonrpc"
@@ -39,7 +40,10 @@ func TestOpenAPI_Collect(t *testing.T) {
 
 	h.Add(u)
 
-	assertjson.EqualMarshal(t, []byte(`{
+	encoded, err := json.Marshal(apiSchema.Reflector().SpecEns())
+	require.NoError(t, err)
+
+	require.JSONEq(t, `{
 	  "openapi":"3.0.3",
 	  "info":{
 		"title":"JSON-RPC Example",
@@ -80,5 +84,5 @@ func TestOpenAPI_Collect(t *testing.T) {
 		}
 	  },
 	  "x-envelope":"jsonrpc-2.0"
-	}`), apiSchema.Reflector().SpecEns())
+	}`, string(encoded))
 }

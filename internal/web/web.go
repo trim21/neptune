@@ -13,11 +13,8 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/swaggest/openapi-go"
-	"github.com/swaggest/swgui"
-	"github.com/swaggest/swgui/v5"
 
 	"tyr/internal/core"
-	"tyr/internal/util"
 	"tyr/internal/version"
 	"tyr/internal/web/jsonrpc"
 	"tyr/internal/web/res"
@@ -25,6 +22,9 @@ import (
 
 //go:embed description.md
 var desc string
+
+//go:embed docs/index.html
+var swaggerUI []byte
 
 const HeaderAuthorization = "Authorization"
 
@@ -105,12 +105,11 @@ func New(c *core.Client, token string, enableDebug bool) http.Handler {
 
 	r.Get("/docs/openapi.json", h.OpenAPI.ServeHTTP)
 
-	r.Handle("GET /docs/*", v5.NewHandlerWithConfig(swgui.Config{
-		Title:       apiSchema.Reflector().Spec.Info.Title,
-		SwaggerJSON: "/docs/openapi.json",
-		BasePath:    "/docs/",
-		SettingsUI:  jsonrpc.SwguiSettings(util.StrMap{"layout": "'BaseLayout'"}, "/json_rpc"),
-	}))
+	r.Get("/docs/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("content-type", "text/html")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(swaggerUI)
+	})
 
 	r.Handle("GET /*", http.FileServerFS(frontendFS))
 
