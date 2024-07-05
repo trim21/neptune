@@ -15,6 +15,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/gofrs/flock"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/samber/lo"
@@ -82,6 +83,21 @@ func main() {
 	}
 
 	createSessionDirectory(sessionPath)
+
+	lockPath := filepath.Join(sessionPath, ".lock")
+	fileLock := flock.New(lockPath)
+	locked, err := fileLock.TryLock()
+	if err != nil {
+		errExit("can't acquire lock:", err)
+		return
+	}
+	if !locked {
+		_, _ = fmt.Fprintln(os.Stderr, "can't acquire lock, maybe another process is running")
+		_, _ = fmt.Fprintf(os.Stderr, "try remove %q if no other tyr instance is running\n", lockPath)
+		os.Exit(1)
+		return
+	}
+	defer fileLock.Unlock()
 
 	configFilePath := viper.GetString("config-file")
 
