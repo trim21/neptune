@@ -35,7 +35,7 @@ import (
 )
 
 func main() {
-	pflag.String("session-path", "", "client session path (default ~/.ve/)")
+	pflag.String("session-path", "", "client session path (default ~/.tyr/)")
 	pflag.String("config-file", "", "path to config file (default {session-path}/config.toml)")
 	pflag.String("web", "127.0.0.1:8002", "web interface address")
 	pflag.String("web-secret-token", "", "web interface address secret token")
@@ -80,23 +80,23 @@ func main() {
 
 	if sessionPath == "" {
 		sessionPath = defaultSessionPath()
+	} else {
+		if strings.HasPrefix(sessionPath, "~/") || strings.HasPrefix(sessionPath, `~\`) {
+			h, err := os.UserHomeDir()
+			if err != nil {
+				errExit("failed to get home directory, please set session path with --session-path manually", err)
+			}
+
+			sessionPath = strings.Replace(sessionPath, "~", h, 1)
+		}
 	}
 
 	createSessionDirectory(sessionPath)
 
-	lockPath := filepath.Join(sessionPath, ".lock")
-	fileLock := flock.New(lockPath)
-	locked, err := fileLock.TryLock()
-	if err != nil {
-		errExit("can't acquire lock:", err)
-		return
-	}
-	if !locked {
-		_, _ = fmt.Fprintln(os.Stderr, "can't acquire lock, maybe another process is running")
-		_, _ = fmt.Fprintf(os.Stderr, "try remove %q if no other tyr instance is running\n", lockPath)
-		os.Exit(1)
-		return
-	}
+	fileLock := mustLockSessionDirectory(filepath.Join(sessionPath, ".lock"))
+	// We do not actually need to unlock it, when process dead, OS will unlock it automatically.
+	// But we need to keep a reference to lock object GC won't close underlying file.
+	// If fd is closed, OS will unlock this lock.
 	defer fileLock.Unlock()
 
 	configFilePath := viper.GetString("config-file")
@@ -222,4 +222,21 @@ func createSessionDirectory(sessionPath string) {
 	if err != nil {
 		errExit("fail to create directory for session", err)
 	}
+}
+
+func mustLockSessionDirectory(lockPath string) *flock.Flock {
+	fileLock := flock.New(lockPath)
+	locked, err := fileLock.TryLock()
+	if err != nil {
+		errExit("can't acquire lock:", err)
+		return nil
+	}
+	if !locked {
+		_, _ = fmt.Fprintln(os.Stderr, "can't acquire lock, maybe another process is running")
+		_, _ = fmt.Fprintf(os.Stderr, "try remove %q if no other tyr instance is running\n", lockPath)
+		os.Exit(1)
+		return nil
+	}
+
+	return fileLock
 }
