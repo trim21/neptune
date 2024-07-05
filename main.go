@@ -105,10 +105,6 @@ func main() {
 		configFilePath = filepath.Join(sessionPath, "config.toml")
 	}
 
-	if err := os.MkdirAll(sessionPath, os.ModePerm); err != nil {
-		errExit("failed to create session path, must make sure you have permission", err)
-	}
-
 	cfg, err := config.LoadFromFile(configFilePath)
 	if err != nil {
 		errExit("failed to load config", err)
