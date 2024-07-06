@@ -1,3 +1,6 @@
+// Copyright 2024 trim21 <trim21.me@gmail.com>
+// SPDX-License-Identifier: GPL-3.0-only
+
 package core
 
 import (
@@ -17,18 +20,18 @@ type MainDataTorrent struct {
 	InfoHash      string   `json:"hash"`
 	Name          string   `json:"name"`
 	State         string   `json:"state"`
+	Comment       string   `json:"comment"`
+	DirectoryBase string   `json:"directory_base"`
+	Message       string   `json:"message"`
+	Tags          []string `json:"tags"`
 	DownloadRate  int64    `json:"download_rate"`
 	DownloadTotal int64    `json:"download_total"`
 	UploadRate    int64    `json:"upload_rate"`
 	UploadTotal   int64    `json:"upload_total"`
 	Completed     int64    `json:"completed"`
 	TotalLength   int64    `json:"total_length"`
-	Comment       string   `json:"comment"`
 	AddedAt       int64    `json:"add_at"`
-	DirectoryBase string   `json:"directory_base"`
 	Private       bool     `json:"private"`
-	Tags          []string `json:"tags"`
-	Message       string   `json:"message"`
 }
 
 type TorrentList struct {

@@ -21,15 +21,15 @@ type File struct {
 
 type Info struct {
 	Name          string
+	Comment       string
 	Pieces        []metainfo.Hash
 	Files         []File
 	TotalLength   int64
 	PieceLength   int64
 	LastPieceSize int64
-	Hash          metainfo.Hash
 	NumPieces     uint32
+	Hash          metainfo.Hash
 	Private       bool
-	Comment       string
 }
 
 var ErrNotV1Torrent = errors.New("meta info has no v1 info")
