@@ -6,12 +6,13 @@
 package metainfo
 
 import (
+	"crypto/sha1"
 	"encoding/hex"
 
 	"tyr/internal/pkg/unsafe"
 )
 
-type Hash [20]byte
+type Hash [sha1.Size]byte
 
 func (h Hash) Bytes() []byte { return h[:] }
 

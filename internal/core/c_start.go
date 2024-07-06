@@ -27,20 +27,6 @@ func (c *Client) Start() error {
 
 	go c.ch.Start()
 
-	if log.Debug().Enabled() {
-		go func() {
-			for {
-				time.Sleep(time.Second * 5)
-				fmt.Printf(" %10s | %20s%-20s | percent |    total |     left |      speed   |   ETA | conns\n", "state", "", "info hash")
-				c.m.RLock()
-				for _, d := range c.downloads {
-					fmt.Println(d.Display())
-				}
-				c.m.RUnlock()
-			}
-		}()
-	}
-
 	go func() {
 		for {
 			time.Sleep(time.Minute * 10)
@@ -53,29 +39,6 @@ func (c *Client) Start() error {
 			}
 		}
 	}()
-
-	//go func() {
-	//	log.Info().Msgf("using addrPort id prefix '%s'", global.PeerIDPrefix)
-	//	for {
-	//		time.Sleep(time.Second)
-	//		c.m.RLock()
-	//		for _, d := range c.downloads {
-	//			d.m.RLock()
-	//			if !(d.state == Uploading || d.state == Downloading) {
-	//				d.m.RUnlock()
-	//				continue
-	//			}
-	//			d.m.RUnlock()
-	//
-	//			if d.CouldAnnounce() {
-	//				global.Pool.Submit(func() {
-	//					d.AsyncAnnounce(c.http)
-	//				})
-	//			}
-	//		}
-	//		c.m.RUnlock()
-	//	}
-	//}()
 
 	return nil
 }

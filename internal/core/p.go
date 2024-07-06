@@ -363,7 +363,7 @@ func (p *Peer) start(skipHandshake bool) {
 				}
 
 				// peer and us are both seeding, disconnect
-				if p.Bitmap.Count() == p.d.info.NumPieces && p.d.GetState() == Uploading {
+				if p.Bitmap.Count() == p.d.info.NumPieces && p.d.GetState() == Seeding {
 					p.cancel()
 				}
 			}
@@ -380,7 +380,11 @@ func (p *Peer) sendEvent(e Event) error {
 		return err
 	}
 
-	return p.w.Flush()
+	if e.Event != proto.Have {
+		return p.w.Flush()
+	}
+
+	return nil
 }
 
 func (p *Peer) write(e Event) error {

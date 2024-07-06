@@ -14,7 +14,6 @@ import (
 
 	"tyr/internal/meta"
 	"tyr/internal/pkg/as"
-	"tyr/internal/pkg/empty"
 	"tyr/internal/pkg/global/tasks"
 	"tyr/internal/pkg/mempool"
 	"tyr/internal/proto"
@@ -45,6 +44,7 @@ func (d *Download) handleRes(res proto.ChunkResponse) {
 		}).Msg("res received")
 
 	d.ioDown.Update(len(res.Data))
+	d.netDown.Update(len(res.Data))
 	d.downloaded.Add(int64(len(res.Data)))
 
 	if d.bm.Get(res.PieceIndex) {
@@ -122,12 +122,12 @@ func (d *Download) writePieceToDisk(pieceIndex uint32, chunks []*proto.ChunkResp
 
 		d.bm.Set(pieceIndex)
 
-		d.log.Trace().Msgf("buf %d done", pieceIndex)
+		d.log.Trace().Msgf("piece %d done", pieceIndex)
 		d.have(pieceIndex)
 
 		if d.bm.Count() == d.info.NumPieces {
 			d.m.Lock()
-			d.state = Uploading
+			d.state = Seeding
 			d.ioDown.Reset()
 			d.m.Unlock()
 
@@ -156,7 +156,7 @@ func (d *Download) backgroundReqHandle() {
 
 			d.m.Lock()
 			if d.state != Downloading {
-				if d.state == Uploading {
+				if d.state == Seeding {
 					d.conn.Range(func(addr netip.AddrPort, p *Peer) bool {
 						if p.Bitmap.Count() == d.info.NumPieces {
 							p.cancel()
@@ -243,10 +243,10 @@ func (d *Download) scheduleSeq() {
 
 			for i := 0; i < chunkLen; i++ {
 				req := pieceChunk(d.info, index, i)
-				_, exist := p.requestHistory.LoadOrStore(req, empty.Empty{})
-				if exist {
-					continue
-				}
+				//_, exist := p.requestHistory.LoadOrStore(req, empty.Empty{})
+				//if exist {
+				//	continue
+				//}
 
 				p.Request(req)
 			}

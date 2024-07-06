@@ -123,8 +123,6 @@ type MoveTorrentRequest struct {
 }
 
 type MoveTorrentResponse struct {
-	//Name string   `json:"name" required:"true"`
-	//Tags []string `json:"tags"`
 }
 
 func MoveTorrent(h *jsonrpc.Handler, c *core.Client) {
@@ -145,5 +143,41 @@ func MoveTorrent(h *jsonrpc.Handler, c *core.Client) {
 	)
 
 	u.SetName("torrent.move")
+	h.Add(u)
+}
+
+type listTorrentRequest struct {
+}
+
+type listTorrentResponse struct {
+	core.TorrentList
+}
+
+func listTorrent(h *jsonrpc.Handler, c *core.Client) {
+	u := usecase.NewInteractor[*listTorrentRequest, listTorrentResponse](
+		func(ctx context.Context, req *listTorrentRequest, res *listTorrentResponse) error {
+			res.TorrentList = c.GetTorrentList()
+			return nil
+		},
+	)
+	u.SetName("torrent.list")
+	h.Add(u)
+}
+
+type getTransferSummaryRequest struct {
+}
+
+type getTransferSummaryResponse struct {
+	core.TransferSummary
+}
+
+func getTransferSummary(h *jsonrpc.Handler, c *core.Client) {
+	u := usecase.NewInteractor[*getTransferSummaryRequest, getTransferSummaryResponse](
+		func(ctx context.Context, req *getTransferSummaryRequest, res *getTransferSummaryResponse) error {
+			res.TransferSummary = c.GetTransferSummary()
+			return nil
+		},
+	)
+	u.SetName("transfer_summary")
 	h.Add(u)
 }

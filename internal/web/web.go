@@ -4,6 +4,7 @@
 package web
 
 import (
+	"context"
 	_ "embed"
 	"fmt"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/swaggest/openapi-go"
+	"github.com/swaggest/usecase"
 
 	"tyr/internal/core"
 	"tyr/internal/version"
@@ -80,6 +82,8 @@ func New(c *core.Client, token string, enableDebug bool) http.Handler {
 		r.Mount("/debug", middleware.Profiler())
 	}
 
+	addPing(h)
+	listTorrent(h, c)
 	AddTorrent(h, c)
 	GetTorrent(h, c)
 	MoveTorrent(h, c)
@@ -114,7 +118,15 @@ func New(c *core.Client, token string, enableDebug bool) http.Handler {
 		_, _ = w.Write(swaggerUI)
 	})
 
-	r.Handle("GET /*", http.FileServerFS(frontendFS))
-
 	return r
+}
+
+func addPing(h *jsonrpc.Handler) {
+	u := usecase.NewInteractor[*struct{}, struct{}](
+		func(ctx context.Context, req *struct{}, res *struct{}) error {
+			return nil
+		},
+	)
+	u.SetName("system.ping")
+	h.Add(u)
 }

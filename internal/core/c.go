@@ -13,22 +13,17 @@ import (
 	"sync"
 	"time"
 
-	"github.com/anacrolix/torrent/mse"
 	"github.com/go-resty/resty/v2"
 	"github.com/jellydator/ttlcache/v3"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/rs/zerolog/log"
-	"github.com/samber/lo"
 	"go.uber.org/atomic"
 	"golang.org/x/sync/semaphore"
 
 	"tyr/internal/bep40"
 	"tyr/internal/config"
-	"tyr/internal/meta"
 	"tyr/internal/metainfo"
-	imse "tyr/internal/mse"
+	"tyr/internal/mse"
 	"tyr/internal/pkg/global"
-	"tyr/internal/pkg/global/tasks"
 	"tyr/internal/pkg/gslice"
 	"tyr/internal/pkg/random"
 	"tyr/internal/pkg/unsafe"
@@ -50,9 +45,9 @@ func New(cfg config.Config, sessionPath string) *Client {
 	var mseSelector mse.CryptoSelector
 	switch cfg.App.Crypto {
 	case "force":
-		mseSelector = imse.ForceCrypto
+		mseSelector = mse.ForceCrypto
 	case "prefer":
-		mseSelector = imse.PreferCrypto
+		mseSelector = mse.PreferCrypto
 	case "prefer-not":
 		mseSelector = mse.DefaultCryptoSelector
 	case "", "disable":
@@ -114,7 +109,6 @@ type Client struct {
 	downloads   []*Download
 	checkQueue  []metainfo.Hash
 
-	// a random key for addrPort priority
 	randKey []byte
 
 	//ip4 atomic.Pointer[netip.Addr]
@@ -125,30 +119,6 @@ type Client struct {
 	checkQueueLock  sync.Mutex
 	fLock           sync.Mutex
 	mseDisabled     bool
-}
-
-func (c *Client) AddTorrent(m *metainfo.MetaInfo, info meta.Info, downloadPath string, tags []string) error {
-	log.Info().Msgf("try add torrent %s", info.Hash)
-
-	c.m.RLock()
-	if _, ok := c.downloadMap[info.Hash]; ok {
-		c.m.RUnlock()
-		return fmt.Errorf("torrent %s exists", info.Hash)
-	}
-	c.m.RUnlock()
-
-	c.m.Lock()
-	defer c.m.Unlock()
-
-	d := c.NewDownload(m, info, downloadPath, tags)
-
-	c.downloads = append(c.downloads, d)
-	c.downloadMap[info.Hash] = d
-	c.infoHashes = lo.Keys(c.downloadMap)
-
-	tasks.Submit(d.Init)
-
-	return nil
 }
 
 type DownloadInfo struct {

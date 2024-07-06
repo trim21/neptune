@@ -175,7 +175,7 @@ func (t *Tracker) req(d *Download) *resty.Request {
 		SetQueryParam("compat", "1").
 		SetQueryParam("uploaded", strconv.FormatInt(d.uploaded.Load()-d.uploadAtStart, 10)).
 		SetQueryParam("downloaded", strconv.FormatInt(d.downloaded.Load()-d.downloadAtStart, 10)).
-		SetQueryParam("left", strconv.FormatInt(d.info.TotalLength-d.completed.Load(), 10))
+		SetQueryParam("left", strconv.FormatInt(d.info.TotalLength-d.completed(), 10))
 }
 
 func (t *Tracker) announce(d *Download, event string) (AnnounceResult, error) {

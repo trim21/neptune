@@ -39,7 +39,7 @@ func (c *Client) scrape() {
 	c.m.RLock()
 	for h, d := range c.downloadMap {
 		d.m.RLock()
-		if !(d.state == Downloading || d.state == Uploading) {
+		if !(d.state == Downloading || d.state == Seeding) {
 			d.m.RUnlock()
 			continue
 		}

@@ -19,7 +19,7 @@ const defaultBlockSize = units.KiB * 16
 func (d *Download) Start() {
 	d.m.Lock()
 	if d.done.Load() {
-		d.state = Uploading
+		d.state = Seeding
 	} else {
 		d.state = Downloading
 	}
@@ -62,7 +62,7 @@ func (d *Download) Init() {
 
 	d.m.Lock()
 	if d.bm.Count() == d.info.NumPieces {
-		d.state = Uploading
+		d.state = Seeding
 	} else {
 		d.state = Downloading
 	}
@@ -90,7 +90,7 @@ func (d *Download) startBackground() {
 		LOOP:
 			for {
 				switch d.state {
-				case Uploading, Downloading:
+				case Seeding, Downloading:
 					break LOOP
 				case Stopped, Moving, Checking, Error:
 					d.cond.Wait()

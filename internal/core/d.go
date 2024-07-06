@@ -36,7 +36,7 @@ type State uint8
 //go:generate stringer -type=State
 const Stopped State = 0
 const Downloading State = 1
-const Uploading State = 2
+const Seeding State = 2
 const Checking State = 3
 const Moving State = 4
 const Error State = 5
@@ -51,7 +51,8 @@ type Download struct {
 	cancel            context.CancelFunc
 	cond              *sync.Cond
 	c                 *Client
-	ioDown            *flowrate.Monitor
+	ioDown            *flowrate.Monitor // io rate for network data and disk moving/checking data
+	netDown           *flowrate.Monitor // io rate for network data
 	ioUp              *flowrate.Monitor
 	ResChan           chan proto.ChunkResponse
 	conn              *xsync.MapOf[netip.AddrPort, *Peer]
@@ -72,7 +73,6 @@ type Download struct {
 	corrupted         atomic.Int64
 	done              atomic.Bool
 	uploaded          atomic.Int64
-	completed         atomic.Int64
 	checkProgress     atomic.Int64
 	uploadAtStart     int64
 	downloadAtStart   int64
@@ -114,6 +114,10 @@ func (c *Client) ScheduleMove(ih metainfo.Hash, targetBasePath string) error {
 func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath string, tags []string) *Download {
 	ctx, cancel := context.WithCancel(context.Background())
 
+	if tags == nil {
+		tags = []string{}
+	}
+
 	d := &Download{
 		ctx:      ctx,
 		info:     info,
@@ -131,8 +135,9 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 
 		ResChan: make(chan proto.ChunkResponse, 1),
 
-		ioDown: flowrate.New(time.Second, time.Second),
-		ioUp:   flowrate.New(time.Second, time.Second),
+		ioDown:  flowrate.New(time.Second, time.Second),
+		netDown: flowrate.New(time.Second, time.Second),
+		ioUp:    flowrate.New(time.Second, time.Second),
 
 		conn:              xsync.NewMapOf[netip.AddrPort, *Peer](),
 		connectionHistory: xsync.NewMapOf[netip.AddrPort, connHistory](),
@@ -163,7 +168,7 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 		}
 
 		if global.IsLinux {
-			d.log.Info().Msgf("add debug peer %s", "127.0.0.1:6885")
+			d.log.Info().Msgf("add debug peer %s", "127.0.0.1:50025")
 			d.peers.Push(peerWithPriority{
 				addrPort: netip.MustParseAddrPort("127.0.0.1:6885"),
 				priority: math.MaxUint32,
@@ -186,6 +191,14 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 	//spew.Dump(d.pieceChunks[len(d.pieceChunks)-1])
 
 	return d
+}
+func (d *Download) completed() int64 {
+	var completed = int64(d.bm.Count()) * d.info.PieceLength
+	if d.bm.Get(d.info.NumPieces - 1) {
+		completed = completed - d.info.PieceLength + d.info.LastPieceSize
+	}
+
+	return completed
 }
 
 func (d *Download) Display() string {
@@ -212,6 +225,10 @@ func (d *Download) Display() string {
 		eta = time.Second * time.Duration(left/rate.CurRate)
 	}
 
+	if eta > time.Hour*24*265 {
+		eta = 0
+	}
+
 	if d.state == Downloading {
 		if d.info.NumPieces-d.bm.Count() < 10 {
 			for i := uint32(0); i < d.info.NumPieces; i++ {
@@ -226,7 +243,7 @@ func (d *Download) Display() string {
 	pieceProcessing := len(d.pieceData)
 	d.pdMutex.RUnlock()
 
-	if d.state == Uploading {
+	if d.state == Seeding {
 		if pieceProcessing != 0 {
 			d.pdMutex.RLock()
 			fmt.Println(lo.Keys(d.pieceData))

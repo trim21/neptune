@@ -12,6 +12,18 @@ import (
 	"tyr/internal/metainfo"
 )
 
+type CryptoMethod = mse.CryptoMethod
+type CryptoSelector = mse.CryptoSelector
+type SecretKeyIter = mse.SecretKeyIter
+
+func DefaultCryptoSelector(provided CryptoMethod) CryptoMethod {
+	// We prefer plaintext for performance reasons.
+	if provided&mse.CryptoMethodPlaintext != 0 {
+		return mse.CryptoMethodPlaintext
+	}
+	return mse.CryptoMethodRC4
+}
+
 func ForceCrypto(provided mse.CryptoMethod) mse.CryptoMethod {
 	return mse.CryptoMethodRC4
 }

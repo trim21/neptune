@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"syscall"
@@ -40,7 +39,7 @@ func main() {
 
 	debug := viper.GetBool("debug")
 	if debug {
-		runtime.SetBlockProfileRate(10000)
+		//runtime.SetBlockProfileRate(10000)
 		_, _ = fmt.Fprintln(os.Stderr, "enable debug mode")
 	}
 
@@ -89,7 +88,7 @@ func main() {
 		if global.IsWindows {
 			//lo.Must0(os.RemoveAll("D:\\downloads\\2"))
 			m := lo.Must(metainfo.LoadFromFile(`C:\Users\Trim21\Downloads\2.torrent`))
-			lo.Must0(app.AddTorrent(m, lo.Must(meta.FromTorrent(*m)), "D:\\Downloads\\2", nil))
+			lo.Must0(app.AddTorrent(m, lo.Must(meta.FromTorrent(*m)), "D:\\Downloads\\2", []string{}))
 		}
 
 		if global.IsLinux {
