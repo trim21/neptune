@@ -10,10 +10,7 @@ env:
 
 jobs:
   build:
-    runs-on: "${{ matrix.os }}"
-    strategy:
-      matrix:
-        os: [ ubuntu-latest, windows-latest, macos-latest ]
+    runs-on: "ubuntu-latest"
     steps:
       - uses: actions/checkout@v4
 
@@ -30,6 +27,8 @@ jobs:
             tools/go.sum
 
       - run: task build
+        env:
+          CGO_ENABLED: '0'
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
