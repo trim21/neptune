@@ -3,9 +3,9 @@
 arch=$(dpkg --print-architecture)
 
 if [[ $arch == "amd64" ]]; then
-  mv /usr/local/bin/tyr-amd64 /usr/local/bin/tyr
+  mv /dist/tyr-amd64 /dist/tyr
 elif [[ $arch == "arm64" ]]; then
-  mv /usr/local/bin/tyr-arm64 /usr/local/bin/tyr
+  mv /dist/tyr-arm64 /dist/tyr
 else
   exit 1
 fi
