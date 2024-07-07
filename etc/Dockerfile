@@ -1,8 +1,8 @@
-FROM busybox AS builder
+FROM busybox:1 AS builder
 
 FROM gcr.io/distroless/static-debian12
 
-COPY --from=builder /wget /usr/bin/wget
+COPY --from=builder /bin/wget /usr/bin/wget
 
 COPY dist/tyr.exe /usr/local/bin/tyr
 
