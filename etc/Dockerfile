@@ -1,7 +1,8 @@
-FROM powerman/dockerize:0.19 AS dockerize
+FROM busybox AS builder
 
 FROM gcr.io/distroless/static-debian12
-COPY --from=dockerize /usr/local/bin/dockerize /usr/local/bin/
+
+COPY --from=builder /wget /usr/bin/wget
 
 COPY dist/tyr.exe /usr/local/bin/tyr
 
