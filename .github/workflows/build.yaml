@@ -77,6 +77,8 @@ jobs:
 
             type=raw,value=${{ env.SHA }}
 
+      # need to build for multiple platform in one-pass, so tags like `master` doesn't get messed-up
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
