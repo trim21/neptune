@@ -8,11 +8,13 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/rs/zerolog/log"
 	"github.com/samber/lo"
 
 	"tyr/internal/meta"
 	"tyr/internal/metainfo"
+	"tyr/internal/pkg/as"
 	"tyr/internal/pkg/global/tasks"
 )
 
@@ -126,4 +128,54 @@ func (c *Client) AddTorrent(m *metainfo.MetaInfo, info meta.Info, downloadPath s
 	tasks.Submit(d.Init)
 
 	return nil
+}
+
+type TorrentFile struct {
+	Index    int      `json:"index"`
+	Path     []string `json:"path"`
+	Progress float64  `json:"progress"`
+	Size     int64    `json:"size"`
+}
+
+func (c *Client) GetTorrentFiles(h metainfo.Hash) []TorrentFile {
+	c.m.RLock()
+	defer c.m.RUnlock()
+
+	d, ok := c.downloadMap[h]
+	if !ok {
+		return nil
+	}
+
+	var results = make([]TorrentFile, len(d.info.Files))
+
+	var fileStart int64 = 0
+	var fileEnd int64
+
+	for i, file := range d.info.Files {
+		fileEnd = fileStart + file.Length
+
+		startIndex := as.Uint32(fileStart / d.info.TotalLength)
+		endIndex := as.Uint32((fileEnd + d.info.TotalLength - 1) / d.info.TotalLength)
+
+		pieceDoneCount := 0
+
+		for i := startIndex; i < endIndex; i++ {
+			if d.bm.Get(i) {
+				pieceDoneCount++
+			}
+		}
+
+		results[i] = TorrentFile{
+			Index:    i,
+			Path:     file.RawPath,
+			Progress: float64(pieceDoneCount) / float64(endIndex-startIndex),
+			Size:     file.Length,
+		}
+
+		spew.Dump(results[i])
+
+		fileStart = fileStart + file.Length
+	}
+
+	return results
 }

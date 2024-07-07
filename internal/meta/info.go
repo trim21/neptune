@@ -15,8 +15,9 @@ import (
 )
 
 type File struct {
-	Path   string
-	Length int64
+	Path    string
+	RawPath []string
+	Length  int64
 }
 
 type Info struct {
@@ -61,8 +62,9 @@ func FromTorrent(m metainfo.MetaInfo) (Info, error) {
 	if len(info.Files) != 0 {
 		files = lo.Map(info.Files, func(item metainfo.FileInfo, index int) File {
 			return File{
-				Path:   filepath.Join(item.BestPath()...),
-				Length: item.Length,
+				Path:    filepath.Join(item.BestPath()...),
+				RawPath: item.BestPath(),
+				Length:  item.Length,
 			}
 		})
 	} else {
