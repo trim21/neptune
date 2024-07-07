@@ -32,8 +32,8 @@ type Info struct {
 	Private       bool
 }
 
-var ErrNotV1Torrent = errors.New("meta info has no v1 info")
-var ErrInvalidLength = errors.New("meta info has no v1 info")
+var ErrNotV1Torrent = errors.New("torrent is not valid torrent, only v1 torrent is supported")
+var ErrInvalidLength = errors.New("torrent has invalid length")
 
 func FromTorrent(m metainfo.MetaInfo) (Info, error) {
 	info, err := m.UnmarshalInfo()
@@ -41,10 +41,16 @@ func FromTorrent(m metainfo.MetaInfo) (Info, error) {
 		return Info{}, err
 	}
 
-	// TODO: validate here
-	//if !info.HasV1() {
-	//	return Info{}, ErrNotV1Torrent
-	//}
+	if len(info.Pieces) == 0 {
+		return Info{}, ErrNotV1Torrent
+	}
+	if len(info.Files) == 0 && info.Length == 0 {
+		return Info{}, ErrNotV1Torrent
+	}
+
+	if len(info.Pieces)%sha1.Size != 0 {
+		return Info{}, errors.New("invalid pieces length, len(info.pieces)%sha1.Size != 0")
+	}
 
 	var pieces = make([]metainfo.Hash, info.NumPieces())
 	for i := 0; i < info.NumPieces(); i++ {
