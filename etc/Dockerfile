@@ -1,4 +1,4 @@
-FROM busybox:1 AS builder
+FROM busybox:1-musl AS builder
 
 FROM gcr.io/distroless/static-debian12
 
