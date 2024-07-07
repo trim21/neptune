@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - master
+  pull_request:
+    branches:
+      - master
 
 env:
   GOTOOLCHAIN: local
@@ -40,6 +43,7 @@ jobs:
 
   docker:
     needs: [ binary ]
+    if: ${{ github.event_name == 'push' }}
     runs-on: "ubuntu-latest"
     permissions:
       packages: write
