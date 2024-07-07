@@ -47,6 +47,37 @@ tasks:
     dir: tools
     cmd: go mod tidy
 
+
+  release:
+    deps:
+      - release:windows
+      - release:darwin
+      - release:linux
+
+  release:windows:
+    platforms:
+      - windows
+    cmd:
+      task: binary
+      vars:
+        OUT_PATH: 'dist/tyr_windows_amd64.exe'
+
+  release:darwin:
+    platforms:
+      - darwin
+    cmd:
+      task: binary
+      vars:
+        OUT_PATH: 'dist/tyr_darwin_amd64'
+
+  release:linux:
+    platforms:
+      - linux
+    cmd:
+      task: binary
+      vars:
+        OUT_PATH: 'dist/tyr_linux_amd64'
+
   binary:
     internal: true
     vars:
@@ -58,7 +89,7 @@ tasks:
       - >-
         go build
         -ldflags="-X 'tyr/internal/version.Ref={{ .REF }}' -X 'tyr/internal/version.BuildDate={{ dateInZone "2006-01-02T15:04:05Z07:00" (now) "UTC" }}'" 
-        -buildvcs=true {{ .EXTRA_FLAGS }} -trimpath -tags {{ .TAG }} -o {{ .OUT_PATH }}
+        -buildvcs=true {{ .EXTRA_FLAGS }} -trimpath -tags release -o {{ .OUT_PATH }}
 
   build:
     generates:
