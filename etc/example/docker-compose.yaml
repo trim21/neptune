@@ -8,7 +8,7 @@ services:
       TYR_CONFIG_FILE: '/var/lib/config/tyr.toml'
     network_mode: host
     healthcheck:
-      test: [ "CMD", "/usr/bin/wget", "--no-verbose", "http://127.0.0.1:8002/healthz" ]
+      test: [ "CMD", "/usr/bin/wget", "--spider", "--no-verbose", "http://127.0.0.1:8002/healthz" ]
       interval: 30s
       timeout: 3s
       retries: 1
