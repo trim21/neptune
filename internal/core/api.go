@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/rs/zerolog/log"
 	"github.com/samber/lo"
 
@@ -171,8 +170,6 @@ func (c *Client) GetTorrentFiles(h metainfo.Hash) []TorrentFile {
 			Progress: float64(pieceDoneCount) / float64(endIndex-startIndex),
 			Size:     file.Length,
 		}
-
-		spew.Dump(results[i])
 
 		fileStart = fileStart + file.Length
 	}
