@@ -135,6 +135,8 @@ tasks:
       - go.mod
       - go.sum
       - "**/*.go"
+    env:
+      CGO_ENABLED: '0'
     dotenv:
       - .env
     cmds:

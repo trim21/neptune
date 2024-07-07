@@ -73,8 +73,8 @@ func New(cfg config.Config, sessionPath string) *Client {
 		sessionPath: sessionPath,
 		fh:          make(map[string]*os.File),
 		randKey:     random.Bytes(32),
-		v4Addr:      *atomic.NewPointer(v4),
-		v6Addr:      *atomic.NewPointer(v6),
+		ipv4:        *atomic.NewPointer(v4),
+		ipv6:        *atomic.NewPointer(v6),
 	}
 }
 
@@ -102,8 +102,10 @@ type Client struct {
 	mseSelector mse.CryptoSelector
 	ch          *ttlcache.Cache[netip.AddrPort, connHistory]
 	fh          map[string]*os.File
-	v4Addr      atomic.Pointer[netip.Addr]
-	v6Addr      atomic.Pointer[netip.Addr]
+
+	ipv4 atomic.Pointer[netip.Addr]
+	ipv6 atomic.Pointer[netip.Addr]
+
 	sessionPath string
 	infoHashes  []metainfo.Hash
 	downloads   []*Download
@@ -111,8 +113,6 @@ type Client struct {
 
 	randKey []byte
 
-	//ip4 atomic.Pointer[netip.Addr]
-	//ip6 atomic.Pointer[netip.Addr]
 	Config          config.Config
 	connectionCount atomic.Uint32
 	m               sync.RWMutex
@@ -157,7 +157,7 @@ func (c *Client) checkComplete(d *Download) {
 
 func (c *Client) PeerPriority(peer netip.AddrPort) uint32 {
 	if peer.Addr().Is4() {
-		localV4 := c.v4Addr.Load()
+		localV4 := c.ipv4.Load()
 		if localV4 == nil {
 			return bep40.SimplePriority(c.randKey, unsafe.Bytes(peer.String()))
 		}
@@ -166,7 +166,7 @@ func (c *Client) PeerPriority(peer netip.AddrPort) uint32 {
 	}
 
 	if peer.Addr().Is6() {
-		localV6 := c.v6Addr.Load()
+		localV6 := c.ipv6.Load()
 		if localV6 == nil {
 			return bep40.SimplePriority(c.randKey, unsafe.Bytes(peer.String()))
 		}

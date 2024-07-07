@@ -168,7 +168,7 @@ type Tracker struct {
 }
 
 func (t *Tracker) req(d *Download) *resty.Request {
-	return d.c.http.R().
+	req := d.c.http.R().
 		SetQueryParam("info_hash", d.info.Hash.AsString()).
 		SetQueryParam("peer_id", d.peerID.AsString()).
 		SetQueryParam("port", strconv.FormatUint(uint64(d.c.Config.App.P2PPort), 10)).
@@ -176,6 +176,16 @@ func (t *Tracker) req(d *Download) *resty.Request {
 		SetQueryParam("uploaded", strconv.FormatInt(d.uploaded.Load()-d.uploadAtStart, 10)).
 		SetQueryParam("downloaded", strconv.FormatInt(d.downloaded.Load()-d.downloadAtStart, 10)).
 		SetQueryParam("left", strconv.FormatInt(d.info.TotalLength-d.completed(), 10))
+
+	if v4 := d.c.ipv4.Load(); v4 != nil {
+		req.SetQueryParam("ipv4", v4.String())
+	}
+
+	if v6 := d.c.ipv4.Load(); v6 != nil {
+		req.SetQueryParam("ipv6", v6.String())
+	}
+
+	return req
 }
 
 func (t *Tracker) announce(d *Download, event string) (AnnounceResult, error) {

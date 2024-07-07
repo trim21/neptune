@@ -34,16 +34,6 @@ var (
 	computedTags     string
 )
 
-// versionInfoTmpl contains the template used by Info.
-var versionInfoTmpl = `
-version:    {{ .version }}
-{{ if .ref -}} ref:        {{.ref}} {{- end }}
-revision:   {{.revision}}
-go version: {{.goVersion}}
-{{ if .buildDate -}} build date: {{.buildDate}} {{- end }}
-{{ if .tags -}} build tags: {{.tags}} {{- end }}
-`
-
 var versionOutput string
 
 // Print returns version information.

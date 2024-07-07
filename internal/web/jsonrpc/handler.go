@@ -194,69 +194,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := w.Write(buf.Bytes()); err != nil {
+	if _, err := w.Write(buf.B); err != nil {
 		h.fail(w, err, CodeInternalError)
 	}
 }
-
-//func (h *Handler) serveBatch(ctx context.Context, w http.ResponseWriter, reqBody []byte) {
-//	var reqs []Request
-//	if err := json.Unmarshal(reqBody, &reqs); err != nil {
-//		h.fail(w, fmt.Errorf("failed to unmarshal request: %w", err), CodeInvalidRequest)
-//
-//		return
-//	}
-//
-//	wg := sync.WaitGroup{}
-//	wg.Add(len(reqs))
-//
-//	resps := make([]*Response, 0, len(reqs))
-//
-//	for _, req := range reqs {
-//		req := req
-//		resp := Response{
-//			JSONRPC: ver,
-//		}
-//
-//		if req.ID != nil {
-//			resp.ID = req.ID
-//			resps = append(resps, &resp)
-//		}
-//
-//		if req.JSONRPC != ver {
-//			resp.Error = &Error{
-//				Code:    CodeInvalidRequest,
-//				Message: fmt.Sprintf("invalid jsonrpc value: %q", req.JSONRPC),
-//			}
-//
-//			continue
-//		}
-//
-//		go func() {
-//			defer wg.Done()
-//
-//			h.invoke(ctx, req, &resp)
-//		}()
-//	}
-//
-//	wg.Wait()
-//
-//	data, err := json.Marshal(resps)
-//	if err != nil {
-//		h.fail(w, err, CodeInternalError)
-//
-//		return
-//	}
-//
-//	if _, err := w.Write(data); err != nil {
-//		h.fail(w, err, CodeInternalError)
-//	}
-//}
-
-//type structuredErrorData struct {
-//	Error   string         `json:"error"`
-//	Context map[string]any `json:"context"`
-//}
 
 func (h *Handler) invoke(ctx context.Context, req Request, resp *Response) {
 	var input, output any
