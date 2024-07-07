@@ -30,8 +30,7 @@ func (c *Client) Start() error {
 
 	go func() {
 		for {
-			time.Sleep(time.Minute)
-
+			time.Sleep(time.Minute * 5)
 			v4, v6, err := util.GetIpAddress()
 			if err != nil {
 				log.Err(err).Msg("failed to get local ip address")
@@ -42,24 +41,18 @@ func (c *Client) Start() error {
 			// But we would write it, so it's safe.
 			if v4 != nil {
 				p := c.ipv4.Load()
-				if p != nil {
-					if p != v4 {
-						log.Info().Msgf("new ipv4 address: %s", v4)
-					}
+				if p == nil || *p == *v4 {
+					log.Info().Msgf("new ipv4 address: %s", v4)
+					c.ipv4.Store(v4)
 				}
-
-				c.ipv4.Store(v4)
 			}
 
 			if v6 != nil {
 				p := c.ipv6.Load()
-				if p != nil {
-					if p != v6 {
-						log.Info().Msgf("new ipv6 address: %s", v6)
-					}
+				if p == nil || *p == *v6 {
+					log.Info().Msgf("new ipv6 address: %s", v6)
+					c.ipv6.Store(v6)
 				}
-
-				c.ipv6.Store(v6)
 			}
 		}
 	}()
