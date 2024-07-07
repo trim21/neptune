@@ -2,6 +2,14 @@
 
 A BitTorrent client
 
+## Install
+
+## Docker
+
+Pre-built docker image `ghcr.io/trim21/tyr`
+
+Full docker compose example can be found at [./docker-compose.yaml](./etc/example/)
+
 ## development
 
 This project use [go-task](https://taskfile.dev/) to manage pre-defined scripts.
