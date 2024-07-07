@@ -23,6 +23,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: go
+          build-mode: manual
 
       - uses: actions/setup-go@v5
         with:
@@ -32,12 +37,6 @@ jobs:
             go.sum
 
       - run: go build -o dist/out
-
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
-        with:
-          languages: go
-          build-mode: manual
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
