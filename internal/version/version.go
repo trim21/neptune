@@ -59,7 +59,7 @@ func Print() string {
 
 func gen() string {
 	Version = fmt.Sprintf("%d.%d.%d", MAJOR, MINOR, PATCH)
-	if Dev {
+	if dev {
 		Version += " (development)"
 	}
 

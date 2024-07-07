@@ -5,12 +5,8 @@
 
 package version
 
-import "fmt"
-
 var MAJOR = 0
 var MINOR = 0
 var PATCH = 1
 
-var UserAgent = fmt.Sprintf("Tyr/%d.%d.%d (https://github.com/trim21/tyr)", MAJOR, MINOR, PATCH)
-
-const Dev = false
+const dev = false
