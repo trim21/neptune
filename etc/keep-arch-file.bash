@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-arch=dpkg --print-architecture
+arch=$(dpkg --print-architecture)
 
 if [[ $arch == "amd64" ]]; then
   mv /usr/local/bin/tyr-amd64 /usr/local/bin/tyr

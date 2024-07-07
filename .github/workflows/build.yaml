@@ -77,7 +77,7 @@ jobs:
 
             type=raw,value=${{ env.SHA }}
 
-      - name: Build amd64
+      - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
