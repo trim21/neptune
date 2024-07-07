@@ -138,7 +138,7 @@ func setupFlagsAndEnvParser() {
 	pflag.Uint16("p2p-port", 50047, "p2p listen port")
 
 	pflag.Bool("log-json", false, "log as json format")
-	pflag.String("log-level", "error", "log level")
+	pflag.String("log-level", "info", "log level")
 	pflag.Bool("log-save-to-file", true, "also write log to {session-path/logs/app.log")
 
 	pflag.Bool("debug", false, "enable debug mode")

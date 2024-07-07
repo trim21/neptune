@@ -12,7 +12,7 @@ services:
       interval: 30s
       timeout: 3s
       retries: 1
-      start_period: 30s
+      start_period: 10s
     volumes:
       # keep this in sync with flood container mount config
       - ./data/tyr/:/var/lib/tyr/
