@@ -56,13 +56,18 @@ tasks:
 
   release:windows:
     internal: true
-    cmd:
-      task: binary
-      vars:
-        GOOS: windows
-        GOARCH: amd64
-        CGO_ENABLED: '0'
-        OUT_PATH: 'dist/tyr_windows_amd64.exe'
+    cmds:
+      - task: binary
+        vars:
+          GOOS: windows
+          GOARCH: amd64
+          OUT_PATH: 'dist/tyr_windows_amd64.exe'
+
+      - task: binary
+        vars:
+          GOOS: windows
+          GOARCH: arm64
+          OUT_PATH: 'dist/tyr_windows_arm64.exe'
 
   release:darwin:
     internal: true
@@ -71,13 +76,11 @@ tasks:
         vars:
           GOOS: darwin
           GOARCH: amd64
-          CGO_ENABLED: '0'
           OUT_PATH: 'dist/tyr_darwin_amd64'
       - task: binary
         vars:
           GOOS: darwin
           GOARCH: arm64
-          CGO_ENABLED: '0'
           OUT_PATH: 'dist/tyr_darwin_arm64'
 
   release:linux:
@@ -87,17 +90,17 @@ tasks:
         vars:
           GOOS: linux
           GOARCH: amd64
-          CGO_ENABLED: '0'
           OUT_PATH: 'dist/tyr_linux_amd64'
       - task: binary
         vars:
           GOOS: linux
           GOARCH: arm64
-          CGO_ENABLED: '0'
           OUT_PATH: 'dist/tyr_linux_arm64'
 
   binary:
     internal: true
+    env:
+      CGO_ENABLED: '0'
     vars:
       REF:
         sh: git describe --first-parent --all
@@ -105,7 +108,6 @@ tasks:
         sh: git rev-parse --short HEAD
     cmds:
       - >-
-        {{ if .CGO_ENABLED }}CGO_ENABLED={{ .CGO_ENABLED }}{{end}}
         {{ if .GOARCH }}GOARCH={{ .GOARCH }}{{ end }}
         {{ if .GOOS }}GOOS={{ .GOOS }}{{ end }}
         go build
