@@ -51,7 +51,6 @@ jobs:
 
             type=ref,event=branch
             type=ref,event=branch,suffix=-{{ sha }}
-            type=ref,event=branch,suffix=-${{ env.SHA }}
 
             type=raw,value=${{ env.SHA }}
 
