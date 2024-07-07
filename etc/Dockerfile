@@ -2,11 +2,9 @@ FROM busybox:1-musl AS builder
 
 FROM debian AS copier
 
-COPY dist/ /dist/
+ARG TARGETARCH
 
-COPY etc/keep-arch-file.bash /keep-arch-file.bash
-
-RUN bash /keep-arch-file.bash
+COPY dist/tyr_linux_$TARGETARCH /dist/tyr
 
 COPY --from=builder /bin/wget /usr/local/bin/wget
 
