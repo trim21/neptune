@@ -84,7 +84,6 @@ jobs:
           push: true
           file: etc/Dockerfile
           platforms: linux/amd64
-          provenance: false
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
@@ -98,6 +97,5 @@ jobs:
           push: true
           file: etc/arm64.Dockerfile
           platforms: linux/arm64
-          provenance: false
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
