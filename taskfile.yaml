@@ -59,7 +59,7 @@ tasks:
     cmd:
       task: binary
       vars:
-        GOOS: darwin
+        GOOS: windows
         GOARCH: arm64
         CGO_ENABLED: '0'
         OUT_PATH: 'dist/tyr_windows_amd64.exe'
