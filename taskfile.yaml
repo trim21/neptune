@@ -49,43 +49,52 @@ tasks:
 
 
   release:
-    deps:
-      - release:windows
-      - release:linux
-      - release:darwin-amd64
-      - release:darwin-arm64
+    cmds:
+      - task: release:linux
+      - task: release:windows
+      - task: release:darwin
 
   release:windows:
-    platforms:
-      - windows
+    internal: true
     cmd:
       task: binary
       vars:
+        GOOS: darwin
+        GOARCH: arm64
+        CGO_ENABLED: '0'
         OUT_PATH: 'dist/tyr_windows_amd64.exe'
 
-  release:darwin-amd64:
-    platforms:
-      - darwin/amd64
-    cmd:
-      task: binary
-      vars:
-        OUT_PATH: 'dist/tyr_darwin_amd64'
-
-  release:darwin-arm64:
-    platforms:
-      - darwin/arm64
-    cmd:
-      task: binary
-      vars:
-        OUT_PATH: 'dist/tyr_darwin_arm64'
+  release:darwin:
+    internal: true
+    cmds:
+      - task: binary
+        vars:
+          GOOS: darwin
+          GOARCH: amd64
+          CGO_ENABLED: '0'
+          OUT_PATH: 'dist/tyr_darwin_amd64'
+      - task: binary
+        vars:
+          GOOS: darwin
+          GOARCH: arm64
+          CGO_ENABLED: '0'
+          OUT_PATH: 'dist/tyr_darwin_arm64'
 
   release:linux:
-    platforms:
-      - linux
-    cmd:
-      task: binary
-      vars:
-        OUT_PATH: 'dist/tyr_linux_amd64'
+    internal: true
+    cmds:
+      - task: binary
+        vars:
+          GOOS: linux
+          GOARCH: amd64
+          CGO_ENABLED: '0'
+          OUT_PATH: 'dist/tyr_linux_amd64'
+      - task: binary
+        vars:
+          GOOS: linux
+          GOARCH: arm64
+          CGO_ENABLED: '0'
+          OUT_PATH: 'dist/tyr_linux_arm64'
 
   binary:
     internal: true
@@ -96,6 +105,9 @@ tasks:
         sh: git rev-parse --short HEAD
     cmds:
       - >-
+        {{ if .GOOS }}GOOS={{ .GOOS }}{{ end }}
+        {{ if .GOARCH }}GOARCH={{ .GOARCH }}{{ end }}
+        {{ if .CGO_ENABLED }}CGO_ENABLED={{ .CGO_ENABLED }}{{end}}
         go build
         -ldflags="-X 'tyr/internal/version.Ref={{ .REF }}' -X 'tyr/internal/version.BuildDate={{ dateInZone "2006-01-02T15:04:05Z07:00" (now) "UTC" }}'" 
         -buildvcs=true {{ .EXTRA_FLAGS }} -trimpath -tags release -o {{ .OUT_PATH }}

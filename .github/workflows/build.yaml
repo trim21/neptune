@@ -13,11 +13,7 @@ env:
 
 jobs:
   binary:
-    runs-on: "${{ matrix.os }}"
-    strategy:
-      matrix:
-        os: [ ubuntu-latest, windows-latest, macos-13, macos-14 ]
-
+    runs-on: "ubuntu-latest"
     steps:
       - uses: actions/checkout@v4
 
@@ -34,12 +30,10 @@ jobs:
             go.sum
 
       - run: task release
-        env:
-          CGO_ENABLED: '0'
 
       - uses: actions/upload-artifact@v4
         with:
-          name: tyr-${{ runner.os }}-${{ runner.arch }}
+          name: tyr
           path: dist
 
   docker:
@@ -53,7 +47,7 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          name: tyr-Linux-X64
+          name: tyr
           path: dist
 
       - run: chmod +x ./dist/*
