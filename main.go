@@ -264,6 +264,9 @@ func setupLogger(sessionPath string) {
 	}
 
 	log.Logger = log.Output(w).Level(logLevel)
+	log.Trace().Msg("enable trace level logging")
+	log.Debug().Msg("enable debug level logging")
+	log.Info().Msg("enable info level logging")
 }
 
 func mustParseConfig(sessionPath string) config.Config {
