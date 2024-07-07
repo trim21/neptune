@@ -58,7 +58,8 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
-          push: false
+          context: .
+          push: true
           file: etc/Dockerfile
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
