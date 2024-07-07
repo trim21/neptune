@@ -12,25 +12,23 @@ tasks:
 
   tools:betteralign:
     internal: true
-    dir: tools
     generates:
-      - ../.bin/betteralign.exe
+      - .bin/betteralign.exe
     sources:
-      - go.mod
-      - go.sum
+      - tools/go.mod
+      - tools/go.sum
     cmds:
-      - go build -o ../.bin/betteralign.exe github.com/dkorunic/betteralign/cmd/betteralign
+      - go build -modfile tools/go.mod -o ./.bin/betteralign.exe github.com/dkorunic/betteralign/cmd/betteralign
 
   tools:gotestsum:
     internal: true
-    dir: tools
     generates:
-      - ../.bin/gotestsum.exe
+      - .bin/gotestsum.exe
     sources:
-      - go.mod
-      - go.sum
+      - tools/go.mod
+      - tools/go.sum
     cmds:
-      - go build -o ../.bin/gotestsum.exe gotest.tools/gotestsum
+      - go build -modfile tools/go.mod -o ./.bin/gotestsum.exe gotest.tools/gotestsum
 
   test:
     deps:
