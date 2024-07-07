@@ -31,6 +31,7 @@ import (
 	"tyr/internal/pkg/global"
 	"tyr/internal/pkg/random"
 	_ "tyr/internal/platform" // deny compile on unsupported platform
+	"tyr/internal/version"
 	"tyr/internal/web"
 )
 
@@ -130,6 +131,18 @@ func main() {
 }
 
 func setupFlagsAndEnvParser() {
+	if slices.Contains(os.Args[1:], "-v") {
+		_, _ = fmt.Fprintln(os.Stderr, version.Version)
+		os.Exit(0)
+		return
+	}
+
+	if slices.Contains(os.Args[1:], "--version") {
+		_, _ = fmt.Fprintln(os.Stderr, version.Print())
+		os.Exit(0)
+		return
+	}
+
 	pflag.String("session-path", "", "client session path (default ~/.tyr/)")
 	pflag.String("config-file", "", "path to config file (default {session-path}/config.toml)")
 
@@ -142,6 +155,9 @@ func setupFlagsAndEnvParser() {
 	pflag.Bool("log-save-to-file", true, "also write log to {session-path/logs/app.log")
 
 	pflag.Bool("debug", false, "enable debug mode")
+
+	pflag.Bool("version", false, "show version")
+	pflag.Bool("v", false, "show version, short")
 
 	// this avoids 'pflag: help requested' error when calling for help message.
 	if slices.Contains(os.Args[1:], "--help") || slices.Contains(os.Args[1:], "-h") {

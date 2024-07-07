@@ -3,9 +3,13 @@
 
 //go:build !release
 
-package global
+package version
 
-const UserAgent = "Tyr/development (https://github.com/trim21/tyr)"
+var MAJOR = 0
+var MINOR = 0
+var PATCH = 0
+
+var UserAgent = "Tyr/development (https://github.com/trim21/tyr)"
 
 var Dev bool = true
 

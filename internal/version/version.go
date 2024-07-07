@@ -18,10 +18,13 @@ package version
 
 import (
 	"bytes"
+	"fmt"
 	"runtime"
 	"runtime/debug"
 	"strings"
 	"text/template"
+
+	"github.com/samber/lo"
 )
 
 // Build information. Populated at build-time.
@@ -30,33 +33,44 @@ var (
 	Revision  string
 	Ref       string
 	BuildDate string
-	GoVersion = runtime.Version()
 	GoOS      = runtime.GOOS
 	GoArch    = runtime.GOARCH
 
 	computedRevision string
 	computedTags     string
-	dirty            bool
 )
 
 // versionInfoTmpl contains the template used by Info.
 var versionInfoTmpl = `
-ref:        {{.ref}}
+version:    {{ .version }}
+{{ if .ref -}} ref:        {{.ref}} {{- end }}
 revision:   {{.revision}}
-build date: {{.buildDate}}
-platform:   {{.platform}}
-build tags: {{.tags}}
+go version: {{.goVersion}}
+{{ if .buildDate -}} build date: {{.buildDate}} {{- end }}
+{{ if .tags -}} build tags: {{.tags}} {{- end }}
 `
+
+var versionOutput string
 
 // Print returns version information.
 func Print() string {
+	return versionOutput
+}
+
+func gen() string {
+	Version = fmt.Sprintf("%d.%d.%d", MAJOR, MINOR, PATCH)
+	if Dev {
+		Version += " (development)"
+	}
+
 	m := map[string]string{
 		"version":   Version,
-		"revision":  GetRevision(),
+		"revision":  getRevision(),
 		"ref":       Ref,
 		"buildDate": BuildDate,
 		"platform":  GoOS + "/" + GoArch,
-		"tags":      GetTags(),
+		"goVersion": runtime.Version(),
+		"tags":      getTags(),
 	}
 	t := template.Must(template.New("version").Parse(versionInfoTmpl))
 
@@ -64,28 +78,36 @@ func Print() string {
 	if err := t.ExecuteTemplate(&buf, "version", m); err != nil {
 		panic(err)
 	}
-	return strings.TrimSpace(buf.String())
+	s := strings.Split(buf.String(), "\n")
+	return strings.Join(lo.Filter(s, func(item string, index int) bool {
+		if item != "" {
+			return true
+		}
+
+		return false
+	}), "\n")
 }
 
-func GetRevision() string {
+func getRevision() string {
 	if Revision != "" {
 		return Revision
 	}
 	return computedRevision
 }
 
-func GetTags() string {
+func getTags() string {
 	return computedTags
 }
 
 func init() {
 	computedRevision, computedTags = computeRevision()
+	versionOutput = gen()
 }
 
 func computeRevision() (string, string) {
 	var (
-		rev      = "unknown"
-		tags     = "unknown"
+		rev      = "<unknown>"
+		tags     = ""
 		modified bool
 	)
 
@@ -106,9 +128,10 @@ func computeRevision() (string, string) {
 			tags = v.Value
 		}
 	}
+
 	if modified {
-		dirty = true
 		return rev + "-modified", tags
 	}
+
 	return rev, tags
 }

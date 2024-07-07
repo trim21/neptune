@@ -28,9 +28,9 @@ import (
 	"tyr/internal/pkg/bm"
 	"tyr/internal/pkg/empty"
 	"tyr/internal/pkg/flowrate"
-	"tyr/internal/pkg/global"
 	"tyr/internal/pkg/unsafe"
 	"tyr/internal/proto"
+	"tyr/internal/version"
 )
 
 type PeerID [20]byte
@@ -48,8 +48,10 @@ func (i PeerID) Zero() bool {
 var peerIDChars = []byte("0123456789abcdefghijklmnopqrstuvwxyz" +
 	"ABCDEFGHIJKLMNOPQRSTUVWXYZ!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~")
 
+var peerIDPrefix = fmt.Sprintf("-TY%x%x%x0-", version.MAJOR, version.MINOR, version.PATCH)
+
 func NewPeerID() (peerID PeerID) {
-	copy(peerID[:], global.PeerIDPrefix)
+	copy(peerID[:], peerIDPrefix)
 	copy(peerID[8:], uniuri.NewLenCharsBytes(12, peerIDChars))
 	return
 }

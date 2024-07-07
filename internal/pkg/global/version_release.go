@@ -5,12 +5,12 @@
 
 package global
 
-import "fmt"
+import (
+	"fmt"
 
-var MAJOR = 0
-var MINOR = 0
-var PATCH = 0
+	"tyr/internal/version"
+)
 
-var UserAgent = fmt.Sprintf("Tyr/%d.%d.%d (https://github.com/trim21/tyr)", MAJOR, MINOR, PATCH)
+var UserAgent = fmt.Sprintf("Tyr/%d.%d.%d (https://github.com/trim21/tyr)", version.MAJOR, version.MINOR, version.PATCH)
 
 const Dev = false

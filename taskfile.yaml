@@ -60,7 +60,7 @@ tasks:
       task: binary
       vars:
         GOOS: windows
-        GOARCH: arm64
+        GOARCH: amd64
         CGO_ENABLED: '0'
         OUT_PATH: 'dist/tyr_windows_amd64.exe'
 
@@ -100,7 +100,7 @@ tasks:
     internal: true
     vars:
       REF:
-        sh: git describe --dirty=' (dirty)' --first-parent --all
+        sh: git describe --first-parent --all
       SHA:
         sh: git rev-parse --short HEAD
     cmds:
@@ -136,7 +136,7 @@ tasks:
     dotenv:
       - .env
     cmds:
-      - go build -o dist/dev/tmp.exe
+      - go build -trimpath -o dist/dev/tmp.exe
       #
       - cmd: |
           until rm dist/dev/server.exe -rf && cp dist/dev/tmp.exe dist/dev/tyr.exe
