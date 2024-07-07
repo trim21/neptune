@@ -1,6 +1,6 @@
 FROM busybox:1-musl AS builder
 
-FROM debian:slim AS copier
+FROM debian AS copier
 
 COPY dist/ /dist/
 #COPY dist/tyr_linux_arm64 /usr/local/bin/tyr-arm64
