@@ -1,0 +1,27 @@
+services:
+  tyr:
+    image: ghcr.io/trim21/tyr
+    environment:
+      TYR_WEB_SECRET_TOKEN: a-random-token
+      TYR_SESSION_PATH: '/var/lib/tyr'
+      TYR_CONFIG_FILE: '/var/lib/config/tyr.toml'
+    network_mode: host
+    volumes:
+      # keep this in sync with flood container mount config
+      - ./data/tyr/:/var/lib/tyr/
+
+      # keep this in sync with flood container mount config
+      - ./data/downloads/:/downloads/
+
+      - ./config.toml:/var/lib/config/tyr.toml:ro
+
+#  flood:
+#    image: 'jesec/flood:latest'
+#    ports:
+#      - 3000:3000
+#    volumes:
+#      # keep this in sync with tyr container mount config
+#      - ./data/tyr/:/var/lib/tyr/
+#
+#      # keep this in sync with tyr container mount config
+#      - ./data/downloads/:/downloads/
