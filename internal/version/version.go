@@ -17,14 +17,10 @@
 package version
 
 import (
-	"bytes"
 	"fmt"
 	"runtime"
 	"runtime/debug"
 	"strings"
-	"text/template"
-
-	"github.com/samber/lo"
 )
 
 // Build information. Populated at build-time.
@@ -33,8 +29,6 @@ var (
 	Revision  string
 	Ref       string
 	BuildDate string
-	GoOS      = runtime.GOOS
-	GoArch    = runtime.GOARCH
 
 	computedRevision string
 	computedTags     string
@@ -63,29 +57,23 @@ func gen() string {
 		Version += " (development)"
 	}
 
-	m := map[string]string{
-		"version":   Version,
-		"revision":  getRevision(),
-		"ref":       Ref,
-		"buildDate": BuildDate,
-		"platform":  GoOS + "/" + GoArch,
-		"goVersion": runtime.Version(),
-		"tags":      getTags(),
+	var s = &strings.Builder{}
+	fmt.Fprintf(s, "version:    %s\n", Version)
+	if Ref != "" {
+		fmt.Fprintf(s, "ref:        %s\n", Ref)
 	}
-	t := template.Must(template.New("version").Parse(versionInfoTmpl))
+	fmt.Fprintf(s, "revision:   %s\n", getRevision())
+	fmt.Fprintf(s, "go version: %s\n", runtime.Version())
 
-	var buf bytes.Buffer
-	if err := t.ExecuteTemplate(&buf, "version", m); err != nil {
-		panic(err)
+	if BuildDate != "" {
+		fmt.Fprintf(s, "build date: %s\n", BuildDate)
 	}
-	s := strings.Split(buf.String(), "\n")
-	return strings.Join(lo.Filter(s, func(item string, index int) bool {
-		if item != "" {
-			return true
-		}
 
-		return false
-	}), "\n")
+	if computedTags != "" {
+		fmt.Fprintf(s, "build tags: %s\n", computedTags)
+	}
+
+	return strings.TrimSpace(s.String())
 }
 
 func getRevision() string {
@@ -93,10 +81,6 @@ func getRevision() string {
 		return Revision
 	}
 	return computedRevision
-}
-
-func getTags() string {
-	return computedTags
 }
 
 func init() {

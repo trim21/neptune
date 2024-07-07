@@ -148,10 +148,10 @@ tasks:
 
   dev:release:
     deps:
-      - build
+      - release:windows
     cmds:
-      - cp dist/tyr.exe dist/tmp/release.exe
-      - dist/tmp/release.exe --web 127.0.0.1:8002
+      - cp dist/tyr_windows_amd64.exe dist/dev/release.exe
+      - dist/dev/release.exe --web 127.0.0.1:8002 --debug
 
   pprof:
     cmds:
