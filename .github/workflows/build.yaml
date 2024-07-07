@@ -83,6 +83,21 @@ jobs:
           context: .
           push: true
           file: etc/Dockerfile
+          platforms: linux/amd64
+          provenance: false
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          file: etc/arm64.Dockerfile
+          platforms: linux/arm64
           provenance: false
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
