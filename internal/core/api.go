@@ -130,8 +130,8 @@ func (c *Client) AddTorrent(m *metainfo.MetaInfo, info meta.Info, downloadPath s
 }
 
 type TorrentFile struct {
-	Index    int      `json:"index"`
 	Path     []string `json:"path"`
+	Index    int      `json:"index"`
 	Progress float64  `json:"progress"`
 	Size     int64    `json:"size"`
 }
