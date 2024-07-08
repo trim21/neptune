@@ -1,0 +1,22 @@
+[Unit]
+Description=Tyr service for %I
+
+After=network-online.target
+
+# need local filesystem mounted
+After=local-fs.target
+
+[Service]
+User=downloads
+Group=downloads
+
+Type=simple
+KillMode=process
+KillSignal=SIGHUP
+
+ExecStart=/usr/bin/env tyr
+
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
