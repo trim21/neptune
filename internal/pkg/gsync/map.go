@@ -46,6 +46,8 @@ func (m *Map[K, V]) LoadOrStore(k K, v V) (V, bool) {
 		return vv.(V), exists
 	}
 
+	m.count.Inc()
+
 	var zero V
 	return zero, false
 }
@@ -53,6 +55,7 @@ func (m *Map[K, V]) LoadOrStore(k K, v V) (V, bool) {
 func (m *Map[K, V]) LoadAndDelete(k K) (v V, ok bool) {
 	previous, e := m.m.LoadAndDelete(k)
 	if e {
+		m.count.Dec()
 		return previous.(V), true
 	}
 
