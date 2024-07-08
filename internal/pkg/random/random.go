@@ -9,11 +9,11 @@ import (
 	"fmt"
 	"io"
 
-	"tyr/internal/pkg/pool"
+	"tyr/internal/pkg/gsync"
 	"tyr/internal/pkg/unsafe"
 )
 
-var p = pool.New(func() *bufio.Reader {
+var p = gsync.NewPool(func() *bufio.Reader {
 	return bufio.NewReader(rand.Reader)
 })
 
