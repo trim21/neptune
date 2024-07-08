@@ -173,10 +173,6 @@ func (p *Peer) Response(res proto.ChunkResponse) {
 }
 
 func (p *Peer) Request(req proto.ChunkRequest) {
-	if p.requests.Size() > int(p.QueueLimit.Load()) {
-		return
-	}
-
 	_, exist := p.requests.LoadOrStore(req, empty.Empty{})
 	if exist {
 		p.log.Trace().Msg("requests already sent")
