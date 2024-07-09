@@ -45,7 +45,6 @@ tasks:
     dir: tools
     cmd: go mod tidy
 
-
   release:
     cmds:
       - task: release:linux
@@ -133,12 +132,10 @@ tasks:
       - go.mod
       - go.sum
       - "**/*.go"
-    env:
-      CGO_ENABLED: '0'
     dotenv:
       - .env
     cmds:
-      - go build -trimpath -o dist/dev/tmp.exe
+      - go build -trimpath -race -o dist/dev/tmp.exe
       #
       - cmd: |
           until rm dist/dev/server.exe -rf && cp dist/dev/tmp.exe dist/dev/tyr.exe

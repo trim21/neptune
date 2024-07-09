@@ -74,8 +74,10 @@ func (d *Download) Init() {
 func (d *Download) startBackground() {
 	d.log.Trace().Msg("start goroutine")
 
-	go d.backgroundReqHandle()
+	go d.backgroundReqScheduler()
 	go d.backgroundResHandler()
+
+	go d.backgroundReqHandler()
 
 	go func() {
 		for {
@@ -158,6 +160,7 @@ func (p *PriorityQueue) Pop() Priority {
 
 func (d *Download) backgroundResHandler() {
 	for {
+		d.wait(Downloading)
 		select {
 		case <-d.ctx.Done():
 			return
@@ -169,34 +172,14 @@ func (d *Download) backgroundResHandler() {
 
 func (d *Download) openFile(fileIndex int) (*filepool.File, error) {
 	p := filepath.Join(d.basePath, d.info.Files[fileIndex].Path)
-	err := os.MkdirAll(filepath.Dir(p), os.ModePerm)
-	if err != nil {
-		return nil, err
+
+	// only try to create directory if we are not seeding.
+	if d.GetState() != Seeding {
+		err := os.MkdirAll(filepath.Dir(p), os.ModePerm)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return filepool.Open(p, os.O_RDWR|os.O_CREATE, os.ModePerm, time.Hour)
-}
-
-func (d *Download) readPiece(index uint32) ([]byte, error) {
-	pieces := d.pieceInfo[index]
-	var buf = make([]byte, d.pieceLength(index))
-
-	var offset int64 = 0
-	for _, chunk := range pieces.fileChunks {
-		f, err := d.openFile(chunk.fileIndex)
-		if err != nil {
-			return nil, err
-		}
-
-		_, err = f.File.ReadAt(buf[offset:offset+chunk.length], chunk.offsetOfFile)
-		if err != nil {
-			f.Release()
-			return nil, err
-		}
-
-		offset += chunk.length
-		f.Release()
-	}
-
-	return buf, nil
 }

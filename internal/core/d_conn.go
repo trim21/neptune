@@ -21,7 +21,7 @@ func (d *Download) AddConn(addr netip.AddrPort, conn net.Conn, h proto.Handshake
 	//d.connMutex.Lock()
 	//defer d.connMutex.Unlock()
 	d.connectionHistory.Store(addr, connHistory{})
-	d.conn.Store(addr, NewIncomingPeer(conn, d, addr, h))
+	NewIncomingPeer(conn, d, addr, h)
 }
 
 func (d *Download) connectToPeers() {
@@ -30,7 +30,7 @@ func (d *Download) connectToPeers() {
 
 	for d.peers.Len() > 0 {
 		// try connecting first
-		pp := d.peers.Peek()
+		pp := d.peers.Pop()
 
 		if item := d.c.ch.Get(pp.addrPort); item != nil {
 			ch := item.Value()
@@ -43,7 +43,6 @@ func (d *Download) connectToPeers() {
 		}
 
 		if _, ok := d.conn.Load(pp.addrPort); ok {
-			d.peers.Pop()
 			continue
 		}
 
@@ -51,9 +50,6 @@ func (d *Download) connectToPeers() {
 			break
 		}
 		d.c.connectionCount.Add(1)
-
-		// actually remove it
-		d.peers.Pop()
 
 		tasks.Submit(func() {
 			ch := connHistory{lastTry: time.Now()}
@@ -77,7 +73,7 @@ func (d *Download) connectToPeers() {
 			}
 
 			if d.c.mseDisabled {
-				d.conn.Store(pp.addrPort, NewOutgoingPeer(conn, d, pp.addrPort))
+				NewOutgoingPeer(conn, d, pp.addrPort)
 				return
 			}
 
@@ -89,7 +85,7 @@ func (d *Download) connectToPeers() {
 				return
 			}
 
-			d.conn.Store(pp.addrPort, NewOutgoingPeer(rwc, d, pp.addrPort))
+			NewOutgoingPeer(rwc, d, pp.addrPort)
 		})
 	}
 }

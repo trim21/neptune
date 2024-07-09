@@ -64,3 +64,8 @@ type File struct {
 func (f *File) Release() {
 	pool.Add(f.key, f)
 }
+
+func (f *File) Close() {
+	pool.Remove(f.key)
+	_ = f.File.Close()
+}

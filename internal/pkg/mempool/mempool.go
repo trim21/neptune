@@ -7,7 +7,9 @@ import (
 	"github.com/valyala/bytebufferpool"
 )
 
-func GetWithCap(size int) *bytebufferpool.ByteBuffer {
+type Buffer = bytebufferpool.ByteBuffer
+
+func GetWithCap(size int) *Buffer {
 	buf := bytebufferpool.Get()
 
 	if cap(buf.B) < size {
@@ -17,10 +19,10 @@ func GetWithCap(size int) *bytebufferpool.ByteBuffer {
 	return buf
 }
 
-func Get() *bytebufferpool.ByteBuffer {
+func Get() *Buffer {
 	return bytebufferpool.Get()
 }
 
-func Put(b *bytebufferpool.ByteBuffer) {
+func Put(b *Buffer) {
 	bytebufferpool.Put(b)
 }

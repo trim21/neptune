@@ -34,12 +34,12 @@ import (
 type State uint8
 
 //go:generate stringer -type=State
-const Stopped State = 0
-const Downloading State = 1
-const Seeding State = 2
-const Checking State = 3
-const Moving State = 4
-const Error State = 5
+const Stopped State = 1
+const Downloading State = 1 << 1
+const Seeding State = 1 << 2
+const Checking State = 1 << 3
+const Moving State = 1 << 4
+const Error State = 1 << 5
 
 // Download manage a download task
 // ctx should be canceled when torrent is removed, not stopped.
@@ -93,6 +93,19 @@ func (d *Download) GetState() State {
 	s := d.state
 	d.m.RUnlock()
 	return s
+}
+
+func (d *Download) wait(state State) {
+	d.m.Lock()
+	for {
+		if d.state&state == 0 {
+			d.cond.Wait()
+			continue
+		}
+
+		break
+	}
+	d.m.Unlock()
 }
 
 var ErrTorrentNotFound = errors.New("torrent not found")
@@ -161,9 +174,13 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 		d.seq.Store(true)
 		d.peersMutex.Lock()
 		if global.IsWindows {
+			//d.peers.Push(peerWithPriority{
+			//	addrPort: netip.MustParseAddrPort("192.168.1.3:6885"),
+			//	priority: 1,
+			//})
 			d.peers.Push(peerWithPriority{
-				addrPort: netip.MustParseAddrPort("192.168.1.3:6885"),
-				priority: math.MaxUint32,
+				addrPort: netip.MustParseAddrPort("127.0.0.1:51343"),
+				priority: 2,
 			})
 		}
 

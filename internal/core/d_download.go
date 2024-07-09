@@ -109,14 +109,15 @@ func (d *Download) writePieceToDisk(pieceIndex uint32, chunks []*proto.ChunkResp
 				d.setError(err)
 				return
 			}
-			defer f.Release()
 
 			_, err = f.File.WriteAt(buf.B[offset:offset+chunk.length], chunk.offsetOfFile)
 			if err != nil {
+				f.Close()
 				d.setError(err)
 				return
 			}
 
+			f.Release()
 			offset += chunk.length
 		}
 
@@ -146,7 +147,7 @@ func (d *Download) writePieceToDisk(pieceIndex uint32, chunks []*proto.ChunkResp
 	})
 }
 
-func (d *Download) backgroundReqHandle() {
+func (d *Download) backgroundReqScheduler() {
 	for {
 		select {
 		case <-d.ctx.Done():
@@ -168,7 +169,7 @@ func (d *Download) backgroundReqHandle() {
 			}
 			d.m.Unlock()
 
-			//d.log.Debug().Msg("backgroundReqHandle")
+			//d.log.Debug().Msg("backgroundReqScheduler")
 
 			//weight := avaPool.Get()
 
@@ -230,7 +231,7 @@ func (d *Download) scheduleSeq() {
 				return true
 			}
 
-			if p.requests.Size() >= int(p.QueueLimit.Load())/2 {
+			if p.myRequests.Size() >= int(p.QueueLimit.Load())/2 {
 				return true
 			}
 
@@ -243,7 +244,7 @@ func (d *Download) scheduleSeq() {
 
 			for i := 0; i < chunkLen; i++ {
 				req := pieceChunk(d.info, index, i)
-				//_, exist := p.requestHistory.LoadOrStore(req, empty.Empty{})
+				//_, exist := p.myRequestHistory.LoadOrStore(req, empty.Empty{})
 				//if exist {
 				//	continue
 				//}

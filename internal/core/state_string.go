@@ -8,21 +8,40 @@ func _() {
 	// An "invalid array index" compiler error signifies that the constant values have changed.
 	// Re-run the stringer command to generate them again.
 	var x [1]struct{}
-	_ = x[Stopped-0]
-	_ = x[Downloading-1]
-	_ = x[Seeding-2]
-	_ = x[Checking-3]
-	_ = x[Moving-4]
-	_ = x[Error-5]
+	_ = x[Stopped-1]
+	_ = x[Downloading-2]
+	_ = x[Seeding-4]
+	_ = x[Checking-8]
+	_ = x[Moving-16]
+	_ = x[Error-32]
 }
 
-const _State_name = "StoppedDownloadingSeedingCheckingMovingError"
+const (
+	_State_name_0 = "StoppedDownloading"
+	_State_name_1 = "Seeding"
+	_State_name_2 = "Checking"
+	_State_name_3 = "Moving"
+	_State_name_4 = "Error"
+)
 
-var _State_index = [...]uint8{0, 7, 18, 25, 33, 39, 44}
+var (
+	_State_index_0 = [...]uint8{0, 7, 18}
+)
 
 func (i State) String() string {
-	if i >= State(len(_State_index)-1) {
+	switch {
+	case 1 <= i && i <= 2:
+		i -= 1
+		return _State_name_0[_State_index_0[i]:_State_index_0[i+1]]
+	case i == 4:
+		return _State_name_1
+	case i == 8:
+		return _State_name_2
+	case i == 16:
+		return _State_name_3
+	case i == 32:
+		return _State_name_4
+	default:
 		return "State(" + strconv.FormatInt(int64(i), 10) + ")"
 	}
-	return _State_name[_State_index[i]:_State_index[i+1]]
 }

@@ -279,7 +279,17 @@ func setupLogger(sessionPath string) {
 		w = zerolog.MultiLevelWriter(rotation, w)
 	}
 
-	log.Logger = log.Output(w).Level(logLevel)
+	zerolog.ErrorStackMarshaler = func(err error) any {
+		f, ok := err.(fmt.Formatter)
+		if ok {
+			return fmt.Sprintf("%+v", f)
+		}
+
+		return err
+	}
+
+	log.Logger = log.Output(w).Level(logLevel).With().Stack().Logger()
+
 	log.Trace().Msg("enable trace level logging")
 	log.Debug().Msg("enable debug level logging")
 	log.Info().Msg("enable info level logging")

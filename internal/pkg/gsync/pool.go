@@ -11,7 +11,6 @@ type Pool[T any] struct {
 	pool sync.Pool
 }
 
-//nolint:forcetypeassert
 func (p *Pool[T]) Get() T {
 	return p.pool.Get().(T)
 }

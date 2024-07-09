@@ -28,6 +28,11 @@ type existingFile struct {
 }
 
 func (d *Download) initCheck() error {
+	if global.Dev {
+		d.bm.Fill()
+		return nil
+	}
+
 	d.log.Debug().Msg("initCheck")
 	if err := os.MkdirAll(d.basePath, os.ModePerm); err != nil {
 		return err
@@ -63,14 +68,14 @@ func (d *Download) initCheck() error {
 	}
 
 	for _, pieceIndex := range h {
+		select {
+		case <-d.ctx.Done():
+			return d.ctx.Err()
+		default:
+		}
+
 		piece := d.pieceInfo[pieceIndex]
 		for _, chunk := range piece.fileChunks {
-			select {
-			case <-d.ctx.Done():
-				return d.ctx.Err()
-			default:
-			}
-
 			f, err := d.openFile(chunk.fileIndex)
 			if err != nil {
 				return errgo.Wrap(err, fmt.Sprintf("failed to open file %q", filepath.Join(d.basePath, d.info.Files[chunk.fileIndex].Path)))
@@ -78,7 +83,7 @@ func (d *Download) initCheck() error {
 
 			_, err = d.ioDown.IO64(gfs.CopyReaderAt(w, f.File, chunk.offsetOfFile, chunk.length))
 			if err != nil {
-				f.Release()
+				f.Close()
 				return errgo.Wrap(err, fmt.Sprintf("failed to read file %s", f.File.Name()))
 			}
 
