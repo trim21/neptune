@@ -34,12 +34,14 @@ import (
 type State uint8
 
 //go:generate stringer -type=State
-const Stopped State = 1
-const Downloading State = 1 << 1
-const Seeding State = 1 << 2
-const Checking State = 1 << 3
-const Moving State = 1 << 4
-const Error State = 1 << 5
+const (
+	Stopped     State = 1 << 0
+	Downloading State = 1 << 1
+	Seeding     State = 1 << 2
+	Checking    State = 1 << 3
+	Moving      State = 1 << 4
+	Error       State = 1 << 5
+)
 
 // Download manage a download task
 // ctx should be canceled when torrent is removed, not stopped.
