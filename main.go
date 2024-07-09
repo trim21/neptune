@@ -290,9 +290,14 @@ func setupLogger(sessionPath string) {
 
 	log.Logger = log.Output(w).Level(logLevel).With().Stack().Logger()
 
-	log.Trace().Msg("enable trace level logging")
-	log.Debug().Msg("enable debug level logging")
-	log.Info().Msg("enable info level logging")
+	switch {
+	case log.Trace().Enabled():
+		log.Trace().Msg("enable trace level logging")
+	case log.Debug().Enabled():
+		log.Debug().Msg("enable debug level logging")
+	case log.Info().Enabled():
+		log.Info().Msg("enable info level logging")
+	}
 }
 
 func mustParseConfig(sessionPath string) config.Config {
