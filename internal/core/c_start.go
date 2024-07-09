@@ -9,11 +9,13 @@ import (
 	"net/netip"
 	"time"
 
+	"github.com/mwitkow/go-conntrack"
 	"github.com/rs/zerolog/log"
 	"github.com/samber/lo"
 	"github.com/trim21/errgo"
 
 	"tyr/internal/mse"
+	"tyr/internal/pkg/global"
 	"tyr/internal/pkg/global/tasks"
 	"tyr/internal/proto"
 	"tyr/internal/util"
@@ -74,11 +76,23 @@ func (c *Client) Start() error {
 }
 
 func (c *Client) startListen() error {
-	var lc net.ListenConfig
+	var lc = net.ListenConfig{
+		Control:   nil,
+		KeepAlive: time.Minute,
+	}
+
 	l, err := lc.Listen(c.ctx, "tcp", fmt.Sprintf(":%d", c.Config.App.P2PPort))
 	if err != nil {
 		return errgo.Wrap(err, "failed to listen on p2p port")
 	}
+
+	// add x/net/trace only in debug mode
+	if c.debug {
+		l = conntrack.NewListener(l, conntrack.TrackWithTracing(), conntrack.TrackWithName("p2p"))
+	} else {
+		l = conntrack.NewListener(l, conntrack.TrackWithName("p2p"))
+	}
+
 	go func() {
 		for {
 			// it may only return timeout error, so we can ignore this
@@ -93,6 +107,8 @@ func (c *Client) startListen() error {
 				_ = conn.Close()
 				continue
 			}
+
+			_ = conn.SetDeadline(time.Now().Add(global.ConnTimeout))
 
 			c.connectionCount.Add(1)
 			if c.mseDisabled {

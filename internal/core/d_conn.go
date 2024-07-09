@@ -16,6 +16,13 @@ import (
 	"tyr/internal/proto"
 )
 
+type connHistory struct {
+	lastTry   time.Time
+	err       error
+	timeout   bool
+	connected bool
+}
+
 // AddConn add an incoming connection from client listener
 func (d *Download) AddConn(addr netip.AddrPort, conn net.Conn, h proto.Handshake) {
 	//d.connMutex.Lock()
@@ -60,7 +67,7 @@ func (d *Download) connectToPeers() {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 			defer cancel()
 
-			conn, err := global.Dialer.DialContext(ctx, "tcp", pp.addrPort.String())
+			conn, err := global.Dial(ctx, "tcp", pp.addrPort.String())
 			if err != nil {
 				if errors.Is(err, context.DeadlineExceeded) {
 					ch.timeout = true
@@ -71,6 +78,8 @@ func (d *Download) connectToPeers() {
 				d.c.connectionCount.Sub(1)
 				return
 			}
+
+			_ = conn.SetDeadline(time.Now().Add(global.ConnTimeout))
 
 			if d.c.mseDisabled {
 				NewOutgoingPeer(conn, d, pp.addrPort)

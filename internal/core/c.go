@@ -15,6 +15,7 @@ import (
 
 	"github.com/go-resty/resty/v2"
 	"github.com/jellydator/ttlcache/v3"
+	"github.com/mwitkow/go-conntrack"
 	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/atomic"
 	"golang.org/x/sync/semaphore"
@@ -30,15 +31,7 @@ import (
 	"tyr/internal/util"
 )
 
-func New(cfg config.Config, sessionPath string) *Client {
-	tr := &http.Transport{
-		MaxIdleConns:       cfg.App.MaxHTTPParallel,
-		IdleConnTimeout:    30 * time.Second,
-		DisableCompression: true,
-	}
-
-	hc := &http.Client{Transport: tr}
-
+func New(cfg config.Config, sessionPath string, debug bool) *Client {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	var mseDisabled bool
@@ -67,7 +60,14 @@ func New(cfg config.Config, sessionPath string) *Client {
 		checkQueue:  make([]metainfo.Hash, 0, 3),
 		downloadMap: make(map[metainfo.Hash]*Download),
 		connChan:    make(chan incomingConn, 1),
-		http:        resty.NewWithClient(hc).SetHeader("User-Agent", global.UserAgent).SetRedirectPolicy(resty.NoRedirectPolicy()),
+
+		http: resty.NewWithClient(&http.Client{Transport: &http.Transport{
+			MaxIdleConns:       cfg.App.MaxHTTPParallel,
+			IdleConnTimeout:    30 * time.Second,
+			DisableCompression: true,
+			DialContext:        conntrack.NewDialContextFunc(conntrack.DialWithName("http")),
+		}}).SetHeader("User-Agent", global.UserAgent).SetRedirectPolicy(resty.NoRedirectPolicy()),
+
 		mseDisabled: mseDisabled,
 		mseSelector: mseSelector,
 		sessionPath: sessionPath,
@@ -75,6 +75,7 @@ func New(cfg config.Config, sessionPath string) *Client {
 		randKey:     random.Bytes(32),
 		ipv4:        *atomic.NewPointer(v4),
 		ipv6:        *atomic.NewPointer(v6),
+		debug:       debug,
 	}
 }
 
@@ -119,6 +120,7 @@ type Client struct {
 	checkQueueLock  sync.Mutex
 	fLock           sync.Mutex
 	mseDisabled     bool
+	debug           bool
 }
 
 type DownloadInfo struct {

@@ -4,22 +4,30 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/gofrs/flock"
+	"github.com/mwitkow/go-conntrack"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/samber/lo"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
+	"github.com/trim21/errgo"
 	"go.uber.org/automaxprocs/maxprocs"
 	"gopkg.in/natefinch/lumberjack.v2"
 
@@ -37,6 +45,7 @@ import (
 
 func main() {
 	setupFlagsAndEnvParser()
+	setupMetrics()
 
 	debug := viper.GetBool("debug")
 	if debug {
@@ -47,6 +56,8 @@ func main() {
 	sessionPath := mustGetSessionPath()
 
 	createSessionDirectory(sessionPath)
+
+	global.Init(debug)
 
 	fileLock := mustLockSessionDirectory(filepath.Join(sessionPath, ".lock"))
 	// We do not actually need to unlock it, when process dead, OS will unlock it automatically.
@@ -74,29 +85,17 @@ func main() {
 		}
 	}
 
-	app := core.New(cfg, sessionPath)
+	var lc net.ListenConfig
+	listener, err := lc.Listen(context.Background(), "tcp", address)
+	if err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, "failed to start heep server")
+		os.Exit(1)
+	}
+
+	app := core.New(cfg, sessionPath, debug)
 
 	if e := app.Start(); e != nil {
 		errExit("failed to listen on p2p port", e)
-	}
-
-	//{
-	//	m := lo.Must(metainfo.LoadFromFile(`C:\Users\Trim21\Downloads\ubuntu-24.04-desktop-amd64.iso.torrent.patched`))
-	//	lo.Must0(app.AddTorrent(m, lo.Must(meta.FromTorrent(*m)), "D:\\Downloads\\ubuntu", nil))
-	//}
-
-	if global.Dev {
-		if global.IsWindows {
-			//lo.Must0(os.RemoveAll("D:\\downloads\\2"))
-			m := lo.Must(metainfo.LoadFromFile(`C:\Users\Trim21\Downloads\2.torrent`))
-			lo.Must0(app.AddTorrent(m, lo.Must(meta.FromTorrent(*m)), "D:\\Downloads\\2", []string{}))
-		}
-
-		if global.IsLinux {
-			lo.Must0(os.RemoveAll("/export/ssd-2t/try/2"))
-			m := lo.Must(metainfo.LoadFromFile(`/export/ssd-2t/2.torrent`))
-			lo.Must0(app.AddTorrent(m, lo.Must(meta.FromTorrent(*m)), "/export/ssd-2t/try/2", nil))
-		}
 	}
 
 	var done = make(chan empty.Empty)
@@ -104,7 +103,12 @@ func main() {
 	go func() {
 		server := web.New(app, webToken, debug)
 		fmt.Println("start", "http://"+address)
-		if err := http.ListenAndServe(address, server); err != nil {
+
+		if debug {
+			listener = conntrack.NewListener(listener, conntrack.TrackWithTracing(), conntrack.TrackWithName("rpc"))
+		}
+
+		if err := http.Serve(listener, server); err != nil {
 			_, _ = fmt.Fprintln(os.Stderr, err)
 		}
 		done <- empty.Empty{}
@@ -125,9 +129,54 @@ func main() {
 		done <- empty.Empty{}
 	}()
 
+	if global.Dev {
+		log.Debug().Msg("add debug torrent")
+		if global.IsWindows {
+			lo.Must0(os.RemoveAll("D:\\downloads\\2"))
+			m := lo.Must(metainfo.LoadFromFile(`C:\Users\Trim21\Downloads\2.torrent`))
+			lo.Must0(app.AddTorrent(m, lo.Must(meta.FromTorrent(*m)), "D:\\Downloads\\2", []string{}))
+		}
+
+		if global.IsLinux {
+			lo.Must0(os.RemoveAll("/export/ssd-2t/try/2"))
+			m := lo.Must(metainfo.LoadFromFile(`/export/ssd-2t/2.torrent`))
+			lo.Must0(app.AddTorrent(m, lo.Must(meta.FromTorrent(*m)), "/export/ssd-2t/try/2", nil))
+		}
+	}
+
 	<-done
 	fmt.Println("shutting down...")
 	app.Shutdown()
+}
+
+func setupMetrics() {
+	// Make sure all outbound connections use the wrapped dialer.
+	http.DefaultTransport = &http.Transport{DialContext: conntrack.NewDialContextFunc(
+		conntrack.DialWithTracing(),
+		conntrack.DialWithDialer(&net.Dialer{
+			Timeout:   10 * time.Second,
+			KeepAlive: 10 * time.Second,
+		}),
+	)}
+
+	if prometheus.Unregister(collectors.NewGoCollector()) {
+		// https://pkg.go.dev/runtime/metrics
+		prometheus.MustRegister(collectors.NewGoCollector(
+			collectors.WithGoCollectorRuntimeMetrics(
+				//collectors.MetricsAll,
+				//collectors.GoRuntimeMetricsRule{},
+
+				collectors.MetricsGC,
+				collectors.MetricsMemory,
+				collectors.MetricsScheduler,
+				collectors.GoRuntimeMetricsRule{Matcher: regexp.MustCompile("^/cgo/.*")},
+			),
+			//collectors.WithoutGoCollectorRuntimeMetrics(
+			//	regexp.MustCompile("^/godebug/.*"),
+			//	regexp.MustCompile("^/cpu/.*"),
+			//),
+		))
+	}
 }
 
 func setupFlagsAndEnvParser() {
@@ -280,9 +329,9 @@ func setupLogger(sessionPath string) {
 	}
 
 	zerolog.ErrorStackMarshaler = func(err error) any {
-		f, ok := err.(fmt.Formatter)
+		s, ok := err.(errgo.Stack)
 		if ok {
-			return fmt.Sprintf("%+v", f)
+			return s.Stack()
 		}
 
 		return err

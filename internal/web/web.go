@@ -18,6 +18,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/swaggest/openapi-go"
 	"github.com/swaggest/usecase"
+	"golang.org/x/net/trace"
 
 	"tyr/internal/core"
 	"tyr/internal/version"
@@ -79,6 +80,11 @@ func New(c *core.Client, token string, enableDebug bool) http.Handler {
 				_, _ = fmt.Fprintln(w, version.Print())
 			})
 		}
+
+		//r.HandleFunc("/debug/requests", trace.Traces)
+
+		r.HandleFunc("/debug/events", trace.Events)
+
 		r.Mount("/debug", middleware.Profiler())
 	}
 

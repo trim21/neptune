@@ -252,9 +252,9 @@ func (d *Download) scheduleSeq() {
 				p.Request(req)
 			}
 
-			if p.Rejected.Size() != 0 {
-				fmt.Println(p.Rejected)
-			}
+			//if p.Rejected.Size() != 0 {
+			//	fmt.Println(p.Rejected)
+			//}
 
 			found++
 

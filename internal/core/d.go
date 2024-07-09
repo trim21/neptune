@@ -6,19 +6,15 @@ package core
 import (
 	"context"
 	"errors"
-	"fmt"
 	"math"
 	"net/netip"
-	"sort"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/dustin/go-humanize"
 	"github.com/puzpuzpuz/xsync/v3"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"github.com/samber/lo"
 	"go.uber.org/atomic"
 
 	"tyr/internal/meta"
@@ -27,7 +23,6 @@ import (
 	"tyr/internal/pkg/flowrate"
 	"tyr/internal/pkg/global"
 	"tyr/internal/pkg/heap"
-	"tyr/internal/pkg/mempool"
 	"tyr/internal/proto"
 )
 
@@ -211,6 +206,7 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 
 	return d
 }
+
 func (d *Download) completed() int64 {
 	var completed = int64(d.bm.Count()) * d.info.PieceLength
 	if d.bm.Get(d.info.NumPieces - 1) {
@@ -218,112 +214,6 @@ func (d *Download) completed() int64 {
 	}
 
 	return completed
-}
-
-func (d *Download) Display() string {
-	buf := mempool.Get()
-	defer mempool.Put(buf)
-
-	d.m.RLock()
-	defer d.m.RUnlock()
-
-	rate := d.ioDown.Status()
-
-	var completed int64
-
-	if !d.bm.Get(d.info.NumPieces - 1) {
-		completed = int64(d.bm.Count()) * d.info.PieceLength
-	} else {
-		completed = int64(d.bm.Count()-1)*d.info.PieceLength + d.info.LastPieceSize
-	}
-
-	left := d.info.TotalLength - completed
-
-	var eta time.Duration
-	if rate.CurRate != 0 {
-		eta = time.Second * time.Duration(left/rate.CurRate)
-	}
-
-	if eta > time.Hour*24*265 {
-		eta = 0
-	}
-
-	if d.state == Downloading {
-		if d.info.NumPieces-d.bm.Count() < 10 {
-			for i := uint32(0); i < d.info.NumPieces; i++ {
-				if !d.bm.Get(i) {
-					fmt.Println("missing", i)
-				}
-			}
-		}
-	}
-
-	d.pdMutex.RLock()
-	pieceProcessing := len(d.pieceData)
-	d.pdMutex.RUnlock()
-
-	if d.state == Seeding {
-		if pieceProcessing != 0 {
-			d.pdMutex.RLock()
-			fmt.Println(lo.Keys(d.pieceData))
-			d.pdMutex.RUnlock()
-		}
-	}
-
-	_, _ = fmt.Fprintf(buf, "%11s | %s | %6.1f%% | %8s | %8s | %10s ↓ | %5s | %d | %d/%d",
-		d.state,
-		d.info.Hash,
-		float64(completed*1000/d.info.TotalLength)/10,
-		humanize.IBytes(uint64(d.info.TotalLength)),
-		humanize.IBytes(uint64(left)),
-		rate.RateString(),
-		eta.String(),
-		d.conn.Size(),
-		pieceProcessing,
-		d.info.NumPieces,
-	)
-
-	if d.err != nil {
-		_, _ = fmt.Fprintf(buf, "| %v", d.err)
-	}
-
-	for _, tier := range d.trackers {
-		for _, t := range tier.trackers {
-			t.RLock()
-			fmt.Fprintf(buf, " ( %d %s )", t.peerCount, t.url)
-			if t.err != nil {
-				_, _ = fmt.Fprintf(buf, " | %s", t.err)
-			}
-			t.RUnlock()
-		}
-	}
-
-	var s []peerDisplay
-
-	d.conn.Range(func(key netip.AddrPort, p *Peer) bool {
-		s = append(s, peerDisplay{
-			Up:     humanize.IBytes(uint64(p.ioOut.Status().CurRate)),
-			Down:   humanize.IBytes(uint64(p.ioIn.Status().CurRate)),
-			Client: p.UserAgent.Load(),
-			Addr:   key,
-		})
-
-		return true
-	})
-
-	sort.Slice(s, func(i, j int) bool {
-		return s[i].Addr.Compare(s[j].Addr) < 1
-	})
-
-	for _, p := range s {
-		if p.Client == nil {
-			_, _ = fmt.Fprintf(buf, "\n ↓ %6s/s | ↑ %6s/s | %s", p.Down, p.Up, p.Addr)
-		} else {
-			_, _ = fmt.Fprintf(buf, "\n ↓ %6s/s | ↑ %6s/s | %s | %s", p.Down, p.Up, *p.Client, p.Addr)
-		}
-	}
-
-	return buf.String()
 }
 
 type peerDisplay struct {
@@ -361,11 +251,4 @@ func canonicalName(info metainfo.Info, infoHash metainfo.Hash) string {
 	}
 
 	return strings.Join(s[:len(s)-1], ".")
-}
-
-type connHistory struct {
-	lastTry   time.Time
-	err       error
-	timeout   bool
-	connected bool
 }

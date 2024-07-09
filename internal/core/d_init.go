@@ -28,12 +28,8 @@ type existingFile struct {
 }
 
 func (d *Download) initCheck() error {
-	if global.Dev {
-		d.bm.Fill()
-		return nil
-	}
-
 	d.log.Debug().Msg("initCheck")
+
 	if err := os.MkdirAll(d.basePath, os.ModePerm); err != nil {
 		return err
 	}
