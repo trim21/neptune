@@ -6,7 +6,6 @@ package core
 import (
 	"context"
 	"errors"
-	"math"
 	"net/netip"
 	"strings"
 	"sync"
@@ -21,7 +20,6 @@ import (
 	"tyr/internal/metainfo"
 	"tyr/internal/pkg/bm"
 	"tyr/internal/pkg/flowrate"
-	"tyr/internal/pkg/global"
 	"tyr/internal/pkg/heap"
 	"tyr/internal/proto"
 )
@@ -141,6 +139,8 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 
 		reqHistory: xsync.NewMapOf[uint32, downloadReq](),
 
+		seq: *atomic.NewBool(true),
+
 		AddAt: time.Now().Unix(),
 
 		ResChan: make(chan proto.ChunkResponse, 1),
@@ -167,37 +167,7 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 
 	d.cond = sync.NewCond(&d.m)
 
-	if global.Dev {
-		d.seq.Store(true)
-		d.peersMutex.Lock()
-		if global.IsWindows {
-			//d.peers.Push(peerWithPriority{
-			//	addrPort: netip.MustParseAddrPort("192.168.1.3:6885"),
-			//	priority: 1,
-			//})
-			d.peers.Push(peerWithPriority{
-				addrPort: netip.MustParseAddrPort("127.0.0.1:51343"),
-				priority: 2,
-			})
-		}
-
-		if global.IsLinux {
-			d.log.Info().Msgf("add debug peer %s", "127.0.0.1:50025")
-			d.peers.Push(peerWithPriority{
-				addrPort: netip.MustParseAddrPort("127.0.0.1:6885"),
-				priority: math.MaxUint32,
-			})
-		}
-		//d.peers.Push(peerWithPriority{
-		//	addrPort: netip.MustParseAddrPort("192.168.1.3:51413"),
-		//	priority: math.MaxUint32,
-		//})
-		d.peersMutex.Unlock()
-		//	piece := lo.Must(lo.Last(d.pieceChunks))
-		//	assert.LessOrEqual(piece[len(piece)-1].Length, uint32(defaultBlockSize))
-	} else {
-		d.setAnnounceList(m)
-	}
+	d.setAnnounceList(m.UpvertedAnnounceList())
 
 	d.log.Info().Msg("download created")
 

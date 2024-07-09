@@ -51,7 +51,7 @@ func New(cfg config.Config, sessionPath string, debug bool) *Client {
 
 	v4, v6, _ := util.GetIpAddress()
 
-	return &Client{
+	c := &Client{
 		Config:      cfg,
 		ctx:         ctx,
 		cancel:      cancel,
@@ -77,11 +77,16 @@ func New(cfg config.Config, sessionPath string, debug bool) *Client {
 		ipv6:        *atomic.NewPointer(v6),
 		debug:       debug,
 	}
+
+	c.initMetrics()
+
+	return c
 }
 
 func (c *Client) initMetrics() {
 	prometheus.MustRegister(prometheus.NewGaugeFunc(prometheus.GaugeOpts{
 		Name: "tyr_client_connections_count",
+		Help: "Current number connections tracked by client",
 	}, func() float64 {
 		return float64(c.connectionCount.Load())
 	}))

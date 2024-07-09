@@ -22,6 +22,7 @@ import (
 	"github.com/valyala/bytebufferpool"
 
 	"tyr/internal/metainfo"
+	"tyr/internal/pkg/global"
 	"tyr/internal/pkg/null"
 )
 
@@ -305,8 +306,22 @@ func (t *Tracker) announceStop(d *Download) error {
 	return nil
 }
 
-func (d *Download) setAnnounceList(m *metainfo.MetaInfo) {
-	for _, tier := range m.UpvertedAnnounceList() {
+func (d *Download) setAnnounceList(trackers metainfo.AnnounceList) {
+	if global.Dev {
+		d.peersMutex.Lock()
+		defer d.peersMutex.Unlock()
+		//d.peers.Push(peerWithPriority{
+		//	addrPort: netip.MustParseAddrPort("192.168.1.3:6885"),
+		//	priority: 1,
+		//})
+		d.peers.Push(peerWithPriority{
+			addrPort: netip.MustParseAddrPort("127.0.0.1:51343"),
+			priority: 2,
+		})
+		return
+	}
+
+	for _, tier := range trackers {
 		t := TrackerTier{trackers: lo.Map(lo.Shuffle(tier), func(item string, index int) *Tracker {
 			return &Tracker{url: item, nextAnnounce: time.Now()}
 		})}

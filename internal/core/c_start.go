@@ -22,8 +22,6 @@ import (
 )
 
 func (c *Client) Start() error {
-	c.initMetrics()
-
 	if err := c.startListen(); err != nil {
 		return err
 	}

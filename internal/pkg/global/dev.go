@@ -7,4 +7,8 @@ package global
 
 const UserAgent = "Tyr/development (https://github.com/trim21/tyr)"
 
-const Dev = true
+var Dev bool
+
+func init() {
+	Dev = true
+}

@@ -5,9 +5,7 @@ package core
 
 import (
 	"crypto/sha1"
-	"fmt"
 	"net/netip"
-	"sort"
 	"time"
 
 	"github.com/docker/go-units"
@@ -169,50 +167,9 @@ func (d *Download) backgroundReqScheduler() {
 			}
 			d.m.Unlock()
 
-			//d.log.Debug().Msg("backgroundReqScheduler")
-
-			//weight := avaPool.Get()
-
-			//if cap(weight) < int(d.numPieces) {
-			//}
-			//var h heap.Interface[pair.Pair[uint32, uint32]]
-			//weight := make([]pair.Pair[uint32, uint32], 0, int(d.numPieces))
-
-			if d.seq.Load() {
-				d.scheduleSeq()
-				continue
-			}
-
-			h := make(PriorityQueue, d.info.NumPieces)
-
-			for i := range h {
-				h[i].Index = uint32(i)
-			}
-
-			d.conn.Range(func(key netip.AddrPort, p *Peer) bool {
-				if p.Bitmap.Count() == 0 {
-					return true
-				}
-
-				p.Bitmap.Range(func(i uint32) {
-					h[i].Weight++
-				})
-
-				return true
-			})
-
-			sort.Sort(&h)
-
-			for i, priority := range h {
-				if i > 5 {
-					break
-				}
-
-				fmt.Println(priority.Index, priority.Weight)
-			}
+			// TODO: non seq downloading
+			d.scheduleSeq()
 		}
-		//fmt.Println("index", v.Index)
-		//avaPool.Put(weight)
 	}
 }
 
@@ -294,30 +251,4 @@ func pieceChunk(info meta.Info, index uint32, chunkIndex int) proto.ChunkRequest
 		Begin:      uint32(begin),
 		Length:     as.Uint32(end - begin),
 	}
-}
-
-func pieceChunks(info meta.Info, index uint32) []proto.ChunkRequest {
-	var numPerPiece = (info.PieceLength + defaultBlockSize - 1) / defaultBlockSize
-	var rr = make([]proto.ChunkRequest, 0, numPerPiece)
-
-	pieceStart := int64(index) * info.PieceLength
-
-	pieceLen := min(info.PieceLength, info.TotalLength-pieceStart)
-
-	for n := int64(0); n < numPerPiece; n++ {
-		begin := defaultBlockSize * int64(n)
-		length := uint32(min(pieceLen-begin, defaultBlockSize))
-
-		if length <= 0 {
-			break
-		}
-
-		rr = append(rr, proto.ChunkRequest{
-			PieceIndex: index,
-			Begin:      uint32(begin),
-			Length:     length,
-		})
-	}
-
-	return rr
 }
