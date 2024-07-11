@@ -9,7 +9,7 @@ import (
 
 	"go.uber.org/atomic"
 
-	"github.com/BurntSushi/toml"
+	"github.com/pelletier/go-toml/v2"
 	"github.com/trim21/errgo"
 )
 
@@ -33,7 +33,16 @@ func LoadFromFile(path string) (Config, error) {
 		App: Application{MaxHTTPParallel: 100, GlobalConnectionLimit: 50},
 	}
 
-	if _, err := toml.DecodeFile(path, &cfg); err != nil && !os.IsNotExist(err) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return cfg, nil
+		}
+
+		return Config{}, errgo.Wrap(err, "failed to read config file")
+	}
+
+	if err := toml.Unmarshal(raw, &cfg); err != nil {
 		return cfg, errgo.Wrap(err, "failed to parse config file")
 	}
 

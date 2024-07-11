@@ -1,0 +1,4 @@
+[application]
+crypto = "force"
+
+p2p-port = 54482

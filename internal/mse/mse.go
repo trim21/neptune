@@ -7,7 +7,7 @@ import (
 	"io"
 	"net"
 
-	"github.com/anacrolix/torrent/mse"
+	"tyr/internal/mse/mse"
 
 	"tyr/internal/metainfo"
 )

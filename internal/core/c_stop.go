@@ -4,6 +4,7 @@
 package core
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,13 +12,14 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/sourcegraph/conc"
 	"github.com/sourcegraph/conc/panics"
+	"golang.org/x/sync/semaphore"
 )
 
 func (c *Client) Shutdown() {
 	log.Info().Msg("core shutting down...")
 
-	c.m.Lock()
-	defer c.m.Unlock()
+	c.m.RLock()
+	defer c.m.RUnlock()
 
 	c.saveSession()
 
@@ -27,8 +29,15 @@ func (c *Client) Shutdown() {
 func (c *Client) saveSession() *panics.Recovered {
 	var w = conc.NewWaitGroup()
 
+	var sem = semaphore.NewWeighted(5)
+
 	for _, d := range c.downloads {
+		// will only return ctx.Err() so we can ignore it here.
+		_ = sem.Acquire(context.Background(), 1)
+
 		w.Go(func() {
+			defer sem.Release(1)
+
 			d.m.Lock()
 			defer d.m.Unlock()
 

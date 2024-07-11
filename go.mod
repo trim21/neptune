@@ -5,7 +5,6 @@ go 1.22
 toolchain go1.22.5
 
 require (
-	github.com/BurntSushi/toml v1.4.0
 	github.com/RoaringBitmap/roaring/v2 v2.3.0
 	github.com/anacrolix/torrent v1.56.1
 	github.com/dchest/uniuri v1.2.0
@@ -13,6 +12,7 @@ require (
 	github.com/dustin/go-humanize v1.0.1
 	github.com/fatih/color v1.17.0
 	github.com/go-chi/chi/v5 v5.1.0
+	github.com/go-faster/xor v1.0.0
 	github.com/go-playground/validator/v10 v10.22.0
 	github.com/go-resty/resty/v2 v2.13.1
 	github.com/gofrs/flock v0.12.0
@@ -22,6 +22,7 @@ require (
 	github.com/karrick/godirwalk v1.17.0
 	github.com/mwitkow/go-conntrack v0.0.0-20190716064945-2f068394615f
 	github.com/panjf2000/ants/v2 v2.10.0
+	github.com/pelletier/go-toml/v2 v2.2.2
 	github.com/prometheus/client_golang v1.19.1
 	github.com/puzpuzpuz/xsync/v3 v3.3.1
 	github.com/rs/zerolog v1.33.0
@@ -66,7 +67,6 @@ require (
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/mschoch/smat v0.2.0 // indirect
 	github.com/multiformats/go-varint v0.0.7 // indirect
-	github.com/pelletier/go-toml/v2 v2.2.2 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/prometheus/client_model v0.5.0 // indirect
 	github.com/prometheus/common v0.48.0 // indirect

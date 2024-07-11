@@ -14,7 +14,6 @@ import (
 	"github.com/samber/lo"
 	"github.com/trim21/errgo"
 
-	"tyr/internal/mse"
 	"tyr/internal/pkg/global"
 	"tyr/internal/pkg/global/tasks"
 	"tyr/internal/proto"
@@ -106,36 +105,44 @@ func (c *Client) startListen() error {
 				continue
 			}
 
+			// conn is wrapped by conntrack, so we need to cast it with interface
+			if tcp, ok := conn.(interface{ SetLinger(sec int) error }); ok {
+				_ = tcp.SetLinger(0)
+			}
+
 			_ = conn.SetDeadline(time.Now().Add(global.ConnTimeout))
 
 			c.connectionCount.Add(1)
-			if c.mseDisabled {
-				c.connChan <- incomingConn{
-					addr: lo.Must(netip.ParseAddrPort(conn.RemoteAddr().String())),
-					conn: conn,
-				}
-				continue
+
+			// TODO: support MSE
+
+			//if c.mseDisabled {
+			c.connChan <- incomingConn{
+				addr: lo.Must(netip.ParseAddrPort(conn.RemoteAddr().String())),
+				conn: conn,
 			}
+			// continue
+			//}
 
-			// handle mse
-			go func() {
-				c.m.RLock()
-				keys := c.infoHashes
-				c.m.RUnlock()
-
-				rwc, err := mse.NewAccept(conn, keys, c.mseSelector)
-				if err != nil {
-					c.sem.Release(1)
-					c.connectionCount.Sub(1)
-					_ = conn.Close()
-					return
-				}
-
-				c.connChan <- incomingConn{
-					addr: lo.Must(netip.ParseAddrPort(conn.RemoteAddr().String())),
-					conn: rwc,
-				}
-			}()
+			//// handle mse
+			//go func() {
+			//	c.m.RLock()
+			//	keys := c.infoHashes
+			//	c.m.RUnlock()
+			//
+			//	rwc, err := mse.NewAccept(conn, keys, c.mseSelector)
+			//	if err != nil {
+			//		c.sem.Release(1)
+			//		c.connectionCount.Sub(1)
+			//		_ = conn.Close()
+			//		return
+			//	}
+			//
+			//	c.connChan <- incomingConn{
+			//		addr: lo.Must(netip.ParseAddrPort(conn.RemoteAddr().String())),
+			//		conn: rwc,
+			//	}
+			//}()
 		}
 	}()
 	return nil

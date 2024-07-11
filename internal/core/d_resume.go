@@ -32,12 +32,12 @@ type resume struct {
 	BasePath    string
 	Bitmap      []byte
 	Tags        []string
+	Trackers    [][]string
 	AddAt       int64
 	CompletedAt int64
 	Downloaded  int64
 	Uploaded    int64
 	State       State
-	Trackers    [][]string
 }
 
 func (d *Download) MarshalBinary() (data []byte, err error) {

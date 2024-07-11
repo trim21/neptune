@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/gofrs/flock"
 	"github.com/mwitkow/go-conntrack"
+	"github.com/pelletier/go-toml/v2"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/rs/zerolog"
@@ -38,6 +40,7 @@ import (
 	"tyr/internal/pkg/empty"
 	"tyr/internal/pkg/global"
 	"tyr/internal/pkg/random"
+	"tyr/internal/pkg/sys"
 	_ "tyr/internal/platform" // deny compile on unsupported platform
 	"tyr/internal/version"
 	"tyr/internal/web"
@@ -77,7 +80,7 @@ func main() {
 		_, _ = fmt.Fprintf(os.Stderr, "web secret token is empty, generating new token: %s\n", webToken)
 	}
 
-	if global.IsLinux {
+	if sys.IsLinux {
 		if _, err := maxprocs.Set(); err != nil {
 			_, _ = fmt.Fprintln(os.Stderr, "Failed to set GOMAXPROCS automatically.")
 			_, _ = fmt.Fprintln(os.Stderr, "Consider to set env manually if you are running with cgroup.")
@@ -131,13 +134,13 @@ func main() {
 
 	if global.Dev {
 		log.Debug().Msg("add debug torrent")
-		if global.IsWindows {
+		if sys.IsWindows {
 			lo.Must0(os.RemoveAll("D:\\downloads\\2"))
 			m := lo.Must(metainfo.LoadFromFile(`C:\Users\Trim21\Downloads\2.torrent`))
 			lo.Must0(app.AddTorrent(m, lo.Must(meta.FromTorrent(*m)), "D:\\Downloads\\2", []string{}))
 		}
 
-		if global.IsLinux {
+		if sys.IsLinux {
 			lo.Must0(os.RemoveAll("/export/ssd-2t/try/2"))
 			m := lo.Must(metainfo.LoadFromFile(`/export/ssd-2t/2.torrent`))
 			lo.Must0(app.AddTorrent(m, lo.Must(meta.FromTorrent(*m)), "/export/ssd-2t/try/2", nil))
@@ -357,6 +360,14 @@ func mustParseConfig(sessionPath string) config.Config {
 
 	cfg, err := config.LoadFromFile(configFilePath)
 	if err != nil {
+		var derr *toml.DecodeError
+		if errors.As(err, &derr) {
+			_, _ = fmt.Fprintln(os.Stderr, derr.String())
+			row, col := derr.Position()
+			_, _ = fmt.Fprintln(os.Stderr, "error occurred at row", row, "column", col)
+			os.Exit(2)
+		}
+
 		errExit("failed to load config", err)
 	}
 

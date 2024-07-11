@@ -6,7 +6,6 @@ package global
 import (
 	"context"
 	"net"
-	"runtime"
 	"time"
 
 	"github.com/mwitkow/go-conntrack"
@@ -35,7 +34,3 @@ var dialTracked func(context.Context, string, string) (net.Conn, error)
 func Dial(ctx context.Context, network, address string) (net.Conn, error) {
 	return dialTracked(ctx, network, address)
 }
-
-const IsMacos = runtime.GOOS == "darwin"
-const IsWindows = runtime.GOOS == "windows"
-const IsLinux = runtime.GOOS == "linux"

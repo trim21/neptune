@@ -9,3 +9,4 @@ node_modules/
 env.txt
 coverage.txt
 internal/web/docs/swagger/
+config.toml

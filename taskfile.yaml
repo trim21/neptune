@@ -131,6 +131,7 @@ tasks:
       - .env
       - go.mod
       - go.sum
+      - config.toml
       - "**/*.go"
     dotenv:
       - .env
@@ -143,7 +144,7 @@ tasks:
             echo "can't copy, try again"
             sleep 1
           done
-      - dist/dev/tyr.exe --debug
+      - dist/dev/tyr.exe --debug --config-file config.toml
 
   dev:release:
     deps:

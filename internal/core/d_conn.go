@@ -10,7 +10,6 @@ import (
 	"net/netip"
 	"time"
 
-	"tyr/internal/mse"
 	"tyr/internal/pkg/global"
 	"tyr/internal/pkg/global/tasks"
 	"tyr/internal/proto"
@@ -81,20 +80,27 @@ func (d *Download) connectToPeers() {
 
 			_ = conn.SetDeadline(time.Now().Add(global.ConnTimeout))
 
-			if d.c.mseDisabled {
-				NewOutgoingPeer(conn, d, pp.addrPort)
-				return
+			// conn is wrapped by conntrack, so we need to cast it with interface
+			if tcp, ok := conn.(interface{ SetLinger(sec int) error }); ok {
+				_ = tcp.SetLinger(0)
 			}
 
-			rwc, err := mse.NewConnection(d.info.Hash.Bytes(), conn)
-			if err != nil {
-				ch.err = err
-				d.c.sem.Release(1)
-				d.c.connectionCount.Sub(1)
-				return
-			}
+			// TODO: support MSE
 
-			NewOutgoingPeer(rwc, d, pp.addrPort)
+			//if d.c.mseDisabled {
+			NewOutgoingPeer(conn, d, pp.addrPort)
+			return
+			//}
+
+			//rwc, err := mse.NewConnection(d.info.Hash.Bytes(), conn)
+			//if err != nil {
+			//	ch.err = err
+			//	d.c.sem.Release(1)
+			//	d.c.connectionCount.Sub(1)
+			//	return
+			//}
+			//
+			//NewOutgoingPeer(rwc, d, pp.addrPort)
 		})
 	}
 }
