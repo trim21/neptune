@@ -359,7 +359,9 @@ func (h *handshake) initerSteps() (ret io.ReadWriter, selected CryptoMethod, err
 		}
 
 		if padLen != 0 {
-			_, errR := io.CopyN(buf, rand.Reader, int64(padLen))
+			padBuf := mempool.Get()
+			defer mempool.Put(padBuf)
+			_, errR := io.CopyBuffer(buf, io.LimitReader(rand.Reader, int64(padLen)), padBuf.B[:maxPadLength])
 			if errR != nil {
 				panic(fmt.Sprintln("error reading from random", err))
 			}
