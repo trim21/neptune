@@ -8,7 +8,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/mwitkow/go-conntrack"
+	"github.com/trim21/conntrack"
 )
 
 const ConnTimeout = time.Minute

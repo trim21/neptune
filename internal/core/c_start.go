@@ -9,9 +9,9 @@ import (
 	"net/netip"
 	"time"
 
-	"github.com/mwitkow/go-conntrack"
 	"github.com/rs/zerolog/log"
 	"github.com/samber/lo"
+	"github.com/trim21/conntrack"
 	"github.com/trim21/errgo"
 
 	"tyr/internal/pkg/global"

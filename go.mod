@@ -20,7 +20,6 @@ require (
 	github.com/jellydator/ttlcache/v3 v3.2.0
 	github.com/juju/ratelimit v1.0.2
 	github.com/karrick/godirwalk v1.17.0
-	github.com/mwitkow/go-conntrack v0.0.0-20190716064945-2f068394615f
 	github.com/panjf2000/ants/v2 v2.10.0
 	github.com/pelletier/go-toml/v2 v2.2.2
 	github.com/prometheus/client_golang v1.19.1
@@ -33,6 +32,7 @@ require (
 	github.com/stretchr/testify v1.9.0
 	github.com/swaggest/openapi-go v0.2.53
 	github.com/swaggest/usecase v1.3.1
+	github.com/trim21/conntrack v0.0.2
 	github.com/trim21/errgo v0.0.3
 	github.com/valyala/bytebufferpool v1.0.0
 	go.uber.org/atomic v1.11.0

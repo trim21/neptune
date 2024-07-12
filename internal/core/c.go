@@ -15,8 +15,8 @@ import (
 
 	"github.com/go-resty/resty/v2"
 	"github.com/jellydator/ttlcache/v3"
-	"github.com/mwitkow/go-conntrack"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/trim21/conntrack"
 	"go.uber.org/atomic"
 	"golang.org/x/sync/semaphore"
 

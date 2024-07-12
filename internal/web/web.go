@@ -70,18 +70,20 @@ func New(c *core.Client, token string, enableDebug bool) http.Handler {
 	if enableDebug {
 		info, ok := debug.ReadBuildInfo()
 		if ok {
+			s := []byte(version.FormatBuildInfo(info))
+
 			r.Get("/debug/version", func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("content-type", "text/plain")
+				w.WriteHeader(http.StatusOK)
 				_, _ = fmt.Fprintln(w, version.Print())
 				_, _ = fmt.Fprintln(w)
-				_, _ = fmt.Fprintln(w, info.String())
+				_, _ = w.Write(s)
 			})
 		} else {
 			r.Get("/debug/version", func(w http.ResponseWriter, r *http.Request) {
 				_, _ = fmt.Fprintln(w, version.Print())
 			})
 		}
-
-		//r.HandleFunc("/debug/requests", trace.Traces)
 
 		r.HandleFunc("/debug/events", trace.Events)
 

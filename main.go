@@ -20,7 +20,6 @@ import (
 	"time"
 
 	"github.com/gofrs/flock"
-	"github.com/mwitkow/go-conntrack"
 	"github.com/pelletier/go-toml/v2"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
@@ -29,6 +28,7 @@ import (
 	"github.com/samber/lo"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
+	"github.com/trim21/conntrack"
 	"github.com/trim21/errgo"
 	"go.uber.org/automaxprocs/maxprocs"
 	"gopkg.in/natefinch/lumberjack.v2"
