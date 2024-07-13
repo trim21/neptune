@@ -5,7 +5,7 @@ go 1.22
 toolchain go1.22.5
 
 require (
-	github.com/RoaringBitmap/roaring/v2 v2.3.0
+	github.com/RoaringBitmap/roaring/v2 v2.3.1
 	github.com/anacrolix/torrent v1.56.1
 	github.com/dchest/uniuri v1.2.0
 	github.com/docker/go-units v0.5.0
