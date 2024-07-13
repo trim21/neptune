@@ -25,7 +25,7 @@ require (
 	github.com/prometheus/client_golang v1.19.1
 	github.com/puzpuzpuz/xsync/v3 v3.3.1
 	github.com/rs/zerolog v1.33.0
-	github.com/samber/lo v1.44.0
+	github.com/samber/lo v1.45.0
 	github.com/sourcegraph/conc v0.3.0
 	github.com/spf13/pflag v1.0.5
 	github.com/spf13/viper v1.19.0
