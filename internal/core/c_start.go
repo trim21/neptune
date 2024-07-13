@@ -115,7 +115,6 @@ func (c *Client) startListen() error {
 			c.connectionCount.Add(1)
 
 			// TODO: support MSE
-
 			//if c.mseDisabled {
 			c.connChan <- incomingConn{
 				addr: lo.Must(netip.ParseAddrPort(conn.RemoteAddr().String())),

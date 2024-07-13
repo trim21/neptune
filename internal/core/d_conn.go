@@ -66,8 +66,11 @@ func (d *Download) connectToPeers() {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 			defer cancel()
 
+			d.log.Debug().Msgf("try to connect to peer %s", pp.addrPort)
+
 			conn, err := global.Dial(ctx, "tcp", pp.addrPort.String())
 			if err != nil {
+				d.log.Debug().Err(err).Msgf("failed to connect to peer %s", pp.addrPort)
 				if errors.Is(err, context.DeadlineExceeded) {
 					ch.timeout = true
 				} else {
@@ -81,26 +84,12 @@ func (d *Download) connectToPeers() {
 			_ = conn.SetDeadline(time.Now().Add(global.ConnTimeout))
 
 			// conn is wrapped by conntrack, so we need to cast it with interface
-			if tcp, ok := conn.(interface{ SetLinger(sec int) error }); ok {
-				_ = tcp.SetLinger(0)
-			}
+			//if tcp, ok := conn.(interface{ SetLinger(sec int) error }); ok {
+			//	_ = tcp.SetLinger(0)
+			//}
 
-			// TODO: support MSE
-
-			//if d.c.mseDisabled {
 			NewOutgoingPeer(conn, d, pp.addrPort)
 			return
-			//}
-
-			//rwc, err := mse.NewConnection(d.info.Hash.Bytes(), conn)
-			//if err != nil {
-			//	ch.err = err
-			//	d.c.sem.Release(1)
-			//	d.c.connectionCount.Sub(1)
-			//	return
-			//}
-			//
-			//NewOutgoingPeer(rwc, d, pp.addrPort)
 		})
 	}
 }

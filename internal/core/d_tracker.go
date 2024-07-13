@@ -30,6 +30,28 @@ const EventStarted = "started"
 const EventCompleted = "completed"
 const EventStopped = "stopped"
 
+func (d *Download) setAnnounceList(trackers metainfo.AnnounceList) {
+	if global.Dev {
+		d.peersMutex.Lock()
+		defer d.peersMutex.Unlock()
+		for i, s := range []string{"192.168.1.3:50025", "192.168.1.3:6885", "127.0.0.1:51343"} {
+			d.peers.Push(peerWithPriority{
+				addrPort: netip.MustParseAddrPort(s),
+				priority: uint32(i),
+			})
+		}
+		return
+	}
+
+	for _, tier := range trackers {
+		t := TrackerTier{trackers: lo.Map(lo.Shuffle(tier), func(item string, index int) *Tracker {
+			return &Tracker{url: item, nextAnnounce: time.Now()}
+		})}
+
+		d.trackers = append(d.trackers, t)
+	}
+}
+
 func (d *Download) TryAnnounce() {
 	if !d.announcePending.Load() {
 		d.AsyncAnnounce("")
@@ -304,30 +326,6 @@ func (t *Tracker) announceStop(d *Download) error {
 	}
 
 	return nil
-}
-
-func (d *Download) setAnnounceList(trackers metainfo.AnnounceList) {
-	if global.Dev {
-		d.peersMutex.Lock()
-		defer d.peersMutex.Unlock()
-		//d.peers.Push(peerWithPriority{
-		//	addrPort: netip.MustParseAddrPort("192.168.1.3:6885"),
-		//	priority: 1,
-		//})
-		d.peers.Push(peerWithPriority{
-			addrPort: netip.MustParseAddrPort("127.0.0.1:51343"),
-			priority: 2,
-		})
-		return
-	}
-
-	for _, tier := range trackers {
-		t := TrackerTier{trackers: lo.Map(lo.Shuffle(tier), func(item string, index int) *Tracker {
-			return &Tracker{url: item, nextAnnounce: time.Now()}
-		})}
-
-		d.trackers = append(d.trackers, t)
-	}
 }
 
 // ScrapeUrl return enabled tracker url for scrape request

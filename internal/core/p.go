@@ -15,13 +15,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dchest/uniuri"
 	"github.com/docker/go-units"
 	"github.com/fatih/color"
-	"go.uber.org/atomic"
-
-	"github.com/dchest/uniuri"
 	"github.com/puzpuzpuz/xsync/v3"
 	"github.com/rs/zerolog"
+	"go.uber.org/atomic"
 
 	"tyr/internal/pkg/as"
 	"tyr/internal/pkg/bm"
@@ -30,6 +29,7 @@ import (
 	"tyr/internal/pkg/null"
 	"tyr/internal/pkg/unsafe"
 	"tyr/internal/proto"
+	"tyr/internal/util"
 	"tyr/internal/version"
 )
 
@@ -78,7 +78,7 @@ func newPeer(
 	l := d.log.With().Stringer("addr", addr)
 	var ua string
 	if !peerID.Zero() {
-		ua = parsePeerID(peerID)
+		ua = util.ParsePeerId(peerID)
 		l = l.Str("peer_id", url.QueryEscape(peerID.AsString()))
 	}
 
@@ -88,20 +88,19 @@ func newPeer(
 		supportFastExtension: fast,
 		Conn:                 conn,
 		d:                    d,
-		bitfieldSize:         (d.info.NumPieces + 7) / 8,
 		Bitmap:               bm.New(d.info.NumPieces),
 		ioOut:                flowrate.New(time.Second, time.Second),
 		ioIn:                 flowrate.New(time.Second, time.Second),
 		Address:              addr,
-		QueueLimit:           *atomic.NewUint32(250),
-
-		amChoking:      *atomic.NewBool(true),
-		amInterested:   *atomic.NewBool(fast),
-		peerChoking:    *atomic.NewBool(true),
-		peerInterested: *atomic.NewBool(fast),
+		QueueLimit:           *atomic.NewUint32(100),
+		Incoming:             skipHandshake,
+		amChoking:            *atomic.NewBool(true),
+		amInterested:         *atomic.NewBool(fast),
+		peerChoking:          *atomic.NewBool(true),
+		peerInterested:       *atomic.NewBool(fast),
 
 		//ResChan:   make(chan req.Response, 1),
-		myRequests:       xsync.NewMapOf[proto.ChunkRequest, empty.Empty](),
+		myRequests:       xsync.NewMapOf[proto.ChunkRequest, time.Time](),
 		myRequestHistory: xsync.NewMapOf[proto.ChunkRequest, empty.Empty](),
 
 		Rejected: xsync.NewMapOf[proto.ChunkRequest, empty.Empty](),
@@ -112,6 +111,10 @@ func newPeer(
 		w: bufio.NewWriterSize(conn, units.KiB*8),
 
 		allowFast: bm.New(d.info.NumPieces),
+
+		rttAverage: sizedSlice[time.Duration]{
+			limit: 2000,
+		},
 	}
 
 	p.cancel = func() {
@@ -131,38 +134,45 @@ var ErrPeerSendInvalidData = errors.New("addrPort send invalid data")
 
 type Peer struct {
 	log      zerolog.Logger
-	r        *bufio.Reader
-	w        *bufio.Writer
 	ctx      context.Context
 	Conn     net.Conn
+	r        *bufio.Reader
+	w        *bufio.Writer
 	d        *Download
 	lastSend atomic.Pointer[time.Time]
 	cancel   context.CancelFunc
 	Bitmap   *bm.Bitmap
 
-	myRequests       *xsync.MapOf[proto.ChunkRequest, empty.Empty]
+	myRequests       *xsync.MapOf[proto.ChunkRequest, time.Time]
 	myRequestHistory *xsync.MapOf[proto.ChunkRequest, empty.Empty]
 
 	peerRequests *xsync.MapOf[proto.ChunkRequest, empty.Empty]
 
-	Rejected                  *xsync.MapOf[proto.ChunkRequest, empty.Empty]
-	allowFast                 *bm.Bitmap
-	ioOut                     *flowrate.Monitor
-	ioIn                      *flowrate.Monitor
-	UserAgent                 atomic.Pointer[string]
-	Address                   netip.AddrPort
-	peerChoking               atomic.Bool
-	peerInterested            atomic.Bool
-	amChoking                 atomic.Bool
-	amInterested              atomic.Bool
-	QueueLimit                atomic.Uint32
-	closed                    atomic.Bool
+	Rejected  *xsync.MapOf[proto.ChunkRequest, empty.Empty]
+	allowFast *bm.Bitmap
+	ioOut     *flowrate.Monitor
+	ioIn      *flowrate.Monitor
+	UserAgent atomic.Pointer[string]
+
+	ltDontHaveExtensionId atomic.Pointer[proto.ExtensionMessage]
+	Address               netip.AddrPort
+
+	rttAverage sizedSlice[time.Duration]
+
+	peerChoking    atomic.Bool
+	peerInterested atomic.Bool
+	amChoking      atomic.Bool
+	amInterested   atomic.Bool
+	QueueLimit     atomic.Uint32
+	closed         atomic.Bool
+
+	rttMutex                  sync.RWMutex
 	m                         sync.Mutex
 	wm                        sync.Mutex
-	bitfieldSize              uint32
+	readBuf                   [4]byte // buffer for reading message size and event id
+	Incoming                  bool
 	supportFastExtension      bool
 	supportExtensionHandshake bool
-	readBuf                   [4]byte // buffer for reading message size and event id
 }
 
 func (p *Peer) Response(res proto.ChunkResponse) {
@@ -183,13 +193,12 @@ func (p *Peer) Response(res proto.ChunkResponse) {
 }
 
 func (p *Peer) Request(req proto.ChunkRequest) {
-	_, exist := p.myRequests.LoadOrStore(req, empty.Empty{})
+	_, exist := p.myRequests.LoadOrStore(req, time.Now())
 	if exist {
 		p.log.Trace().Msg("myRequests already sent")
 		return
 	}
 
-	p.log.Trace().Any("req", req).Msg("send piece request")
 	err := p.sendEvent(Event{
 		Event: proto.Request,
 		Req:   req,
@@ -233,9 +242,7 @@ func (p *Peer) start(skipHandshake bool) {
 	if !skipHandshake {
 		h, err := proto.ReadHandshake(p.Conn)
 		if err != nil {
-			if !errors.Is(err, io.EOF) {
-				p.log.Trace().Err(err).Msg("failed to read handshake")
-			}
+			p.log.Trace().Err(err).Msg("failed to read handshake")
 			return
 		}
 		if h.InfoHash != p.d.info.Hash {
@@ -245,43 +252,24 @@ func (p *Peer) start(skipHandshake bool) {
 		p.supportFastExtension = h.FastExtension
 		p.log = p.log.With().Str("peer_id", url.QueryEscape(string(h.PeerID[:]))).Logger()
 		p.log.Trace().Msg("connect to addrPort")
-		ua := parsePeerID(h.PeerID)
+		ua := util.ParsePeerId(h.PeerID)
 		p.UserAgent.Store(&ua)
 	}
 
 	if p.supportFastExtension {
-		p.log.Trace().Msg("allow supportFastExtension extension")
+		p.log.Trace().Msg("allow fast extensionHandshake")
 	}
 
-	{
-		var err error
-		if p.supportFastExtension && p.d.bm.Count() == 0 {
-			err = p.sendEvent(Event{Event: proto.HaveNone})
-		} else if p.supportFastExtension && p.d.bm.Count() == p.d.info.NumPieces {
-			err = p.sendEvent(Event{Event: proto.HaveAll})
-		} else {
-			err = p.sendEvent(Event{Event: proto.Bitfield, Bitmap: p.d.bm})
-		}
+	// sync point, after both side send handshake and starting send peer messages
 
+	go func() {
+		err := p.sendInitPayload()
 		if err != nil {
-			p.log.Trace().Err(err).Msg("failed to send bitfield")
+			p.close()
 			return
 		}
-	}
-
-	if p.supportExtensionHandshake {
-		err := p.sendEvent(Event{Event: proto.Extended, ExtHandshake: extension{
-			V:           null.NewString(handshakeAgent),
-			QueueLength: null.NewUint32(10000),
-		}})
-
-		if err != nil {
-			p.log.Trace().Err(err).Msg("failed to send extension handshake")
-			return
-		}
-	}
-
-	go p.keepAlive()
+		p.keepAlive()
+	}()
 
 	// make it visible to download
 	_, loaded := p.d.conn.LoadAndStore(p.Address, p)
@@ -356,11 +344,27 @@ func (p *Peer) start(skipHandshake bool) {
 
 			p.peerRequests.Store(event.Req, empty.Empty{})
 		case proto.Extended:
-			if event.ExtHandshake.V.Set {
-				p.UserAgent.Store(&event.ExtHandshake.V.Value)
+			if event.ExtensionID == proto.ExtensionHandshake {
+				p.log.Debug().Any("ext", event.ExtHandshake).Msg("receive handshake")
+
+				if event.ExtHandshake.V.Set {
+					p.UserAgent.Store(&event.ExtHandshake.V.Value)
+				}
+				if event.ExtHandshake.QueueLength.Set {
+					p.QueueLimit.Store(event.ExtHandshake.QueueLength.Value)
+				}
+
+				if event.ExtHandshake.Main.LTDontHave.Set {
+					p.ltDontHaveExtensionId.Store(&event.ExtHandshake.Main.LTDontHave.Value)
+				}
+				continue
 			}
-			if event.ExtHandshake.QueueLength.Set {
-				p.QueueLimit.Store(event.ExtHandshake.QueueLength.Value)
+
+			if dontHave := p.ltDontHaveExtensionId.Load(); dontHave != nil {
+				if event.ExtensionID == *dontHave {
+					p.Bitmap.Unset(event.Index)
+				}
+				continue
 			}
 
 		// TODO
@@ -374,6 +378,7 @@ func (p *Peer) start(skipHandshake bool) {
 		case proto.Reject:
 			p.log.Debug().Msgf("reject %+v", event.Req)
 			p.Rejected.Store(event.Req, empty.Empty{})
+			p.myRequests.Delete(event.Req)
 		case proto.AllowedFast:
 			p.allowFast.Set(event.Index)
 		// currently unsupported
@@ -382,10 +387,10 @@ func (p *Peer) start(skipHandshake bool) {
 		case proto.BitCometExtension:
 		}
 
-		go func() {
-			//nolint:exhaustive
-			switch event.Event {
-			case proto.Have, proto.HaveAll, proto.Bitfield:
+		//nolint:exhaustive
+		switch event.Event {
+		case proto.Have, proto.HaveAll, proto.Bitfield:
+			go func() {
 				if p.Bitmap.WithAndNot(p.d.bm).Count() != 0 {
 					err = p.sendEvent(Event{Event: proto.Interested})
 					if err != nil {
@@ -397,9 +402,33 @@ func (p *Peer) start(skipHandshake bool) {
 				if p.Bitmap.Count() == p.d.info.NumPieces && p.d.GetState() == Seeding {
 					p.cancel()
 				}
-			}
-		}()
+			}()
+		}
 	}
+}
+
+func (p *Peer) sendInitPayload() error {
+	var err error
+	if p.supportFastExtension && p.d.bm.Count() == 0 {
+		err = p.sendEvent(Event{Event: proto.HaveNone})
+	} else if p.supportFastExtension && p.d.bm.Count() == p.d.info.NumPieces {
+		err = p.sendEvent(Event{Event: proto.HaveAll})
+	} else {
+		err = p.sendEvent(Event{Event: proto.Bitfield, Bitmap: p.d.bm})
+	}
+
+	if err != nil {
+		return err
+	}
+
+	if p.supportExtensionHandshake {
+		return p.sendEvent(Event{Event: proto.Extended, ExtHandshake: extensionHandshake{
+			V:           null.NewString(handshakeAgent),
+			QueueLength: null.NewUint32(10000),
+		}})
+	}
+
+	return nil
 }
 
 func (p *Peer) sendEvent(e Event) error {
@@ -439,7 +468,15 @@ func (p *Peer) resIsValid(res proto.ChunkResponse) bool {
 		Length:     as.Uint32(len(res.Data)),
 	}
 
-	_, ok := p.myRequests.LoadAndDelete(r)
+	reqTime, ok := p.myRequests.LoadAndDelete(r)
+
+	dur := time.Since(reqTime)
+
+	p.rttMutex.Lock()
+
+	p.rttAverage.Push(dur)
+
+	p.rttMutex.Unlock()
 
 	return ok
 }
@@ -453,19 +490,32 @@ func (p *Peer) Unchoke() {
 	}
 }
 
-func parsePeerID(id PeerID) string {
-	if id[0] == '-' && id[7] == '-' {
-		if id[1] == 'q' && id[2] == 'B' {
-			if id[6] == '0' {
-				return fmt.Sprintf("qBittorrent %d.%d.%d", id[3]-'0', id[4]-'0', id[5]-'0')
-			}
+type sizedSlice[T interface{ ~int | ~int64 }] struct {
+	s     []T
+	limit int
+	count int
+}
 
-			return fmt.Sprintf("qBittorrent %d.%d.%d.%d", id[3]-'0', id[4]-'0', id[5]-'0', id[6]-'0')
-		}
-
-		// TODO
-		return fmt.Sprintf("%s", id[1:6])
+func (t *sizedSlice[T]) Push(item T) {
+	if len(t.s) < t.limit {
+		t.s = append(t.s, item)
+		t.count++
+		return
 	}
 
-	return string(id[:6])
+	t.s[t.count%t.limit] = item
+	t.count++
+}
+
+func (t *sizedSlice[T]) Average() T {
+	if len(t.s) == 0 {
+		return 0
+	}
+
+	var total T
+	for _, item := range t.s {
+		total += item
+	}
+
+	return total / T(len(t.s))
 }

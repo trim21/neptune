@@ -9,6 +9,10 @@ import (
 
 type Buffer = bytebufferpool.ByteBuffer
 
+func New() bytebufferpool.Pool {
+	return bytebufferpool.Pool{}
+}
+
 func GetWithCap(size int) *Buffer {
 	buf := bytebufferpool.Get()
 

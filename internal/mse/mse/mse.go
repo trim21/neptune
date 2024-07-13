@@ -326,7 +326,7 @@ func (h *handshake) newEncrypt(initer bool) *rc4.Cipher {
 
 var errInitialPayloadTooLarge = errors.New("initial payload too large")
 
-func (h *handshake) initerSteps() (ret io.ReadWriter, selected CryptoMethod, err error) {
+func (h *handshake) initerSteps() (io.ReadWriter, CryptoMethod, error) {
 	var g errgroup.Group
 	e := h.newEncrypt(true)
 
@@ -387,7 +387,6 @@ func (h *handshake) initerSteps() (ret io.ReadWriter, selected CryptoMethod, err
 	var method CryptoMethod
 
 	var r io.Reader
-
 	// read
 	g.Go(func() error {
 		var eVC [8]byte
@@ -396,7 +395,7 @@ func (h *handshake) initerSteps() (ret io.ReadWriter, selected CryptoMethod, err
 		// Read until the all zero VC. At this point we've only read the 96 byte
 		// public key, Y. There is potentially 512 byte padding, between us and
 		// the 8 byte verification constant.
-		err = readUntil(io.LimitReader(h.conn, 520), eVC[:])
+		err := readUntil(io.LimitReader(h.conn, 520), eVC[:])
 		if err != nil {
 			if err == io.EOF {
 				return errors.New("failed to synchronize on VC")
@@ -419,21 +418,22 @@ func (h *handshake) initerSteps() (ret io.ReadWriter, selected CryptoMethod, err
 		return nil
 	})
 
-	err = g.Wait()
+	err := g.Wait()
 	if err != nil {
-		return
+		return nil, 0, err
 	}
 
-	selected = method & h.cryptoProvides
+	var rw io.ReadWriter
+	selected := method & h.cryptoProvides
 	switch selected { //nolint:exhaustive
 	case CryptoMethodRC4:
-		ret = readWriter{r, &cipherWriter{e, h.conn, nil}}
+		rw = readWriter{r, &cipherWriter{e, h.conn, nil}}
 	case CryptoMethodPlaintext:
-		ret = h.conn
+		rw = h.conn
 	default:
 		err = fmt.Errorf("receiver chose unsupported method: %x", method)
 	}
-	return
+	return rw, selected, err
 }
 
 var ErrNoSecretKeyMatch = errors.New("no skey matched")

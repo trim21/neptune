@@ -118,6 +118,11 @@ func (h *Handler) Add(u usecase.Interactor) {
 	m.setupInputBuffer()
 	m.setupOutputBuffer()
 
+	_, exists := h.methods[withName.Name()]
+	if exists {
+		panic(fmt.Sprintf("method %s exists", withName.Name()))
+	}
+
 	h.methods[withName.Name()] = m
 
 	if h.OpenAPI != nil {

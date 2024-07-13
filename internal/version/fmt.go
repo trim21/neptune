@@ -23,6 +23,8 @@ func quoteValue(value string) bool {
 func FormatBuildInfo(info *debug.BuildInfo) string {
 	buf := new(strings.Builder)
 
+	fmt.Fprintf(buf, "go\t%s\n", info.GoVersion)
+
 	modSize := 0
 	versionSize := 0
 	for _, d := range info.Deps {

@@ -9,10 +9,12 @@ import (
 )
 
 func SendHave(conn io.Writer, pieceIndex uint32) error {
-	var b = make([]byte, 0, 9)
-	b = binary.BigEndian.AppendUint32(b, 5)
-	b = append(b, byte(Have))
-	b = binary.BigEndian.AppendUint32(b, pieceIndex)
-	_, err := conn.Write(b)
+	buf := pool.Get()
+	defer pool.Put(buf)
+
+	buf.B = binary.BigEndian.AppendUint32(buf.B, 5)
+	buf.B = append(buf.B, byte(Have))
+	buf.B = binary.BigEndian.AppendUint32(buf.B, pieceIndex)
+	_, err := conn.Write(buf.B)
 	return err
 }

@@ -14,8 +14,8 @@ import (
 )
 
 type Application struct {
-	DownloadDir     string `json:"download-dir"`
-	Crypto          string `json:"crypto"`
+	DownloadDir string `json:"download-dir"`
+	//Crypto          string `json:"crypto"`
 	MaxHTTPParallel int    `json:"max-http-parallel"`
 	P2PPort         uint16 `json:"p2p-port"`
 	NumWant         uint16 `json:"num-want"`

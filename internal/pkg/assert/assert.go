@@ -13,14 +13,14 @@ func panicMessage(msg []string) {
 	panic(msg[0])
 }
 
-func Equal[T comparable](v1, v2 T, msg ...string) {
-	if !(v1 == v2) {
+func Equal[T comparable](actual, expected T, msg ...string) {
+	if !(expected == actual) {
 		panicMessage(msg)
 	}
 }
 
-func NotEqual[T comparable](v1, v2 T, msg ...string) {
-	if !(v1 != v2) {
+func NotEqual[T comparable](actual, expected T, msg ...string) {
+	if !(expected != actual) {
 		panicMessage(msg)
 	}
 }

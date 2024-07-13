@@ -51,18 +51,24 @@ func (p *Peer) keepAlive() {
 type Event struct {
 	Bitmap       *bm.Bitmap
 	Res          proto.ChunkResponse
-	ExtHandshake extension
+	ExtHandshake extensionHandshake
 	Req          proto.ChunkRequest
 	Index        uint32
 	Port         uint16
+	ExtensionID  proto.ExtensionMessage
 	Event        proto.Message
 	keepAlive    bool
 	Ignored      bool
 }
 
-type extension struct {
-	V           null.String `bencode:"v"`
-	QueueLength null.Uint32 `bencode:"reqq"`
+type extensionHandshake struct {
+	V           null.String  `bencode:"v" json:"v"`
+	Main        extensionMsg `bencode:"m" json:"m"`
+	QueueLength null.Uint32  `bencode:"reqq" json:"reqq"`
+}
+
+type extensionMsg struct {
+	LTDontHave null.Null[proto.ExtensionMessage] `bencode:"lt_donthave"`
 }
 
 func (p *Peer) DecodeEvents() (Event, error) {
@@ -124,17 +130,35 @@ func (p *Peer) DecodeEvents() (Event, error) {
 	case proto.Reject:
 		return p.decodeReject()
 	case proto.Extended:
-		if _, err = io.ReadFull(p.r, p.readBuf[:1]); err != nil {
+		var b byte
+		b, err = p.r.ReadByte()
+		if err != nil {
 			return event, err
 		}
 
-		if p.readBuf[0] == 0 {
+		extMsgID := proto.ExtensionMessage(b)
+
+		if extMsgID == proto.ExtensionHandshake {
 			err = bencode.NewDecoder(io.LimitReader(p.r, int64(size-2))).Decode(&event.ExtHandshake)
 			return event, err
 		}
 
-		event.Ignored = true
+		if dontHave := p.ltDontHaveExtensionId.Load(); dontHave != nil {
+			if extMsgID == *dontHave {
+				assert.Equal(size, 6)
+
+				_, err = io.ReadFull(p.r, p.readBuf[:])
+				if err != nil {
+					return event, err
+				}
+
+				event.Index = binary.BigEndian.Uint32(p.readBuf[:])
+				return event, err
+			}
+		}
+
 		// unknown events
+		event.Ignored = true
 		_, err = io.CopyN(io.Discard, p.r, int64(size-2))
 		return event, err
 	case proto.BitCometExtension:
@@ -148,9 +172,9 @@ func (p *Peer) DecodeEvents() (Event, error) {
 func (p *Peer) decodeBitfield(l uint32) (Event, error) {
 	l = l - 1
 
-	if l != p.bitfieldSize {
+	if l != p.d.bitfieldSize {
 		return Event{}, errgo.Wrap(ErrPeerSendInvalidData,
-			fmt.Sprintf("expecting bitfield length %d, receive %d", p.bitfieldSize, l))
+			fmt.Sprintf("expecting bitfield length %d, receive %d", p.d.bitfieldSize, l))
 	}
 
 	buf := mempool.GetWithCap(int(l + 64))
@@ -257,7 +281,16 @@ func (p *Peer) write(e Event) error {
 	case proto.Reject:
 		return proto.SendReject(p.w, e.Req)
 	case proto.Extended:
-		return bencode.NewEncoder(p.w).Encode(e.ExtHandshake)
+		if e.ExtensionID == proto.ExtensionHandshake {
+			err := p.w.WriteByte(byte(e.ExtensionID))
+			if err != nil {
+				return err
+			}
+
+			return bencode.NewEncoder(p.w).Encode(e.ExtHandshake)
+		}
+
+		fallthrough
 	case proto.BitCometExtension:
 		panic("unexpected event")
 	}

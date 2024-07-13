@@ -50,6 +50,12 @@ const (
 	BitCometExtension Message = 0xff
 )
 
+type ExtensionMessage byte
+
+const (
+	ExtensionHandshake ExtensionMessage = 0
+)
+
 func SendNoPayload(conn io.Writer, e Message) error {
 	var b = make([]byte, 0, 5)
 	b = binary.BigEndian.AppendUint32(b, 1)

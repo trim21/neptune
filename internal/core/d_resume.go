@@ -89,7 +89,7 @@ func (c *Client) UnmarshalResume(data []byte, torrentDirectory string) (*Downloa
 		tags:     r.Tags,
 		basePath: r.BasePath,
 
-		reqHistory: xsync.NewMapOf[uint32, downloadReq](),
+		reqHistory: make(map[uint32]netip.AddrPort, 100),
 
 		AddAt: time.Now().Unix(),
 

@@ -93,6 +93,7 @@ func New(c *core.Client, token string, enableDebug bool) http.Handler {
 	addPing(h)
 	listTorrent(h, c)
 	listTorrentFiles(h, c)
+	listTorrentPeers(h, c)
 	AddTorrent(h, c)
 	GetTorrent(h, c)
 	MoveTorrent(h, c)

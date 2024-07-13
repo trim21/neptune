@@ -6,6 +6,7 @@ package core
 import (
 	"bytes"
 	"fmt"
+	"net/netip"
 	"slices"
 
 	"github.com/rs/zerolog/log"
@@ -175,6 +176,41 @@ func (c *Client) GetTorrentFiles(h metainfo.Hash) []TorrentFile {
 
 		fileStart = fileStart + file.Length
 	}
+
+	return results
+}
+
+type ApiPeers struct {
+	Address      string  `json:"address"`
+	Client       string  `json:"client"`
+	Progress     float64 `json:"progress"`
+	DownloadRate int64   `json:"download_rate"`
+	UploadRate   int64   `json:"upload_rate"`
+	IsIncoming   bool    `json:"is_incoming"`
+}
+
+func (c *Client) GetTorrentPeers(h metainfo.Hash) []ApiPeers {
+	c.m.RLock()
+	d, ok := c.downloadMap[h]
+	if !ok {
+		c.m.RUnlock()
+		return nil
+	}
+	c.m.RUnlock()
+
+	var results = make([]ApiPeers, 0, d.conn.Size())
+
+	d.conn.Range(func(addr netip.AddrPort, p *Peer) bool {
+		results = append(results, ApiPeers{
+			Address:      addr.String(),
+			Client:       lo.FromPtrOr(p.UserAgent.Load(), ""),
+			Progress:     float64(p.Bitmap.Count()) / float64(d.info.NumPieces),
+			DownloadRate: p.ioIn.Status().CurRate,
+			UploadRate:   p.ioOut.Status().CurRate,
+			IsIncoming:   p.Incoming,
+		})
+		return true
+	})
 
 	return results
 }

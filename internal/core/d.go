@@ -6,6 +6,7 @@ package core
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/netip"
 	"strings"
 	"sync"
@@ -39,10 +40,11 @@ const (
 // Download manage a download task
 // ctx should be canceled when torrent is removed, not stopped.
 type Download struct {
-	log               zerolog.Logger
+	log zerolog.Logger
+
+	reqLastUpdate     time.Time
 	ctx               context.Context
 	err               error
-	reqHistory        *xsync.MapOf[uint32, downloadReq]
 	cancel            context.CancelFunc
 	cond              *sync.Cond
 	c                 *Client
@@ -55,12 +57,14 @@ type Download struct {
 	bm                *bm.Bitmap
 	pieceData         map[uint32][]*proto.ChunkResponse
 	peers             *heap.Heap[peerWithPriority]
+	reqHistory        map[uint32]netip.AddrPort
 	basePath          string
 	key               string
 	downloadDir       string
 	tags              []string
 	pieceInfo         []pieceFileChunks
 	trackers          []TrackerTier
+	reqQuery          []uint32
 	info              meta.Info
 	AddAt             int64
 	CompletedAt       atomic.Int64
@@ -78,9 +82,12 @@ type Download struct {
 	pdMutex           sync.RWMutex
 	connMutex         sync.RWMutex
 	peersMutex        sync.Mutex
-	peerID            PeerID
-	state             State
-	private           bool
+	reqShedMutex      sync.Mutex
+
+	bitfieldSize uint32
+	peerID       PeerID
+	state        State
+	private      bool
 }
 
 func (d *Download) GetState() State {
@@ -137,7 +144,7 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 		tags:     tags,
 		basePath: basePath,
 
-		reqHistory: xsync.NewMapOf[uint32, downloadReq](),
+		reqHistory: make(map[uint32]netip.AddrPort, 100),
 
 		seq: *atomic.NewBool(true),
 
@@ -162,6 +169,8 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 
 		bm: bm.New(info.NumPieces),
 
+		bitfieldSize: (info.NumPieces + 7) / 8,
+
 		downloadDir: basePath,
 	}
 
@@ -170,6 +179,8 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 	d.setAnnounceList(m.UpvertedAnnounceList())
 
 	d.log.Info().Msg("download created")
+
+	fmt.Println(d.info.PieceLength)
 
 	//spew.Dump(d.pieceChunks[0])
 	//spew.Dump(d.pieceChunks[len(d.pieceChunks)-1])

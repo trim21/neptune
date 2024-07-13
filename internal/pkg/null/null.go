@@ -9,6 +9,7 @@ import (
 	"github.com/anacrolix/torrent/bencode"
 )
 
+var _ json.Marshaler = (*Null[any])(nil)
 var _ json.Unmarshaler = (*Null[any])(nil)
 var _ bencode.Unmarshaler = (*Null[any])(nil)
 
@@ -59,6 +60,16 @@ func (t Null[T]) Interface() any {
 	}
 
 	return nil
+}
+
+var nullBytes = []byte("null")
+
+func (t Null[T]) MarshalJSON() ([]byte, error) {
+	if !t.Set {
+		return nullBytes, nil
+	}
+
+	return json.Marshal(t.Value)
 }
 
 // UnmarshalJSON implements json.Unmarshaler.

@@ -27,15 +27,16 @@ func SendReject(conn io.Writer, request ChunkRequest) error {
 }
 
 func sendRequestPayload(conn io.Writer, id Message, request ChunkRequest) error {
-	var b [sizeUint32 + sizeByte + sizeUint32*3]byte
+	buf := pool.Get()
+	defer pool.Put(buf)
 
-	binary.BigEndian.PutUint32(b[:], sizeByte+sizeUint32*3)
-	b[4] = byte(id)
-	binary.BigEndian.PutUint32(b[sizeUint32+sizeByte:], request.PieceIndex)
-	binary.BigEndian.PutUint32(b[sizeUint32+sizeByte+sizeUint32:], request.Begin)
-	binary.BigEndian.PutUint32(b[sizeUint32+sizeByte+sizeUint32+sizeUint32:], request.Length)
+	buf.B = binary.BigEndian.AppendUint32(buf.B, sizeByte+sizeUint32*3)
+	buf.B = append(buf.B, byte(id))
+	buf.B = binary.BigEndian.AppendUint32(buf.B, request.PieceIndex)
+	buf.B = binary.BigEndian.AppendUint32(buf.B, request.Begin)
+	buf.B = binary.BigEndian.AppendUint32(buf.B, request.Length)
 
-	_, err := conn.Write(b[:])
+	_, err := conn.Write(buf.B)
 	return err
 }
 

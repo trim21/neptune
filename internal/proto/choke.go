@@ -6,26 +6,20 @@ package proto
 import (
 	"encoding/binary"
 	"io"
+
+	"tyr/internal/pkg/ro"
 )
 
-var chokeMessage = func() []byte {
-	b := binary.BigEndian.AppendUint32(nil, 1)
-	b = append(b, byte(Choke))
-	return b
-}()
+var chokeMessage = ro.B(append(binary.BigEndian.AppendUint32(nil, 1), byte(Choke)))
 
 func SendChoke(w io.Writer) error {
-	_, err := w.Write(chokeMessage)
+	_, err := chokeMessage.WriteTo(w)
 	return err
 }
 
-var unchokeMessage = func() []byte {
-	b := binary.BigEndian.AppendUint32(nil, 1)
-	b = append(b, byte(Unchoke))
-	return b
-}()
+var unchokeMessage = ro.B(append(binary.BigEndian.AppendUint32(nil, 1), byte(Unchoke)))
 
 func SendUnchoke(w io.Writer) error {
-	_, err := w.Write(unchokeMessage)
+	_, err := unchokeMessage.WriteTo(w)
 	return err
 }

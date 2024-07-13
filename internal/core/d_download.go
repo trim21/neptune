@@ -6,9 +6,8 @@ package core
 import (
 	"crypto/sha1"
 	"net/netip"
+	"slices"
 	"time"
-
-	"github.com/docker/go-units"
 
 	"tyr/internal/meta"
 	"tyr/internal/pkg/as"
@@ -167,14 +166,70 @@ func (d *Download) backgroundReqScheduler() {
 			}
 			d.m.Unlock()
 
-			// TODO: non seq downloading
 			d.scheduleSeq()
 		}
 	}
 }
 
+func (d *Download) updateReqQueue() {
+	if time.Since(d.reqLastUpdate) < time.Second*30 {
+		return
+	}
+	d.reqLastUpdate = time.Now()
+
+	var lastAdd uint32
+	for len(d.reqQuery) < 5 {
+		for index := lastAdd; index < d.info.NumPieces; index++ {
+			if d.bm.Get(index) {
+				continue
+			}
+
+			d.reqQuery = append(d.reqQuery, index)
+			lastAdd = index + 1
+			break
+		}
+	}
+}
+
 func (d *Download) scheduleSeq() {
-	var found int64 = 0
+	d.updateReqQueue()
+
+	var peers = make([]*Peer, 0, d.conn.Size())
+
+	d.conn.Range(func(addr netip.AddrPort, p *Peer) bool {
+		peers = append(peers, p)
+		return true
+	})
+
+	slices.SortFunc(peers, func(a, b *Peer) int {
+		a.rttMutex.RLock()
+		da := a.rttAverage.Average()
+		a.rttMutex.RUnlock()
+
+		b.rttMutex.RLock()
+		db := b.rttAverage.Average()
+		b.rttMutex.RUnlock()
+
+		if da == db {
+			return 0
+		}
+
+		// 0 means no data, so we order average RTT with 0 > 1m > 1ms
+		if db == 0 {
+			return -1
+		}
+		if da == 0 {
+			return 1
+		}
+		if da < db {
+			return -1
+		}
+		if da > db {
+			return 1
+		}
+
+		return 0
+	})
 
 	for index := uint32(0); index < d.info.NumPieces; index++ {
 		if d.bm.Get(index) {
@@ -183,47 +238,36 @@ func (d *Download) scheduleSeq() {
 
 		chunkLen := pieceChunkLen(d.info, index)
 
-		d.conn.Range(func(addr netip.AddrPort, p *Peer) bool {
+		d.reqShedMutex.Lock()
+		h, ok := d.reqHistory[index]
+		d.reqShedMutex.Unlock()
+
+		if ok {
+			if _, pending := d.conn.Load(h); pending {
+				continue
+			}
+		}
+
+		for _, p := range peers {
 			if !p.Bitmap.Get(index) {
-				return true
+				continue
 			}
 
-			if p.myRequests.Size() >= int(p.QueueLimit.Load())/2 {
-				return true
+			if p.myRequests.Size()+chunkLen >= int(p.QueueLimit.Load()) {
+				continue
 			}
-
-			// TODO: handle reject
-			//for _, chunk := range chunks {
-			//	if _, rejected := p.Rejected.Load(chunk); rejected {
-			//		return true
-			//	}
-			//}
 
 			for i := 0; i < chunkLen; i++ {
 				req := pieceChunk(d.info, index, i)
-				//_, exist := p.myRequestHistory.LoadOrStore(req, empty.Empty{})
-				//if exist {
-				//	continue
-				//}
-
+				if _, rejected := p.Rejected.Load(req); rejected {
+					continue
+				}
 				p.Request(req)
 			}
 
-			//if p.Rejected.Size() != 0 {
-			//	fmt.Println(p.Rejected)
-			//}
-
-			found++
-
-			return false
-		})
-
-		if found >= 5 {
-			break
-		}
-
-		if found*d.info.PieceLength >= units.GiB*2 {
-			break
+			d.reqShedMutex.Lock()
+			d.reqHistory[index] = p.Address
+			d.reqShedMutex.Unlock()
 		}
 	}
 }

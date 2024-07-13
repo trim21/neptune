@@ -34,20 +34,20 @@ import (
 func New(cfg config.Config, sessionPath string, debug bool) *Client {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	var mseDisabled bool
-	var mseSelector mse.CryptoSelector
-	switch cfg.App.Crypto {
-	case "force":
-		mseSelector = mse.ForceCrypto
-	case "prefer":
-		mseSelector = mse.PreferCrypto
-	case "prefer-not":
-		mseSelector = mse.DefaultCryptoSelector
-	case "", "disable":
-		mseDisabled = true
-	default:
-		panic(fmt.Sprintf("invalid `application.crypto` config %q, only 'prefer'(default) 'prefer-not', 'disable' or 'force' are allowed", cfg.App.Crypto))
-	}
+	//var mseDisabled bool
+	//var mseSelector mse.CryptoSelector
+	//switch cfg.App.Crypto {
+	//case "force":
+	//	mseSelector = mse.ForceCrypto
+	//case "prefer":
+	//	mseSelector = mse.PreferCrypto
+	//case "prefer-not":
+	//	mseSelector = mse.DefaultCryptoSelector
+	//case "", "disable":
+	//	mseDisabled = true
+	//default:
+	//	panic(fmt.Sprintf("invalid `application.crypto` config %q, only 'prefer'(default) 'prefer-not', 'disable' or 'force' are allowed", cfg.App.Crypto))
+	//}
 
 	v4, v6, _ := util.GetIpAddress()
 
@@ -68,8 +68,8 @@ func New(cfg config.Config, sessionPath string, debug bool) *Client {
 			DialContext:        conntrack.NewDialContextFunc(conntrack.DialWithName("http")),
 		}}).SetHeader("User-Agent", global.UserAgent).SetRedirectPolicy(resty.NoRedirectPolicy()),
 
-		mseDisabled: mseDisabled,
-		mseSelector: mseSelector,
+		//mseDisabled: mseDisabled,
+		//mseSelector: mseSelector,
 		sessionPath: sessionPath,
 		fh:          make(map[string]*os.File),
 		randKey:     random.Bytes(32),

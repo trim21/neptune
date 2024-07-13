@@ -26,14 +26,15 @@ func (c ChunkResponse) Request() ChunkRequest {
 }
 
 func SendPiece(conn io.Writer, r ChunkResponse) error {
-	var b [sizeUint32 + sizeByte + sizeUint32*2]byte
+	buf := pool.Get()
+	defer pool.Put(buf)
 
-	binary.BigEndian.PutUint32(b[:], uint32(len(r.Data)+sizeByte+sizeUint32*2))
-	b[4] = byte(Piece)
-	binary.BigEndian.PutUint32(b[sizeUint32+sizeByte:], r.PieceIndex)
-	binary.BigEndian.PutUint32(b[sizeUint32+sizeByte+sizeUint32:], r.Begin)
+	buf.B = binary.BigEndian.AppendUint32(buf.B, uint32(len(r.Data)+sizeByte+sizeUint32*2))
+	buf.B = append(buf.B, byte(Piece))
+	buf.B = binary.BigEndian.AppendUint32(buf.B, r.PieceIndex)
+	buf.B = binary.BigEndian.AppendUint32(buf.B, r.Begin)
 
-	_, err := conn.Write(b[:])
+	_, err := conn.Write(buf.B)
 	if err != nil {
 		return err
 	}
