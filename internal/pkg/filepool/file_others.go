@@ -10,5 +10,4 @@ func CanIgnore(err error) bool {
 }
 
 func Fadvise(fd int) {
-	return
 }

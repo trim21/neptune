@@ -4,11 +4,13 @@
 package core
 
 import (
+	"io"
 	"net/netip"
 	"time"
 
 	"tyr/internal/pkg/empty"
 	"tyr/internal/pkg/gslice"
+	"tyr/internal/pkg/mempool"
 	"tyr/internal/proto"
 )
 
@@ -52,8 +54,11 @@ func (d *Download) backgroundReqHandler() {
 
 		pieceIndex := uint32(idx)
 
-		piece, err := d.readPiece(pieceIndex)
+		buf := mempool.GetWithCap(int(d.pieceLength(pieceIndex)))
+		//piece := make([]byte, d.pieceLength(pieceIndex))
+		err := d.readPiece(pieceIndex, buf.B)
 		if err != nil {
+			mempool.Put(buf)
 			d.setError(err)
 			continue
 		}
@@ -70,7 +75,7 @@ func (d *Download) backgroundReqHandler() {
 					d.ioUp.Update(int(key.Length))
 					d.uploaded.Add(int64(key.Length))
 					go p.Response(proto.ChunkResponse{
-						Data:       piece[key.Begin : key.Begin+key.Length],
+						Data:       buf.B[key.Begin : key.Begin+key.Length],
 						Begin:      key.Begin,
 						PieceIndex: pieceIndex,
 					})
@@ -79,31 +84,33 @@ func (d *Download) backgroundReqHandler() {
 			})
 			return true
 		})
+		mempool.Put(buf)
 
 		time.Sleep(time.Second / 10)
 	}
 }
 
-func (d *Download) readPiece(index uint32) ([]byte, error) {
+// buf must be bigger enough to read whole piece
+func (d *Download) readPiece(index uint32, buf []byte) error {
 	pieces := d.pieceInfo[index]
-	buf := make([]byte, d.pieceLength(index))
-
 	var offset int64 = 0
 	for _, chunk := range pieces.fileChunks {
 		f, err := d.openFile(chunk.fileIndex)
 		if err != nil {
-			return nil, err
+			return err
 		}
 
-		_, err = f.File.ReadAt(buf[offset:offset+chunk.length], chunk.offsetOfFile)
+		n, err := f.File.ReadAt(buf[offset:offset+chunk.length], chunk.offsetOfFile)
 		if err != nil {
-			f.Close()
-			return nil, err
+			if !(int64(n) == chunk.length && err == io.EOF) {
+				f.Close()
+				return err
+			}
 		}
 
 		offset += chunk.length
 		f.Release()
 	}
 
-	return buf, nil
+	return nil
 }

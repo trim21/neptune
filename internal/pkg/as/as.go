@@ -17,11 +17,9 @@ import (
 var rU8 = reflect.ValueOf(uint8(0))
 var rU16 = reflect.ValueOf(uint16(0))
 var rU32 = reflect.ValueOf(uint32(0))
-var rU64 = reflect.ValueOf(uint64(0))
 var rI8 = reflect.ValueOf(int8(0))
 var rI16 = reflect.ValueOf(int16(0))
 var rI32 = reflect.ValueOf(int32(0))
-var rI64 = reflect.ValueOf(int64(0))
 var rI = reflect.ValueOf(int(0))
 
 func Uint8[T int8 | int16 | int32 | int64 | int | uint16 | uint32 | uint64 | uint](v T) uint8 {

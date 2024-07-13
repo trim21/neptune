@@ -37,8 +37,7 @@ func FormatBuildInfo(info *debug.BuildInfo) string {
 		if d.Replace == nil {
 			fmt.Fprintf(buf, "\n")
 		} else {
-			panic(fmt.Sprintf("show replace module not support, add support first"))
-			//fmt.Fprintf(buf, " => %s %s %s\n", d.Replace.Path, d.Replace.Version, d.Replace.Sum)
+			panic("show replace module not support, add support first")
 		}
 	}
 

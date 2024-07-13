@@ -113,8 +113,6 @@ func New(c *core.Client, token string, enableDebug bool) http.Handler {
 			}
 
 			next.ServeHTTP(w, r)
-
-			return
 		})
 	}
 

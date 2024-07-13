@@ -106,7 +106,6 @@ func (c *Client) UnmarshalResume(data []byte, torrentDirectory string) (*Downloa
 
 		// will use about 1mb per torrent, can be optimized later
 		pieceInfo: buildPieceInfos(info),
-		pieceData: make(map[uint32][]*proto.ChunkResponse, 20),
 
 		private: info.Private,
 

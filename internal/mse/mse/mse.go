@@ -338,7 +338,6 @@ func (h *handshake) initerSteps() (io.ReadWriter, CryptoMethod, error) {
 		}
 
 		var padLen uint16
-		padLen = 0
 		//padLen := newPadLen()
 
 		err = h.write(xorToBytes(hashBytes(req2, h.skey), hashBytes(req3, h.s[:])))

@@ -7,6 +7,8 @@ tasks:
     cmds:
       - ./.bin/betteralign.exe -apply ./...
       - golangci-lint run
+#      - staticcheck -tests=false ./...
+#      - staticcheck ./...
 
   gen: go generate ./...
 
@@ -136,7 +138,8 @@ tasks:
     dotenv:
       - .env
     cmds:
-      - go build -trimpath -race -o dist/dev/tmp.exe
+#      - go build -trimpath -race -o dist/dev/tmp.exe
+      - go build -trimpath -o dist/dev/tmp.exe
       #
       - cmd: |
           until rm dist/dev/server.exe -rf && cp dist/dev/tmp.exe dist/dev/tyr.exe

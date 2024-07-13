@@ -15,8 +15,6 @@ import (
 	"github.com/juju/ratelimit"
 	"github.com/trim21/errgo"
 
-	"tyr/internal/meta"
-	"tyr/internal/pkg/assert"
 	"tyr/internal/pkg/fallocate"
 	"tyr/internal/pkg/gfs"
 	"tyr/internal/pkg/global"
@@ -125,76 +123,6 @@ func (d *Download) buildPieceToCheck(efs map[int]*existingFile) []uint32 {
 	}
 
 	return r
-}
-
-type pieceFileChunks struct {
-	fileChunks []pieceInfoFileChunk
-}
-
-func buildPieceInfos(info meta.Info) []pieceFileChunks {
-	p := make([]pieceFileChunks, info.NumPieces)
-
-	for i := uint32(0); i < info.NumPieces; i++ {
-		p[i] = getPieceInfo(i, info)
-	}
-
-	return p
-}
-
-func getPieceInfo(i uint32, info meta.Info) pieceFileChunks {
-	assert.NotEqual(info.Pieces[i], [20]byte{})
-
-	return pieceFileChunks{
-		fileChunks: pieceFileInfos(i, info),
-	}
-}
-
-type pieceInfoFileChunk struct {
-	fileIndex    int
-	offsetOfFile int64
-	length       int64
-}
-
-func pieceFileInfos(i uint32, info meta.Info) []pieceInfoFileChunk {
-	var pieceStart = int64(i) * info.PieceLength
-	var currentFileStart int64 = 0
-	var needToRead = info.PieceLength
-	var fileIndex = 0
-
-	var result []pieceInfoFileChunk
-
-	for needToRead > 0 {
-		f := info.Files[fileIndex]
-		currentFileEnd := currentFileStart + f.Length
-		currentReadStart := pieceStart + (info.PieceLength - needToRead)
-
-		if currentFileStart <= currentReadStart && currentReadStart <= currentFileEnd {
-
-			shouldRead := min(currentFileEnd-currentReadStart, needToRead)
-
-			result = append(result, pieceInfoFileChunk{
-				fileIndex:    fileIndex,
-				offsetOfFile: currentReadStart - currentFileStart,
-				length:       shouldRead,
-			})
-
-			needToRead = needToRead - shouldRead
-		}
-
-		currentFileStart += f.Length
-
-		fileIndex++
-
-		if fileIndex >= len(info.Files) {
-			break
-		}
-	}
-
-	if needToRead < 0 {
-		panic("unexpected need to read")
-	}
-
-	return result
 }
 
 func tryAllocFile(index int, path string, size int64, doAlloc bool) (*existingFile, error) {

@@ -23,7 +23,6 @@ import (
 	"tyr/internal/bep40"
 	"tyr/internal/config"
 	"tyr/internal/metainfo"
-	"tyr/internal/mse"
 	"tyr/internal/pkg/global"
 	"tyr/internal/pkg/gslice"
 	"tyr/internal/pkg/random"
@@ -102,10 +101,8 @@ type Client struct {
 	http        *resty.Client
 	cancel      context.CancelFunc
 	downloadMap map[metainfo.Hash]*Download
-	mseKeys     mse.SecretKeyIter
 	connChan    chan incomingConn
 	sem         *semaphore.Weighted
-	mseSelector mse.CryptoSelector
 	ch          *ttlcache.Cache[netip.AddrPort, connHistory]
 	fh          map[string]*os.File
 
@@ -122,9 +119,6 @@ type Client struct {
 	Config          config.Config
 	connectionCount atomic.Uint32
 	m               sync.RWMutex
-	checkQueueLock  sync.Mutex
-	fLock           sync.Mutex
-	mseDisabled     bool
 	debug           bool
 }
 

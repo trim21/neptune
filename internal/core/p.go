@@ -189,7 +189,6 @@ func (p *Peer) Response(res proto.ChunkResponse) {
 	if err != nil {
 		p.close()
 	}
-	return
 }
 
 func (p *Peer) Request(req proto.ChunkRequest) {
@@ -206,7 +205,6 @@ func (p *Peer) Request(req proto.ChunkRequest) {
 	if err != nil {
 		p.close()
 	}
-	return
 }
 
 func (p *Peer) Have(index uint32) {
@@ -454,11 +452,7 @@ func (p *Peer) validateRequest(req proto.ChunkRequest) bool {
 
 	expectedLen := as.Uint32(p.d.pieceLength(req.PieceIndex))
 
-	if req.Begin+req.Length > expectedLen {
-		return false
-	}
-
-	return true
+	return !(req.Begin+req.Length > expectedLen)
 }
 
 func (p *Peer) resIsValid(res proto.ChunkResponse) bool {

@@ -16,10 +16,9 @@ import (
 )
 
 type connHistory struct {
-	lastTry   time.Time
-	err       error
-	timeout   bool
-	connected bool
+	lastTry time.Time
+	err     error
+	timeout bool
 }
 
 // AddConn add an incoming connection from client listener
@@ -89,7 +88,6 @@ func (d *Download) connectToPeers() {
 			//}
 
 			NewOutgoingPeer(conn, d, pp.addrPort)
-			return
 		})
 	}
 }

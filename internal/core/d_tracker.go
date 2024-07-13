@@ -137,8 +137,6 @@ func (tier TrackerTier) announceStop(d *Download) {
 			return
 		}
 	}
-
-	return
 }
 
 type nonCompactAnnounceResponse struct {

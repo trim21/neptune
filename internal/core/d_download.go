@@ -9,6 +9,8 @@ import (
 	"slices"
 	"time"
 
+	"github.com/trim21/errgo"
+
 	"tyr/internal/meta"
 	"tyr/internal/pkg/as"
 	"tyr/internal/pkg/global/tasks"
@@ -32,116 +34,98 @@ func (d *Download) have(index uint32) {
 
 func (d *Download) handleRes(res proto.ChunkResponse) {
 	// TODO: flush chunks to disk instead of waiting whole piece
-
 	d.log.Trace().
-		Any("res", map[string]any{
-			"piece":  res.PieceIndex,
-			"offset": res.Begin,
-			"length": len(res.Data),
-		}).Msg("res received")
+		Uint32("piece", res.PieceIndex).
+		Uint32("offset", res.Begin).
+		Int("length", len(res.Data)).
+		Msg("res received")
 
 	d.ioDown.Update(len(res.Data))
 	d.netDown.Update(len(res.Data))
 	d.downloaded.Add(int64(len(res.Data)))
 
-	if d.bm.Get(res.PieceIndex) {
+	pi := res.Begin / defaultBlockSize
+	normalChunkLen := as.Uint32((d.info.PieceLength + defaultBlockSize - 1) / defaultBlockSize)
+	cid := normalChunkLen*res.PieceIndex + pi
+
+	pieceCidStart := res.PieceIndex * normalChunkLen
+	pieceCidEnd := pieceCidStart + as.Uint32(pieceChunkLen(d.info, res.PieceIndex))
+
+	//tasks.Submit(func() {
+	err := d.writeChunkToDist(res)
+	if err != nil {
 		return
 	}
 
-	d.pdMutex.Lock()
-	defer d.pdMutex.Unlock()
+	d.chunkMap.Add(cid)
 
-	chunks, ok := d.pieceData[res.PieceIndex]
-	if !ok {
-		chunks = make([]*proto.ChunkResponse, pieceChunkLen(d.info, res.PieceIndex))
-	}
-
-	chunks[res.Begin/defaultBlockSize] = &res
-
-	filled := true
-	for _, res := range chunks {
-		if res == nil {
-			filled = false
+	var pieceDone = true
+	for i := pieceCidStart; i <= pieceCidEnd; i++ {
+		if !d.chunkMap.Contains(i) {
+			pieceDone = false
 			break
 		}
 	}
 
-	if filled {
-		delete(d.pieceData, res.PieceIndex)
-		d.writePieceToDisk(res.PieceIndex, chunks)
+	if !pieceDone {
 		return
 	}
 
-	d.pieceData[res.PieceIndex] = chunks
+	err = d.checkPiece(res.PieceIndex)
+	if err != nil {
+		return
+	}
+
+	d.checkDone()
 }
 
-func (d *Download) writePieceToDisk(pieceIndex uint32, chunks []*proto.ChunkResponse) {
-	buf := mempool.Get()
+func (d *Download) writeChunkToDist(res proto.ChunkResponse) error {
+	size := int64(len(res.Data))
+	begin := int64(res.Begin) + d.info.PieceLength*int64(res.PieceIndex)
 
-	for i, chunk := range chunks {
-		buf.Write(chunk.Data)
-		chunks[i] = nil
+	var offset int64
+	for _, chunk := range fileChunks(d.info, begin, begin+size) {
+		f, err := d.openFile(chunk.fileIndex)
+		if err != nil {
+			d.setError(err)
+			return errgo.Wrap(err, "failed to open file for writing chunk")
+		}
+
+		_, err = f.File.WriteAt(res.Data[offset:offset+chunk.length], chunk.offsetOfFile)
+		if err != nil {
+			f.Close()
+			d.setError(err)
+			return errgo.Wrap(err, "failed to write chunk")
+		}
+
+		f.Release()
+		offset += chunk.length
 	}
 
-	// it's expected users have a hardware run sha1 faster than disk write
+	return nil
+}
 
-	h := sha1.Sum(buf.B)
-	if h != d.info.Pieces[pieceIndex] {
+func (d *Download) checkPiece(pieceIndex uint32) error {
+	size := d.pieceLength(pieceIndex)
+	buf := mempool.GetWithCap(int(size))
+	defer mempool.Put(buf)
+
+	err := d.readPiece(pieceIndex, buf.B)
+	if err != nil {
+		d.setError(err)
+		return errgo.Wrap(err, "failed to read piece")
+	}
+
+	if sha1.Sum(buf.B) != d.info.Pieces[pieceIndex] {
 		d.corrupted.Add(d.info.PieceLength)
-		mempool.Put(buf)
-		return
+		return nil
 	}
 
 	d.bm.Set(pieceIndex)
+	d.log.Trace().Msgf("piece %d done", pieceIndex)
+	d.have(pieceIndex)
 
-	tasks.Submit(func() {
-		defer mempool.Put(buf)
-
-		pieces := d.pieceInfo[pieceIndex]
-		var offset int64 = 0
-
-		for _, chunk := range pieces.fileChunks {
-			f, err := d.openFile(chunk.fileIndex)
-			if err != nil {
-				d.setError(err)
-				return
-			}
-
-			_, err = f.File.WriteAt(buf.B[offset:offset+chunk.length], chunk.offsetOfFile)
-			if err != nil {
-				f.Close()
-				d.setError(err)
-				return
-			}
-
-			f.Release()
-			offset += chunk.length
-		}
-
-		d.bm.Set(pieceIndex)
-
-		d.log.Trace().Msgf("piece %d done", pieceIndex)
-		d.have(pieceIndex)
-
-		if d.bm.Count() == d.info.NumPieces {
-			d.m.Lock()
-			d.state = Seeding
-			d.ioDown.Reset()
-			d.m.Unlock()
-
-			d.pdMutex.Lock()
-			clear(d.pieceData)
-			d.pdMutex.Unlock()
-
-			d.conn.Range(func(addr netip.AddrPort, p *Peer) bool {
-				if p.Bitmap.Count() == d.info.NumPieces {
-					p.cancel()
-				}
-
-				return true
-			})
-		}
-	})
+	return nil
 }
 
 func (d *Download) backgroundReqScheduler() {
@@ -169,6 +153,25 @@ func (d *Download) backgroundReqScheduler() {
 			d.scheduleSeq()
 		}
 	}
+}
+
+func (d *Download) checkDone() {
+	if d.bm.Count() != d.info.NumPieces {
+		return
+	}
+
+	d.m.Lock()
+	d.state = Seeding
+	d.ioDown.Reset()
+	d.m.Unlock()
+
+	d.conn.Range(func(addr netip.AddrPort, p *Peer) bool {
+		if p.Bitmap.Count() == d.info.NumPieces {
+			p.cancel()
+		}
+
+		return true
+	})
 }
 
 func (d *Download) updateReqQueue() {

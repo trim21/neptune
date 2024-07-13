@@ -45,6 +45,11 @@ linters-settings:
       - unusedresult
       - unusedwrite
 
+  staticcheck:
+    # SAxxxx checks in https://staticcheck.io/docs/configuration/options/#checks
+    #     Default: ["*"]
+    checks: [ "all", U1000 ]
+
   gofmt:
     rewrite-rules:
       - pattern: interface{}
@@ -63,11 +68,12 @@ linters:
     - govet
     - exhaustive
     - depguard
+    - staticcheck
 
   disable:
     - errcheck
     - unused
-  fast: true
+#  fast: true
 
 issues:
   exclude-rules:

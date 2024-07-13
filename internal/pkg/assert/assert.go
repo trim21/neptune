@@ -6,7 +6,7 @@
 package assert
 
 func panicMessage(msg []string) {
-	if msg == nil || len(msg) == 0 {
+	if len(msg) == 0 {
 		panic("assert failed")
 	}
 

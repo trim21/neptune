@@ -7,11 +7,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/netip"
-	"strings"
 	"sync"
 	"time"
 
+	"github.com/RoaringBitmap/roaring/v2"
 	"github.com/puzpuzpuz/xsync/v3"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -55,11 +56,10 @@ type Download struct {
 	conn              *xsync.MapOf[netip.AddrPort, *Peer]
 	connectionHistory *xsync.MapOf[netip.AddrPort, connHistory]
 	bm                *bm.Bitmap
-	pieceData         map[uint32][]*proto.ChunkResponse
+	chunkMap          roaring.Bitmap
 	peers             *heap.Heap[peerWithPriority]
 	reqHistory        map[uint32]netip.AddrPort
 	basePath          string
-	key               string
 	downloadDir       string
 	tags              []string
 	pieceInfo         []pieceFileChunks
@@ -72,15 +72,11 @@ type Download struct {
 	corrupted         atomic.Int64
 	done              atomic.Bool
 	uploaded          atomic.Int64
-	checkProgress     atomic.Int64
 	uploadAtStart     int64
 	downloadAtStart   int64
-	lazyInitialized   atomic.Bool
 	seq               atomic.Bool
 	announcePending   atomic.Bool
 	m                 sync.RWMutex
-	pdMutex           sync.RWMutex
-	connMutex         sync.RWMutex
 	peersMutex        sync.Mutex
 	reqShedMutex      sync.Mutex
 
@@ -159,11 +155,12 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 		conn:              xsync.NewMapOf[netip.AddrPort, *Peer](),
 		connectionHistory: xsync.NewMapOf[netip.AddrPort, connHistory](),
 
+		//chunkMap: roaring.New(),
+
 		peers: heap.New[peerWithPriority](),
 
 		// will use about 1mb per torrent, can be optimized later
 		pieceInfo: buildPieceInfos(info),
-		pieceData: make(map[uint32][]*proto.ChunkResponse, 20),
 
 		private: info.Private,
 
@@ -197,39 +194,14 @@ func (d *Download) completed() int64 {
 	return completed
 }
 
-type peerDisplay struct {
-	Up     string
-	Down   string
-	Client *string
-	Addr   netip.AddrPort
-}
-
 // if download encounter an error must stop downloading/uploading
 func (d *Download) setError(err error) {
+	if err == io.EOF {
+		panic("unexpected EOF error")
+	}
+
 	d.m.Lock()
 	d.err = err
 	d.state = Error
 	d.m.Unlock()
-}
-
-func canonicalName(info metainfo.Info, infoHash metainfo.Hash) string {
-	// yes, there are some torrent have this name
-	name := info.Name
-	if (info.NameUtf8) != "" {
-		name = info.NameUtf8
-	}
-
-	if name == "" {
-		return infoHash.Hex()
-	}
-
-	if len(info.Files) != 0 {
-		return name
-	}
-	s := strings.Split(name, ".")
-	if len(s) == 0 {
-		return name
-	}
-
-	return strings.Join(s[:len(s)-1], ".")
 }

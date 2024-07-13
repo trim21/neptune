@@ -46,16 +46,6 @@ func round(x float64) int64 {
 // Percent represents a percentage in increments of 1/1000th of a percent.
 type Percent uint32
 
-// percentOf calculates what percent of the total is x.
-func percentOf(x, total float64) Percent {
-	if x < 0 || total <= 0 {
-		return 0
-	} else if p := round(x / total * 1e5); p <= math.MaxUint32 {
-		return Percent(p)
-	}
-	return Percent(math.MaxUint32)
-}
-
 func (p Percent) Float() float64 {
 	return float64(p) * 1e-3
 }

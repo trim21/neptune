@@ -17,7 +17,9 @@ func GetWithCap(size int) *Buffer {
 	buf := bytebufferpool.Get()
 
 	if cap(buf.B) < size {
-		buf.B = make([]byte, 0, size)
+		buf.B = make([]byte, size)
+	} else {
+		buf.B = buf.B[:size]
 	}
 
 	return buf
