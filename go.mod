@@ -23,7 +23,7 @@ require (
 	github.com/panjf2000/ants/v2 v2.10.0
 	github.com/pelletier/go-toml/v2 v2.2.2
 	github.com/prometheus/client_golang v1.19.1
-	github.com/puzpuzpuz/xsync/v3 v3.3.1
+	github.com/puzpuzpuz/xsync/v3 v3.4.0
 	github.com/rs/zerolog v1.33.0
 	github.com/samber/lo v1.45.0
 	github.com/sourcegraph/conc v0.3.0
