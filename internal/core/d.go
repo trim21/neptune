@@ -6,7 +6,6 @@ package core
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"net/netip"
 	"sync"
@@ -21,6 +20,7 @@ import (
 	"tyr/internal/meta"
 	"tyr/internal/metainfo"
 	"tyr/internal/pkg/bm"
+	"tyr/internal/pkg/empty"
 	"tyr/internal/pkg/flowrate"
 	"tyr/internal/pkg/heap"
 	"tyr/internal/proto"
@@ -56,32 +56,42 @@ type Download struct {
 	conn              *xsync.MapOf[netip.AddrPort, *Peer]
 	connectionHistory *xsync.MapOf[netip.AddrPort, connHistory]
 	bm                *bm.Bitmap
-	chunkMap          roaring.Bitmap
 	peers             *heap.Heap[peerWithPriority]
-	basePath          string
-	downloadDir       string
-	tags              []string
-	pieceInfo         []pieceFileChunks
-	trackers          []TrackerTier
-	info              meta.Info
-	AddAt             int64
-	CompletedAt       atomic.Int64
-	downloaded        atomic.Int64
-	corrupted         atomic.Int64
-	done              atomic.Bool
-	uploaded          atomic.Int64
-	uploadAtStart     int64
-	downloadAtStart   int64
+	rarePieceQueue    *heap.Heap[pieceRare] // piece index ordered by rare
 
-	ratePieceMutex sync.Mutex
-	pieceRare      []uint32             // mapping from piece index to rare
-	rarePieceQueue heap.Heap[pieceRare] // piece index ordered by rare
+	// signal to rebuild connected peers bitmap
+	// should be fired when peers send bitmap/Have/HaveAll message
+	buildNetworkPieces chan empty.Empty
+
+	// signal to schedule request to peers
+	// should be fired when peers finish pieces requests
+	scheduleRequest chan empty.Empty
+
+	basePath        string
+	downloadDir     string
+	tags            []string
+	pieceInfo       []pieceFileChunks
+	trackers        []TrackerTier
+	pieceRare       []uint32 // mapping from piece index to rare
+	pieceCount      []uint16
+	chunkMap        roaring.Bitmap
+	info            meta.Info
+	AddAt           int64
+	CompletedAt     atomic.Int64
+	downloaded      atomic.Int64
+	corrupted       atomic.Int64
+	done            atomic.Bool
+	uploaded        atomic.Int64
+	uploadAtStart   int64
+	downloadAtStart int64
 
 	seq             atomic.Bool
 	announcePending atomic.Bool
 	m               sync.RWMutex
-	peersMutex      sync.Mutex
-	reqShedMutex    sync.Mutex
+
+	ratePieceMutex sync.Mutex
+	peersMutex     sync.Mutex
+	reqShedMutex   sync.Mutex
 
 	bitfieldSize uint32
 	peerID       PeerID
@@ -123,7 +133,7 @@ func (d *Download) GetState() State {
 }
 
 func (d *Download) wait(state State) {
-	d.m.Lock()
+	d.cond.L.Lock()
 	for {
 		if d.state&state == 0 {
 			d.cond.Wait()
@@ -132,7 +142,7 @@ func (d *Download) wait(state State) {
 
 		break
 	}
-	d.m.Unlock()
+	d.cond.L.Unlock()
 }
 
 var ErrTorrentNotFound = errors.New("torrent not found")
@@ -193,7 +203,12 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 
 		bm: bm.New(info.NumPieces),
 
+		pieceCount: make([]uint16, info.NumPieces),
+
 		bitfieldSize: (info.NumPieces + 7) / 8,
+
+		scheduleRequest:    make(chan empty.Empty, 1),
+		buildNetworkPieces: make(chan empty.Empty, 1),
 
 		downloadDir: basePath,
 	}
@@ -203,11 +218,6 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 	d.setAnnounceList(m.UpvertedAnnounceList())
 
 	d.log.Info().Msg("download created")
-
-	fmt.Println(d.info.PieceLength)
-
-	//spew.Dump(d.pieceChunks[0])
-	//spew.Dump(d.pieceChunks[len(d.pieceChunks)-1])
 
 	return d
 }

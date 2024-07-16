@@ -5,7 +5,7 @@ tasks:
     deps:
       - tools:betteralign
     cmds:
-      - ./.bin/betteralign.exe -apply ./...
+      - ./.bin/betteralign.exe -fix -apply ./...
       - golangci-lint run
 #      - staticcheck -tests=false ./...
 #      - staticcheck ./...
@@ -163,6 +163,10 @@ tasks:
   pprof:block:
     cmds:
       - go tool pprof -http=:8001 http://127.0.0.1:8002/debug/pprof/block
+
+  pprof:mutex:
+    cmds:
+      - go tool pprof -http=:8001 http://127.0.0.1:8002/debug/pprof/mutex
 
   heap:
     cmds:

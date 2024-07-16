@@ -85,6 +85,7 @@ func New(c *core.Client, token string, enableDebug bool) http.Handler {
 			})
 		}
 
+		r.Mount("/debug/tyr", c.DebugHandlers())
 		r.HandleFunc("/debug/events", trace.Events)
 
 		r.Mount("/debug", middleware.Profiler())

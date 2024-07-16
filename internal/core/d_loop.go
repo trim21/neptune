@@ -71,20 +71,36 @@ func (d *Download) Init() {
 	go d.startBackground()
 }
 
+func (d *Download) handleConnectionChange() {
+	for {
+		select {
+		case <-d.ctx.Done():
+			return
+		case <-d.buildNetworkPieces:
+			d.onConnectionChanged()
+		}
+	}
+}
+
+func (d *Download) onConnectionChanged() {
+	d.updateRarePieces(true)
+}
+
 func (d *Download) startBackground() {
 	d.log.Trace().Msg("start goroutine")
 
-	go d.backgroundReqScheduler()
+	// download
 	go d.backgroundResHandler()
+	go d.backgroundReqScheduler()
+	go d.handleConnectionChange()
 
+	// upload
 	go d.backgroundReqHandler()
 
 	go func() {
 		for {
-			select {
-			case <-d.ctx.Done():
+			if d.ctx.Err() != nil {
 				return
-			default:
 			}
 
 			d.m.Lock()

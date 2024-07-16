@@ -5,10 +5,16 @@ package core
 
 import (
 	"bytes"
+	"encoding/hex"
 	"fmt"
+	"io"
+	"net/http"
 	"net/netip"
 	"slices"
 
+	"github.com/dustin/go-humanize"
+	"github.com/go-chi/chi/v5"
+	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/rs/zerolog/log"
 	"github.com/samber/lo"
 
@@ -211,4 +217,65 @@ func (c *Client) GetTorrentPeers(h metainfo.Hash) []ApiPeers {
 	})
 
 	return results
+}
+
+func (c *Client) DebugHandlers() http.Handler {
+	router := chi.NewRouter()
+	router.Get("/{info_hash}", func(w http.ResponseWriter, r *http.Request) {
+		h := r.PathValue("info_hash")
+		if len(h) != 40 {
+			http.Error(w, "invalid info_hash", http.StatusBadRequest)
+			return
+		}
+
+		hash, err := hex.DecodeString(h)
+		if err != nil {
+			http.Error(w, "invalid info_hash", http.StatusBadRequest)
+			return
+		}
+
+		infoHash := metainfo.Hash(hash)
+
+		c.m.RLock()
+		defer c.m.RUnlock()
+
+		d, ok := c.downloadMap[infoHash]
+		if !ok {
+			http.Error(w, "download not found", http.StatusNotFound)
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+
+		fmt.Fprintf(w, "%q\n\n", d.info.Name)
+		fmt.Fprintf(w, "download %s/s\tupload %s/s\n",
+			humanize.IBytes(uint64(d.ioDown.Status().CurRate)),
+			humanize.IBytes(uint64(d.ioUp.Status().CurRate)),
+		)
+
+		t := table.NewWriter()
+
+		t.AppendHeader(table.Row{"address", "download_rate", "pending_requests", "pending_pieces_requests"})
+
+		t.SortBy([]table.SortBy{{
+			Name:       "address",
+			Number:     0,
+			Mode:       0,
+			IgnoreCase: false,
+		}})
+
+		d.conn.Range(func(addr netip.AddrPort, p *Peer) bool {
+			t.AppendRow(table.Row{
+				addr.String(),
+				humanize.IBytes(uint64(p.ioIn.Status().CurRate)) + "/s",
+				p.myRequests.Size(),
+				len(p.ourPieceRequests),
+			})
+			return true
+		})
+
+		_, _ = io.WriteString(w, t.Render())
+	})
+	return router
 }

@@ -14,6 +14,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strings"
 	"syscall"
@@ -52,7 +53,8 @@ func main() {
 
 	debug := viper.GetBool("debug")
 	if debug {
-		//runtime.SetBlockProfileRate(10000)
+		runtime.SetBlockProfileRate(10000)
+		runtime.SetMutexProfileFraction(10000)
 		_, _ = fmt.Fprintln(os.Stderr, "enable debug mode")
 	}
 

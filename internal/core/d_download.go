@@ -8,13 +8,15 @@ import (
 	"crypto/sha1"
 	"net/netip"
 	"slices"
+	"time"
 
-	"github.com/sourcegraph/conc"
 	"github.com/trim21/errgo"
 
 	"tyr/internal/meta"
 	"tyr/internal/pkg/as"
+	"tyr/internal/pkg/bm"
 	"tyr/internal/pkg/global/tasks"
+	"tyr/internal/pkg/heap"
 	"tyr/internal/pkg/mempool"
 	"tyr/internal/proto"
 )
@@ -73,12 +75,14 @@ func (d *Download) handleRes(res proto.ChunkResponse) {
 		return
 	}
 
-	err = d.checkPiece(res.PieceIndex)
-	if err != nil {
-		return
-	}
+	tasks.Submit(func() {
+		err = d.checkPiece(res.PieceIndex)
+		if err != nil {
+			return
+		}
 
-	d.checkDone()
+		d.checkDone()
+	})
 }
 
 func (d *Download) writeChunkToDist(res proto.ChunkResponse) error {
@@ -131,13 +135,22 @@ func (d *Download) checkPiece(pieceIndex uint32) error {
 }
 
 func (d *Download) backgroundReqScheduler() {
+	timer := time.NewTimer(time.Second / 2)
+	defer timer.Stop()
+
 	for {
 		select {
 		case <-d.ctx.Done():
 			return
-		default:
-			d.wait(Downloading)
-
+		case <-d.scheduleRequest:
+			if d.GetState() != Downloading {
+				continue
+			}
+			d.scheduleSeq()
+		case <-timer.C:
+			if d.GetState() != Downloading {
+				continue
+			}
 			d.scheduleSeq()
 		}
 	}
@@ -155,7 +168,7 @@ func (d *Download) checkDone() {
 
 	d.conn.Range(func(addr netip.AddrPort, p *Peer) bool {
 		if p.Bitmap.Count() == d.info.NumPieces {
-			p.cancel()
+			p.close()
 		}
 
 		return true
@@ -164,37 +177,50 @@ func (d *Download) checkDone() {
 	d.announce(EventCompleted)
 }
 
-func (d *Download) updateRarePieces() {
-	d.ratePieceMutex.Lock()
-	defer d.ratePieceMutex.Unlock()
-
+func (d *Download) updateRarePieces(force bool) {
 	if len(d.pieceRare) == 0 {
 		d.pieceRare = make([]uint32, d.info.NumPieces)
 	} else {
 		clear(d.pieceRare)
 	}
 
+	var requested = bm.New(d.info.NumPieces)
+
 	d.conn.Range(func(addr netip.AddrPort, p *Peer) bool {
+		requested.XOR(p.Requested)
 		p.Bitmap.Range(func(u uint32) {
 			d.pieceRare[u]++
 		})
 		return true
 	})
 
+	var queue = make([]pieceRare, 0, d.info.NumPieces)
+
 	for index, rare := range d.pieceRare {
 		if d.bm.Get(uint32(index)) {
 			continue
 		}
 
-		d.rarePieceQueue.Push(pieceRare{rare: rare, index: uint32(index)})
+		if requested.Get(uint32(index)) {
+			continue
+		}
+
+		queue = append(queue, pieceRare{rare: rare, index: uint32(index)})
 	}
+
+	d.ratePieceMutex.Lock()
+	d.rarePieceQueue = heap.FromSlice(queue)
+	d.ratePieceMutex.Unlock()
 }
 
 func (d *Download) scheduleSeq() {
-	d.updateRarePieces()
+	d.updateRarePieces(true)
 	var peers = make([]*Peer, 0, d.conn.Size())
 
+	var requested = bm.New(d.info.NumPieces)
+
 	d.conn.Range(func(addr netip.AddrPort, p *Peer) bool {
+		requested.XOR(p.Requested)
 		peers = append(peers, p)
 		return true
 	})
@@ -208,40 +234,39 @@ func (d *Download) scheduleSeq() {
 	})
 
 	d.ratePieceMutex.Lock()
-	defer d.ratePieceMutex.Unlock()
-
-	var g conc.WaitGroup
+	q := d.rarePieceQueue
+	d.rarePieceQueue = heap.New[pieceRare]()
+	d.ratePieceMutex.Unlock()
 
 PIECE:
-	for d.rarePieceQueue.Len() > 0 {
-		piece := d.rarePieceQueue.Pop()
-		chunkLen := pieceChunkLen(d.info, piece.index)
+	for q.Len() > 0 {
+		piece := q.Pop()
+
+		if piece.rare == 0 {
+			break
+		}
+
+		if requested.Get(piece.index) {
+			continue
+		}
 
 		for _, p := range peers {
+			if p.closed.Load() {
+				// peer closed, re-scheduler
+				return
+			}
+
 			if !p.Bitmap.Get(piece.index) {
 				continue
 			}
 
-			g.Go(func() {
-				for i := 0; i < chunkLen; i++ {
-					if p.ctx.Err() != nil {
-						return
-					}
-
-					// 10 is a magic number to avoid peer reject our requests
-					for p.myRequests.Size() >= int(p.QueueLimit.Load())-10 {
-						p.responseCond.Wait()
-					}
-
-					p.Request(pieceChunk(d.info, piece.index, i))
-				}
-			})
-
-			continue PIECE
+			if len(p.ourPieceRequests) != 1 {
+				p.Requested.Set(piece.index)
+				p.ourPieceRequests <- piece.index
+				continue PIECE
+			}
 		}
 	}
-
-	g.WaitAndRecover()
 }
 
 func pieceChunkLen(info meta.Info, index uint32) int {

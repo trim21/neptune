@@ -211,7 +211,6 @@ func (m *Monitor) Reset() {
 	m.rSample = 0
 	m.rEMA = 0
 	m.rPeak = 0
-	m.rWindow = 0
 	m.start = now
 	m.total = 0
 	m.sBytes = 0

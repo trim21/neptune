@@ -15,9 +15,6 @@ import (
 )
 
 func (d *Download) backgroundReqHandler() {
-	// TODO: perf for cross seeding
-	var pieceCount = make([]uint16, d.info.NumPieces)
-
 	for {
 		select {
 		case <-d.ctx.Done():
@@ -26,7 +23,7 @@ func (d *Download) backgroundReqHandler() {
 		}
 		d.wait(Downloading | Seeding)
 
-		clear(pieceCount)
+		clear(d.pieceCount)
 
 		d.conn.Range(func(addr netip.AddrPort, p *Peer) bool {
 			if p.peerChoking.Load() {
@@ -39,13 +36,13 @@ func (d *Download) backgroundReqHandler() {
 			}
 
 			p.peerRequests.Range(func(key proto.ChunkRequest, _ empty.Empty) bool {
-				pieceCount[key.PieceIndex]++
+				d.pieceCount[key.PieceIndex]++
 				return true
 			})
 			return true
 		})
 
-		idx, v := gslice.Max(pieceCount)
+		idx, v := gslice.Max(d.pieceCount)
 
 		// no pending myRequests
 		if v == 0 {

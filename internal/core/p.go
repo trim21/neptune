@@ -100,6 +100,8 @@ func newPeer(
 		peerChoking:          *atomic.NewBool(true),
 		peerInterested:       *atomic.NewBool(fast),
 
+		ourPieceRequests: make(chan uint32, 1),
+
 		responseCond: sync.Cond{L: &gsync.EmptyLock{}},
 
 		//ResChan:   make(chan req.Response, 1),
@@ -114,6 +116,7 @@ func newPeer(
 		w: bufio.NewWriterSize(conn, units.KiB*8),
 
 		allowFast: bm.New(d.info.NumPieces),
+		Requested: bm.New(d.info.NumPieces),
 
 		rttAverage: sizedSlice[time.Duration]{
 			limit: 2000,
@@ -146,7 +149,8 @@ type Peer struct {
 	cancel   context.CancelFunc
 	Bitmap   *bm.Bitmap
 
-	responseCond     sync.Cond
+	Requested *bm.Bitmap
+
 	myRequests       *xsync.MapOf[proto.ChunkRequest, time.Time]
 	myRequestHistory *xsync.MapOf[proto.ChunkRequest, empty.Empty]
 
@@ -159,7 +163,11 @@ type Peer struct {
 	UserAgent atomic.Pointer[string]
 
 	ltDontHaveExtensionId atomic.Pointer[proto.ExtensionMessage]
-	Address               netip.AddrPort
+
+	ourPieceRequests chan uint32 // our requests for peer chan
+
+	responseCond sync.Cond
+	Address      netip.AddrPort
 
 	rttAverage sizedSlice[time.Duration]
 
@@ -231,6 +239,31 @@ func (p *Peer) close() {
 	}
 }
 
+func (p *Peer) ourRequestHandle() {
+	for {
+		select {
+		case <-p.ctx.Done():
+			return
+		case index := <-p.ourPieceRequests:
+			chunkLen := pieceChunkLen(p.d.info, index)
+			for i := 0; i < chunkLen; i++ {
+				if p.closed.Load() {
+					return
+				}
+
+				// 10 is a magic number to avoid peer reject our requests
+				for p.myRequests.Size() >= int(p.QueueLimit.Load())-10 {
+					p.responseCond.Wait()
+				}
+
+				p.Request(pieceChunk(p.d.info, index, i))
+			}
+
+			p.d.scheduleRequest <- empty.Empty{}
+		}
+	}
+}
+
 func (p *Peer) start(skipHandshake bool) {
 	p.log.Trace().Msg("start")
 	defer p.close()
@@ -277,6 +310,8 @@ func (p *Peer) start(skipHandshake bool) {
 	if loaded {
 		panic("unexpected connected peer")
 	}
+
+	go p.ourRequestHandle()
 
 	for {
 		if p.ctx.Err() != nil {
@@ -389,6 +424,8 @@ func (p *Peer) start(skipHandshake bool) {
 		//nolint:exhaustive
 		switch event.Event {
 		case proto.Have, proto.HaveAll, proto.Bitfield:
+			p.d.buildNetworkPieces <- empty.Empty{}
+
 			go func() {
 				if p.Bitmap.WithAndNot(p.d.bm).Count() != 0 {
 					err = p.sendEvent(Event{Event: proto.Interested})
@@ -423,7 +460,7 @@ func (p *Peer) sendInitPayload() error {
 	if p.supportExtensionHandshake {
 		return p.sendEvent(Event{Event: proto.Extended, ExtHandshake: extensionHandshake{
 			V:           null.NewString(handshakeAgent),
-			QueueLength: null.NewUint32(10000),
+			QueueLength: null.NewUint32(1000),
 		}})
 	}
 
