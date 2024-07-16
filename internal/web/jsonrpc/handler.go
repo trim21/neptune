@@ -8,7 +8,6 @@ package jsonrpc
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"reflect"
@@ -158,8 +157,6 @@ type Error struct {
 	Message string    `json:"message"`
 	Code    ErrorCode `json:"code"`
 }
-
-var errEmptyBody = errors.New("empty body")
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset: utf-8")

@@ -94,6 +94,7 @@ func New(c *core.Client, token string, enableDebug bool) http.Handler {
 	listTorrent(h, c)
 	listTorrentFiles(h, c)
 	listTorrentPeers(h, c)
+	getTransferSummary(h, c)
 	AddTorrent(h, c)
 	GetTorrent(h, c)
 	MoveTorrent(h, c)

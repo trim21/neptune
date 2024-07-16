@@ -37,10 +37,7 @@ func clockRound(d time.Duration) time.Duration {
 
 // round returns x rounded to the nearest int64 (non-negative values only).
 func round(x float64) int64 {
-	if _, frac := math.Modf(x); frac >= 0.5 {
-		return int64(math.Ceil(x))
-	}
-	return int64(math.Floor(x))
+	return int64(math.Round(x))
 }
 
 // Percent represents a percentage in increments of 1/1000th of a percent.

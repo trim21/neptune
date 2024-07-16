@@ -26,6 +26,7 @@ import (
 	"tyr/internal/pkg/bm"
 	"tyr/internal/pkg/empty"
 	"tyr/internal/pkg/flowrate"
+	"tyr/internal/pkg/gsync"
 	"tyr/internal/pkg/null"
 	"tyr/internal/pkg/unsafe"
 	"tyr/internal/proto"
@@ -99,6 +100,8 @@ func newPeer(
 		peerChoking:          *atomic.NewBool(true),
 		peerInterested:       *atomic.NewBool(fast),
 
+		responseCond: sync.Cond{L: &gsync.EmptyLock{}},
+
 		//ResChan:   make(chan req.Response, 1),
 		myRequests:       xsync.NewMapOf[proto.ChunkRequest, time.Time](),
 		myRequestHistory: xsync.NewMapOf[proto.ChunkRequest, empty.Empty](),
@@ -143,6 +146,7 @@ type Peer struct {
 	cancel   context.CancelFunc
 	Bitmap   *bm.Bitmap
 
+	responseCond     sync.Cond
 	myRequests       *xsync.MapOf[proto.ChunkRequest, time.Time]
 	myRequestHistory *xsync.MapOf[proto.ChunkRequest, empty.Empty]
 
@@ -167,7 +171,6 @@ type Peer struct {
 	closed         atomic.Bool
 
 	rttMutex                  sync.RWMutex
-	m                         sync.Mutex
 	wm                        sync.Mutex
 	readBuf                   [4]byte // buffer for reading message size and event id
 	Incoming                  bool
@@ -296,10 +299,7 @@ func (p *Peer) start(skipHandshake bool) {
 
 		switch event.Event {
 		case proto.Bitfield:
-			fmt.Println(p.Bitmap.Count())
-			fmt.Println(event.Bitmap.Count())
 			p.Bitmap.OR(event.Bitmap)
-			fmt.Println(p.Bitmap.Count())
 			if p.Bitmap.WithAndNot(p.d.bm).Count() != 0 {
 				if p.amInterested.CompareAndSwap(false, true) {
 					err = p.sendEvent(Event{Event: proto.Interested})
@@ -332,6 +332,7 @@ func (p *Peer) start(skipHandshake bool) {
 				return
 			}
 
+			p.responseCond.Signal()
 			p.ioIn.Update(len(event.Res.Data))
 			p.d.ResChan <- event.Res
 		case proto.Request:

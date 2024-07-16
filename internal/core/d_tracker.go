@@ -26,20 +26,29 @@ import (
 	"tyr/internal/pkg/null"
 )
 
-const EventStarted = "started"
-const EventCompleted = "completed"
-const EventStopped = "stopped"
+type AnnounceEvent string
+
+const (
+	EventStarted   AnnounceEvent = "started"
+	EventCompleted AnnounceEvent = "completed"
+	EventStopped   AnnounceEvent = "stopped"
+)
 
 func (d *Download) setAnnounceList(trackers metainfo.AnnounceList) {
 	if global.Dev {
-		d.peersMutex.Lock()
-		defer d.peersMutex.Unlock()
-		for i, s := range []string{"192.168.1.3:50025", "192.168.1.3:6885", "127.0.0.1:51343"} {
-			d.peers.Push(peerWithPriority{
-				addrPort: netip.MustParseAddrPort(s),
-				priority: uint32(i),
-			})
-		}
+		go func() {
+			for {
+				d.peersMutex.Lock()
+				for i, s := range []string{"192.168.1.3:50025", "192.168.1.3:6885", "127.0.0.1:51343"} {
+					d.peers.Push(peerWithPriority{
+						addrPort: netip.MustParseAddrPort(s),
+						priority: uint32(i),
+					})
+				}
+				d.peersMutex.Unlock()
+				time.Sleep(5 * time.Minute)
+			}
+		}()
 		return
 	}
 
@@ -50,23 +59,33 @@ func (d *Download) setAnnounceList(trackers metainfo.AnnounceList) {
 
 		d.trackers = append(d.trackers, t)
 	}
+
+	d.announce(EventStarted)
+	go func() {
+		for {
+			// download removed from application, stop goroutine
+			if d.ctx.Err() != nil {
+				return
+			}
+			time.Sleep(time.Second * 5)
+			d.TryAnnounce()
+		}
+	}()
 }
 
 func (d *Download) TryAnnounce() {
-	if !d.announcePending.Load() {
-		d.AsyncAnnounce("")
+	if d.announcePending.CompareAndSwap(false, true) {
+		defer d.announcePending.Store(true)
+		d.announce("")
 		return
 	}
 }
 
-func (d *Download) AsyncAnnounce(event string) {
+func (d *Download) announce(event AnnounceEvent) {
 	d.asyncAnnounce(event)
 }
 
-func (d *Download) asyncAnnounce(event string) {
-	d.announcePending.Store(true)
-	defer d.announcePending.Store(false)
-
+func (d *Download) asyncAnnounce(event AnnounceEvent) {
 	// TODO: do all level tracker announce by config
 	for _, tier := range d.trackers {
 		r, err := tier.Announce(d, event)
@@ -91,7 +110,7 @@ type TrackerTier struct {
 	trackers []*Tracker
 }
 
-func (tier TrackerTier) Announce(d *Download, event string) (AnnounceResult, error) {
+func (tier TrackerTier) Announce(d *Download, event AnnounceEvent) (AnnounceResult, error) {
 	for _, t := range tier.trackers {
 		if event == EventStarted {
 			_ = t.announceStop(d)
@@ -172,7 +191,7 @@ type trackerAnnounceResponse struct {
 	FailureReason null.Null[string]        `bencode:"failure reason"`
 	Peers         null.Null[bencode.Bytes] `bencode:"peers"`
 	Peers6        null.Null[bencode.Bytes] `bencode:"peers6"`
-	Interval      null.Null[int]           `bencode:"interval"`
+	Interval      null.Null[int64]         `bencode:"interval"`
 	Complete      null.Null[int]           `bencode:"complete"`
 	Incomplete    null.Null[int]           `bencode:"incomplete"`
 }
@@ -209,13 +228,13 @@ func (t *Tracker) req(d *Download) *resty.Request {
 	return req
 }
 
-func (t *Tracker) announce(d *Download, event string) (AnnounceResult, error) {
+func (t *Tracker) announce(d *Download, event AnnounceEvent) (AnnounceResult, error) {
 	d.log.Trace().Str("url", t.url).Msg("announce to tracker")
 
 	req := t.req(d)
 
 	if event != "" {
-		req = req.SetQueryParam("event", event)
+		req = req.SetQueryParam("event", string(event))
 	}
 
 	res, err := req.Get(t.url)
@@ -233,15 +252,12 @@ func (t *Tracker) announce(d *Download, event string) (AnnounceResult, error) {
 	var m map[string]any
 	fmt.Println(bencode.Unmarshal(res.Body(), &m))
 
-	//fmt.Println("t" res.String())
-
 	if r.FailureReason.Set {
 		return AnnounceResult{FailedReason: r.FailureReason}, nil
 	}
 
 	var result = AnnounceResult{
 		Interval: time.Minute * 30,
-		//Interval: time.Second * 10,
 	}
 
 	if r.Interval.Set {
@@ -317,7 +333,7 @@ func (t *Tracker) announceStop(d *Download) error {
 	d.log.Trace().Str("url", t.url).Msg("announce to tracker")
 
 	_, err := t.req(d).
-		SetQueryParam("event", EventStopped).
+		SetQueryParam("event", string(EventStopped)).
 		Get(t.url)
 	if err != nil {
 		return errgo.Wrap(err, "failed to parse torrent announce response")

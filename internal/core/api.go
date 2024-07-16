@@ -90,17 +90,15 @@ type TransferSummary struct {
 }
 
 func (c *Client) GetTransferSummary() TransferSummary {
-	c.m.RLock()
-	defer c.m.RUnlock()
+	down := c.ioDown.Status()
+	up := c.ioUp.Status()
 
-	var result TransferSummary
-
-	for _, d := range c.downloads {
-		result.DownloadRate += d.netDown.Status().CurRate
-		result.UploadRate += d.ioUp.Status().CurRate
+	return TransferSummary{
+		DownloadRate:  down.CurRate,
+		DownloadTotal: down.Total,
+		UploadRate:    up.CurRate,
+		UploadTotal:   up.Total,
 	}
-
-	return result
 }
 
 func (c *Client) AddTorrent(m *metainfo.MetaInfo, info meta.Info, downloadPath string, tags []string) error {

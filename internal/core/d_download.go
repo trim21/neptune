@@ -4,11 +4,12 @@
 package core
 
 import (
+	"cmp"
 	"crypto/sha1"
 	"net/netip"
 	"slices"
-	"time"
 
+	"github.com/sourcegraph/conc"
 	"github.com/trim21/errgo"
 
 	"tyr/internal/meta"
@@ -42,6 +43,7 @@ func (d *Download) handleRes(res proto.ChunkResponse) {
 
 	d.ioDown.Update(len(res.Data))
 	d.netDown.Update(len(res.Data))
+	d.c.ioDown.Update(len(res.Data))
 	d.downloaded.Add(int64(len(res.Data)))
 
 	pi := res.Begin / defaultBlockSize
@@ -134,21 +136,7 @@ func (d *Download) backgroundReqScheduler() {
 		case <-d.ctx.Done():
 			return
 		default:
-			time.Sleep(time.Second / 10)
-
-			d.m.Lock()
-			if d.state != Downloading {
-				if d.state == Seeding {
-					d.conn.Range(func(addr netip.AddrPort, p *Peer) bool {
-						if p.Bitmap.Count() == d.info.NumPieces {
-							p.cancel()
-						}
-						return true
-					})
-				}
-				d.cond.Wait()
-			}
-			d.m.Unlock()
+			d.wait(Downloading)
 
 			d.scheduleSeq()
 		}
@@ -172,31 +160,38 @@ func (d *Download) checkDone() {
 
 		return true
 	})
+
+	d.announce(EventCompleted)
 }
 
-func (d *Download) updateReqQueue() {
-	if time.Since(d.reqLastUpdate) < time.Second*30 {
-		return
+func (d *Download) updateRarePieces() {
+	d.ratePieceMutex.Lock()
+	defer d.ratePieceMutex.Unlock()
+
+	if len(d.pieceRare) == 0 {
+		d.pieceRare = make([]uint32, d.info.NumPieces)
+	} else {
+		clear(d.pieceRare)
 	}
-	d.reqLastUpdate = time.Now()
 
-	var lastAdd uint32
-	for len(d.reqQuery) < 5 {
-		for index := lastAdd; index < d.info.NumPieces; index++ {
-			if d.bm.Get(index) {
-				continue
-			}
+	d.conn.Range(func(addr netip.AddrPort, p *Peer) bool {
+		p.Bitmap.Range(func(u uint32) {
+			d.pieceRare[u]++
+		})
+		return true
+	})
 
-			d.reqQuery = append(d.reqQuery, index)
-			lastAdd = index + 1
-			break
+	for index, rare := range d.pieceRare {
+		if d.bm.Get(uint32(index)) {
+			continue
 		}
+
+		d.rarePieceQueue.Push(pieceRare{rare: rare, index: uint32(index)})
 	}
 }
 
 func (d *Download) scheduleSeq() {
-	d.updateReqQueue()
-
+	d.updateRarePieces()
 	var peers = make([]*Peer, 0, d.conn.Size())
 
 	d.conn.Range(func(addr netip.AddrPort, p *Peer) bool {
@@ -205,74 +200,48 @@ func (d *Download) scheduleSeq() {
 	})
 
 	slices.SortFunc(peers, func(a, b *Peer) int {
-		a.rttMutex.RLock()
-		da := a.rttAverage.Average()
-		a.rttMutex.RUnlock()
+		da := a.ioIn.Status().CurRate
 
-		b.rttMutex.RLock()
-		db := b.rttAverage.Average()
-		b.rttMutex.RUnlock()
+		db := b.ioIn.Status().CurRate
 
-		if da == db {
-			return 0
-		}
-
-		// 0 means no data, so we order average RTT with 0 > 1m > 1ms
-		if db == 0 {
-			return -1
-		}
-		if da == 0 {
-			return 1
-		}
-		if da < db {
-			return -1
-		}
-		if da > db {
-			return 1
-		}
-
-		return 0
+		return cmp.Compare(da, db)
 	})
 
-	for index := uint32(0); index < d.info.NumPieces; index++ {
-		if d.bm.Get(index) {
-			continue
-		}
+	d.ratePieceMutex.Lock()
+	defer d.ratePieceMutex.Unlock()
 
-		chunkLen := pieceChunkLen(d.info, index)
+	var g conc.WaitGroup
 
-		d.reqShedMutex.Lock()
-		h, ok := d.reqHistory[index]
-		d.reqShedMutex.Unlock()
-
-		if ok {
-			if _, pending := d.conn.Load(h); pending {
-				continue
-			}
-		}
+PIECE:
+	for d.rarePieceQueue.Len() > 0 {
+		piece := d.rarePieceQueue.Pop()
+		chunkLen := pieceChunkLen(d.info, piece.index)
 
 		for _, p := range peers {
-			if !p.Bitmap.Get(index) {
+			if !p.Bitmap.Get(piece.index) {
 				continue
 			}
 
-			if p.myRequests.Size()+chunkLen >= int(p.QueueLimit.Load()) {
-				continue
-			}
+			g.Go(func() {
+				for i := 0; i < chunkLen; i++ {
+					if p.ctx.Err() != nil {
+						return
+					}
 
-			for i := 0; i < chunkLen; i++ {
-				req := pieceChunk(d.info, index, i)
-				if _, rejected := p.Rejected.Load(req); rejected {
-					continue
+					// 10 is a magic number to avoid peer reject our requests
+					for p.myRequests.Size() >= int(p.QueueLimit.Load())-10 {
+						p.responseCond.Wait()
+					}
+
+					p.Request(pieceChunk(d.info, piece.index, i))
 				}
-				p.Request(req)
-			}
+			})
 
-			d.reqShedMutex.Lock()
-			d.reqHistory[index] = p.Address
-			d.reqShedMutex.Unlock()
+			continue PIECE
 		}
 	}
+
+	g.WaitAndRecover()
 }
 
 func pieceChunkLen(info meta.Info, index uint32) int {

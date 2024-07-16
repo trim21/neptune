@@ -89,8 +89,6 @@ func (c *Client) UnmarshalResume(data []byte, torrentDirectory string) (*Downloa
 		tags:     r.Tags,
 		basePath: r.BasePath,
 
-		reqHistory: make(map[uint32]netip.AddrPort, 100),
-
 		AddAt: time.Now().Unix(),
 
 		ResChan: make(chan proto.ChunkResponse, 1),

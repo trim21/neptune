@@ -14,8 +14,6 @@ import (
 	"math"
 	"sync"
 	"time"
-
-	"github.com/dustin/go-humanize"
 )
 
 // Monitor monitors and limits the transfer rate of a data stream.
@@ -23,15 +21,15 @@ type Monitor struct {
 	mu      sync.Mutex    // Mutex guarding access to all internal fields
 	active  bool          // Flag indicating an active transfer
 	start   time.Duration // Transfer start time (clock() value)
-	bytes   int64         // Total number of bytes transferred
+	total   int64         // Total number of total transferred
 	samples int64         // Total number of samples taken
 
-	rSample float64 // Most recent transfer rate sample (bytes per second)
+	rSample float64 // Most recent transfer rate sample (total per second)
 	rEMA    float64 // Exponential moving average of rSample
 	rPeak   float64 // Peak transfer rate (max of all rSamples)
 	rWindow float64 // rEMA window (seconds)
 
-	sBytes int64         // Number of bytes transferred since sLast
+	sBytes int64         // Number of total transferred since sLast
 	sLast  time.Duration // Most recent sample time (stop time when inactive)
 	sRate  time.Duration // Sampling rate
 
@@ -68,7 +66,7 @@ func New(sampleRate, windowSize time.Duration) *Monitor {
 	}
 }
 
-// Update records the transfer of n bytes and returns n. It should be called
+// Update records the transfer of n total and returns n. It should be called
 // after each Read/Write operation, even if n is 0.
 func (m *Monitor) Update(n int) int {
 	m.mu.Lock()
@@ -106,7 +104,7 @@ func (m *Monitor) IO64(n int64, err error) (int, error) {
 
 // Done marks the transfer as finished and prevents any further updates or
 // limiting. Instantaneous and current transfer rates drop to 0. Update, IO, and
-// Limit methods become NOOPs. It returns the total number of bytes transferred.
+// Limit methods become NOOPs. It returns the total number of total transferred.
 func (m *Monitor) Done() int64 {
 	m.mu.Lock()
 	if now := m.update(0); m.sBytes > 0 {
@@ -114,7 +112,7 @@ func (m *Monitor) Done() int64 {
 	}
 	m.active = false
 	m.tLast = 0
-	n := m.bytes
+	n := m.total
 	m.mu.Unlock()
 	return n
 }
@@ -122,25 +120,21 @@ func (m *Monitor) Done() int64 {
 // timeRemLimit is the maximum Status.TimeRem value.
 const timeRemLimit = 999*time.Hour + 59*time.Minute + 59*time.Second
 
-// Status represents the current Monitor status. All transfer rates are in bytes
+// Status represents the current Monitor status. All transfer rates are in total
 // per second rounded to the nearest byte.
 type Status struct {
 	Start    time.Time     // Transfer start time
 	Duration time.Duration // Time period covered by the statistics
 	Idle     time.Duration // Time since the last transfer of at least 1 byte
-	Bytes    int64         // Total number of bytes transferred
+	Total    int64         // Total number of total transferred
 	Samples  int64         // Total number of samples taken
 	InstRate int64         // Instantaneous transfer rate
 	CurRate  int64         // Current transfer rate (EMA of InstRate)
-	AvgRate  int64         // Average transfer rate (Bytes / Duration)
+	AvgRate  int64         // Average transfer rate (Total / Duration)
 	PeakRate int64         // Maximum instantaneous transfer rate
-	BytesRem int64         // Number of bytes remaining in the transfer
+	BytesRem int64         // Number of total remaining in the transfer
 	TimeRem  time.Duration // Estimated time to completion
 	Active   bool          // Flag indicating an active transfer
-}
-
-func (s Status) RateString() string {
-	return humanize.IBytes(uint64(s.CurRate)) + "/s"
 }
 
 // Status returns current transfer status information. The returned value
@@ -153,7 +147,7 @@ func (m *Monitor) Status() Status {
 		Start:    clockToTime(m.start),
 		Duration: m.sLast - m.start,
 		Idle:     now - m.tLast,
-		Bytes:    m.bytes,
+		Total:    m.total,
 		Samples:  m.samples,
 		PeakRate: round(m.rPeak),
 	}
@@ -161,7 +155,7 @@ func (m *Monitor) Status() Status {
 		s.BytesRem = 0
 	}
 	if s.Duration > 0 {
-		rAvg := float64(s.Bytes) / s.Duration.Seconds()
+		rAvg := float64(s.Total) / s.Duration.Seconds()
 		s.AvgRate = round(rAvg)
 		if s.Active {
 			s.InstRate = round(m.rSample)
@@ -179,48 +173,6 @@ func (m *Monitor) Status() Status {
 	}
 	m.mu.Unlock()
 	return s
-}
-
-// Limit restricts the instantaneous (per-sample) data flow to rate bytes per
-// second. It returns the maximum number of bytes (0 <= n <= want) that may be
-// transferred immediately without exceeding the limit. If block == true, the
-// call blocks until n > 0. want is returned unmodified if want < 1, rate < 1,
-// or the transfer is inactive (after a call to Done).
-//
-// At least one byte is always allowed to be transferred in any given sampling
-// period. Thus, if the sampling rate is 100ms, the lowest achievable flow rate
-// is 10 bytes per second.
-//
-// For usage examples, see the implementation of Reader and Writer in io.go.
-func (m *Monitor) Limit(want int, rate int64, block bool) (n int) {
-	if want < 1 || rate < 1 {
-		return want
-	}
-	m.mu.Lock()
-
-	// Determine the maximum number of bytes that can be sent in one sample
-	limit := round(float64(rate) * m.sRate.Seconds())
-	if limit <= 0 {
-		limit = 1
-	}
-
-	// If block == true, wait until m.sBytes < limit
-	if now := m.update(0); block {
-		for m.sBytes >= limit && m.active {
-			now = m.waitNextSample(now)
-		}
-	}
-
-	// Make limit <= want (unlimited if the transfer is no longer active)
-	if limit -= m.sBytes; limit > int64(want) || !m.active {
-		limit = int64(want)
-	}
-	m.mu.Unlock()
-
-	if limit < 0 {
-		limit = 0
-	}
-	return int(limit)
 }
 
 // update accumulates the transferred byte count for the current sample until
@@ -254,39 +206,25 @@ func (m *Monitor) update(n int) (now time.Duration) {
 }
 
 func (m *Monitor) Reset() {
+	now := clock()
 	m.mu.Lock()
-	m.start = clock()
-	m.bytes = 0
+	m.rSample = 0
+	m.rEMA = 0
+	m.rPeak = 0
+	m.rWindow = 0
+	m.start = now
+	m.total = 0
 	m.sBytes = 0
+	m.tLast = now
+	m.sLast = now
 	m.samples = 0
 	m.mu.Unlock()
 }
 
 // reset clears the current sample state in preparation for the next sample.
 func (m *Monitor) reset(sampleTime time.Duration) {
-	m.bytes += m.sBytes
+	m.total += m.sBytes
 	m.samples++
 	m.sBytes = 0
 	m.sLast = sampleTime
-}
-
-// waitNextSample sleeps for the remainder of the current sample. The lock is
-// released and reacquired during the actual sleep period, so it's possible for
-// the transfer to be inactive when this method returns.
-func (m *Monitor) waitNextSample(now time.Duration) time.Duration {
-	const minWait = 5 * time.Millisecond
-	current := m.sLast
-
-	// sleep until the last sample time changes (ideally, just one iteration)
-	for m.sLast == current && m.active {
-		d := current + m.sRate - now
-		m.mu.Unlock()
-		if d < minWait {
-			d = minWait
-		}
-		time.Sleep(d)
-		m.mu.Lock()
-		now = m.update(0)
-	}
-	return now
 }

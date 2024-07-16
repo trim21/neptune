@@ -73,6 +73,7 @@ func (d *Download) backgroundReqHandler() {
 			p.peerRequests.Range(func(key proto.ChunkRequest, _ empty.Empty) bool {
 				if key.PieceIndex == pieceIndex {
 					d.ioUp.Update(int(key.Length))
+					d.c.ioUp.Update(int(key.Length))
 					d.uploaded.Add(int64(key.Length))
 					go p.Response(proto.ChunkResponse{
 						Data:       buf.B[key.Begin : key.Begin+key.Length],

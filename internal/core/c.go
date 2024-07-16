@@ -23,8 +23,8 @@ import (
 	"tyr/internal/bep40"
 	"tyr/internal/config"
 	"tyr/internal/metainfo"
+	"tyr/internal/pkg/flowrate"
 	"tyr/internal/pkg/global"
-	"tyr/internal/pkg/gslice"
 	"tyr/internal/pkg/random"
 	"tyr/internal/pkg/unsafe"
 	"tyr/internal/util"
@@ -59,6 +59,9 @@ func New(cfg config.Config, sessionPath string, debug bool) *Client {
 		checkQueue:  make([]metainfo.Hash, 0, 3),
 		downloadMap: make(map[metainfo.Hash]*Download),
 		connChan:    make(chan incomingConn, 1),
+
+		ioUp:   flowrate.New(time.Second, time.Second),
+		ioDown: flowrate.New(time.Second, time.Second),
 
 		http: resty.NewWithClient(&http.Client{Transport: &http.Transport{
 			MaxIdleConns:       cfg.App.MaxHTTPParallel,
@@ -106,6 +109,9 @@ type Client struct {
 	ch          *ttlcache.Cache[netip.AddrPort, connHistory]
 	fh          map[string]*os.File
 
+	ioDown *flowrate.Monitor
+	ioUp   *flowrate.Monitor
+
 	ipv4 atomic.Pointer[netip.Addr]
 	ipv6 atomic.Pointer[netip.Addr]
 
@@ -140,20 +146,6 @@ func (c *Client) GetTorrent(h metainfo.Hash) (DownloadInfo, error) {
 		Name: d.info.Name,
 		Tags: d.tags,
 	}, nil
-}
-
-func (c *Client) addCheck(d *Download) {
-	c.m.Lock()
-	defer c.m.Unlock()
-
-	c.checkQueue = append(c.checkQueue, d.info.Hash)
-}
-
-func (c *Client) checkComplete(d *Download) {
-	c.m.Lock()
-	defer c.m.Unlock()
-
-	c.checkQueue = gslice.Remove(c.checkQueue, d.info.Hash)
 }
 
 func (c *Client) PeerPriority(peer netip.AddrPort) uint32 {

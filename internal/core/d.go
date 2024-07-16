@@ -58,13 +58,11 @@ type Download struct {
 	bm                *bm.Bitmap
 	chunkMap          roaring.Bitmap
 	peers             *heap.Heap[peerWithPriority]
-	reqHistory        map[uint32]netip.AddrPort
 	basePath          string
 	downloadDir       string
 	tags              []string
 	pieceInfo         []pieceFileChunks
 	trackers          []TrackerTier
-	reqQuery          []uint32
 	info              meta.Info
 	AddAt             int64
 	CompletedAt       atomic.Int64
@@ -74,16 +72,47 @@ type Download struct {
 	uploaded          atomic.Int64
 	uploadAtStart     int64
 	downloadAtStart   int64
-	seq               atomic.Bool
-	announcePending   atomic.Bool
-	m                 sync.RWMutex
-	peersMutex        sync.Mutex
-	reqShedMutex      sync.Mutex
+
+	ratePieceMutex sync.Mutex
+	pieceRare      []uint32             // mapping from piece index to rare
+	rarePieceQueue heap.Heap[pieceRare] // piece index ordered by rare
+
+	seq             atomic.Bool
+	announcePending atomic.Bool
+	m               sync.RWMutex
+	peersMutex      sync.Mutex
+	reqShedMutex    sync.Mutex
 
 	bitfieldSize uint32
 	peerID       PeerID
 	state        State
 	private      bool
+}
+
+type pieceRare struct {
+	index uint32
+	rare  uint32
+}
+
+func (p pieceRare) Less(o pieceRare) bool {
+	// ordered by rare 1 < 2 < 0
+	if p.rare == o.rare {
+		return false
+	}
+
+	if p.rare == 0 {
+		return false
+	}
+
+	if o.rare == 0 {
+		return true
+	}
+
+	if p.rare < o.rare {
+		return true
+	}
+
+	return false
 }
 
 func (d *Download) GetState() State {
@@ -139,8 +168,6 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 		peerID:   NewPeerID(),
 		tags:     tags,
 		basePath: basePath,
-
-		reqHistory: make(map[uint32]netip.AddrPort, 100),
 
 		seq: *atomic.NewBool(true),
 
