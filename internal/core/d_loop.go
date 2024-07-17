@@ -31,6 +31,9 @@ func (d *Download) Stop() {
 	d.m.Lock()
 	d.state = Stopped
 	d.m.Unlock()
+
+	d.announce(EventStopped)
+
 	d.cond.Broadcast()
 }
 

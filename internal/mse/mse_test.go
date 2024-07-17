@@ -10,14 +10,12 @@ import (
 	"net"
 	"testing"
 
+	tmse "github.com/anacrolix/torrent/mse"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 
-	tmse "github.com/anacrolix/torrent/mse"
-
-	"tyr/internal/mse"
-
 	"tyr/internal/metainfo"
+	"tyr/internal/mse"
 )
 
 func BenchmarkMSE(b *testing.B) {

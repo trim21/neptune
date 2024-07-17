@@ -27,6 +27,16 @@ func (c *Client) Start() error {
 
 	go c.ch.Start()
 
+	// TODO: impl
+	if !global.Dev {
+		go func() {
+			for {
+				time.Sleep(time.Minute * 30)
+				c.scrape()
+			}
+		}()
+	}
+
 	go func() {
 		for {
 			time.Sleep(time.Minute * 5)
@@ -89,6 +99,8 @@ func (c *Client) startListen() error {
 	} else {
 		l = conntrack.NewListener(l, conntrack.TrackWithName("p2p"))
 	}
+
+	go c.handleConn()
 
 	go func() {
 		for {

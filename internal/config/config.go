@@ -7,21 +7,19 @@ import (
 	"os"
 	"path/filepath"
 
-	"go.uber.org/atomic"
-
 	"github.com/pelletier/go-toml/v2"
 	"github.com/trim21/errgo"
+	"go.uber.org/atomic"
 )
 
 type Application struct {
-	DownloadDir string `json:"download-dir"`
-	//Crypto          string `json:"crypto"`
-	MaxHTTPParallel int    `json:"max-http-parallel"`
-	P2PPort         uint16 `json:"p2p-port"`
-	NumWant         uint16 `json:"num-want"`
+	DownloadDir     string `toml:"download-dir"`
+	MaxHTTPParallel int    `toml:"max-http-parallel"`
+	P2PPort         uint16 `toml:"p2p-port"`
+	NumWant         uint16 `toml:"num-want"`
 	// hard global connection limit
-	GlobalConnectionLimit uint16      `json:"global-connections-limit"`
-	Fallocate             atomic.Bool `json:"fallocate"`
+	GlobalConnectionLimit uint16      `toml:"global-connections-limit"`
+	Fallocate             atomic.Bool `toml:"fallocate"`
 }
 
 type Config struct {
@@ -33,7 +31,7 @@ func LoadFromFile(path string) (Config, error) {
 		App: Application{MaxHTTPParallel: 100, GlobalConnectionLimit: 50},
 	}
 
-	raw, err := os.ReadFile(path)
+	f, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return cfg, nil
@@ -41,8 +39,9 @@ func LoadFromFile(path string) (Config, error) {
 
 		return Config{}, errgo.Wrap(err, "failed to read config file")
 	}
+	defer f.Close()
 
-	if err := toml.Unmarshal(raw, &cfg); err != nil {
+	if err := toml.NewDecoder(f).DisallowUnknownFields().Decode(&cfg); err != nil {
 		return cfg, errgo.Wrap(err, "failed to parse config file")
 	}
 

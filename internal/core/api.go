@@ -249,21 +249,16 @@ func (c *Client) DebugHandlers() http.Handler {
 		w.WriteHeader(http.StatusOK)
 
 		fmt.Fprintf(w, "%q\n\n", d.info.Name)
-		fmt.Fprintf(w, "download %s/s\tupload %s/s\n",
-			humanize.IBytes(uint64(d.ioDown.Status().CurRate)),
-			humanize.IBytes(uint64(d.ioUp.Status().CurRate)),
+		fmt.Fprintf(w, "download %9s                         upload %9s\n\n",
+			humanize.IBytes(uint64(d.ioDown.Status().CurRate))+"/s",
+			humanize.IBytes(uint64(d.ioUp.Status().CurRate))+"/s",
 		)
 
 		t := table.NewWriter()
 
-		t.AppendHeader(table.Row{"address", "download_rate", "pending_requests", "pending_pieces_requests"})
+		t.AppendHeader(table.Row{"address", "download rate", "pending requests", "pending pieces"})
 
-		t.SortBy([]table.SortBy{{
-			Name:       "address",
-			Number:     0,
-			Mode:       0,
-			IgnoreCase: false,
-		}})
+		t.SortBy([]table.SortBy{{Name: "address"}})
 
 		d.conn.Range(func(addr netip.AddrPort, p *Peer) bool {
 			t.AppendRow(table.Row{

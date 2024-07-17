@@ -111,34 +111,34 @@ type TrackerTier struct {
 }
 
 func (tier TrackerTier) Announce(d *Download, event AnnounceEvent) (AnnounceResult, error) {
-	for _, t := range tier.trackers {
-		if event == EventStarted {
-			_ = t.announceStop(d)
-			return AnnounceResult{}, nil
-		}
+	if event == EventStarted {
+		tier.announceStop(d)
+		return AnnounceResult{}, nil
+	}
 
+	for _, t := range tier.trackers {
 		if !time.Now().After(t.nextAnnounce) {
 			return AnnounceResult{}, nil
 		}
 
 		r, err := t.announce(d, event)
 		if err != nil {
-			t.Lock()
+			t.m.Lock()
 			t.err = err
 			t.nextAnnounce = time.Now().Add(time.Minute * 30)
-			t.Unlock()
+			t.m.Unlock()
 			continue
 		}
 
 		if r.FailedReason.Set {
-			t.Lock()
+			t.m.Lock()
 			t.err = errors.New(r.FailedReason.Value)
-			t.Unlock()
+			t.m.Unlock()
 			return AnnounceResult{}, nil
 		}
-		t.Lock()
+		t.m.Lock()
 		t.peerCount = len(r.Peers)
-		t.Unlock()
+		t.m.Unlock()
 
 		r.Peers = lo.Uniq(r.Peers)
 
@@ -150,11 +150,7 @@ func (tier TrackerTier) Announce(d *Download, event AnnounceEvent) (AnnounceResu
 
 func (tier TrackerTier) announceStop(d *Download) {
 	for _, t := range tier.trackers {
-		err := t.announceStop(d)
-		if err != nil {
-			// nothing we can actually to handle this
-			return
-		}
+		_ = t.announceStop(d)
 	}
 }
 
@@ -202,9 +198,9 @@ type Tracker struct {
 	err              error
 	url              string
 	peerCount        int
-	leechers         int
-	seeders          int
-	sync.RWMutex
+	//leechers         int
+	//seeders          int
+	m sync.RWMutex
 }
 
 func (t *Tracker) req(d *Download) *resty.Request {
@@ -230,8 +226,10 @@ func (t *Tracker) req(d *Download) *resty.Request {
 
 func (t *Tracker) announce(d *Download, event AnnounceEvent) (AnnounceResult, error) {
 	d.log.Trace().Str("url", t.url).Msg("announce to tracker")
+	now := time.Now()
 
 	req := t.req(d)
+	t.lastAnnounceTime = now
 
 	if event != "" {
 		req = req.SetQueryParam("event", string(event))
@@ -264,7 +262,7 @@ func (t *Tracker) announce(d *Download, event AnnounceEvent) (AnnounceResult, er
 		result.Interval = time.Second * time.Duration(r.Interval.Value)
 	}
 
-	t.nextAnnounce = time.Now().Add(result.Interval)
+	t.nextAnnounce = now.Add(result.Interval)
 	d.log.Trace().Str("url", t.url).Time("next", t.nextAnnounce).Msg("next announce")
 
 	// BEP says we must support both format

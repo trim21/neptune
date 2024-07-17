@@ -21,11 +21,6 @@ import (
 	"tyr/internal/proto"
 )
 
-type downloadReq struct {
-	conn *Peer
-	r    proto.ChunkRequest
-}
-
 func (d *Download) have(index uint32) {
 	tasks.Submit(func() {
 		d.conn.Range(func(addr netip.AddrPort, p *Peer) bool {

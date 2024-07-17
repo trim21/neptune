@@ -7,6 +7,7 @@ import (
 	"net/url"
 
 	"github.com/anacrolix/torrent/bencode"
+	"github.com/rs/zerolog/log"
 	"github.com/samber/lo"
 
 	"tyr/internal/metainfo"
@@ -14,7 +15,7 @@ import (
 )
 
 type scrapeResponse struct {
-	Files map[string]scrapeResponseFile `bencode:"files"`
+	Files map[[20]byte]scrapeResponseFile `bencode:"files"`
 }
 
 type scrapeResponseFile struct {
@@ -24,37 +25,37 @@ type scrapeResponseFile struct {
 	Incomplete    int         `bencode:"incomplete"`
 }
 
-//var p = pool.New(func() map[string][]metainfo.Hash {
-//	// 1000 url length limit / 70 per info_hash
-//	return make(map[string][]metainfo.Hash, 20)
-//})
-
 func (c *Client) scrape() {
-	r := c.http.R()
-
 	var m = make(map[string][]metainfo.Hash, 20)
-	//defer p.Put(m)
-	//clear(m)
 
 	c.m.RLock()
+	defer c.m.RUnlock()
+
 	for h, d := range c.downloadMap {
-		d.m.RLock()
-		if !(d.state == Downloading || d.state == Seeding) {
-			d.m.RUnlock()
+		if d.GetState()|Downloading|Seeding == 0 {
 			continue
 		}
+
 		m[d.ScrapeUrl()] = append(m[d.ScrapeUrl()], h)
-		d.m.RUnlock()
 	}
 
-	c.m.RUnlock()
-	r.QueryParam = url.Values{"info_hash": []string{}}
-}
+	for scrapeUrl, hashes := range m {
+		r := c.http.R()
+		r.QueryParam = url.Values{"info_hash": lo.Map(hashes, func(item metainfo.Hash, index int) string {
+			return item.AsString()
+		})}
 
-func init() {
-	var s scrapeResponse
+		res, err := r.Get(scrapeUrl)
+		if err != nil {
+			log.Info().Err(err).Msg("failed to scrape")
+			continue
+		}
 
-	lo.Must0(bencode.Unmarshal([]byte("d5:filesd30:\xc2\xbd\xc2\x89<\xc2\x9bH\xc2\xb5\xc2\x95}\xc2\xb5\x18\x0es'\xc2\x90\xc2\xb5\xc2\xbe.\xc2\xa2\x14:d8:completei972e10:downloadedi2811e10:incompletei2eeee"), &s))
-	//fmt.Println(err)
-	//spew.Dump(s)
+		var resp scrapeResponse
+		if err := bencode.Unmarshal(res.Body(), &resp); err != nil {
+			return
+		}
+
+		_ = resp
+	}
 }

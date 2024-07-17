@@ -43,7 +43,6 @@ const (
 type Download struct {
 	log zerolog.Logger
 
-	reqLastUpdate     time.Time
 	ctx               context.Context
 	err               error
 	cancel            context.CancelFunc
@@ -73,7 +72,7 @@ type Download struct {
 	pieceInfo       []pieceFileChunks
 	trackers        []TrackerTier
 	pieceRare       []uint32 // mapping from piece index to rare
-	pieceCount      []uint16
+	reqPieceCount   map[uint32]uint32
 	chunkMap        roaring.Bitmap
 	info            meta.Info
 	AddAt           int64
@@ -91,7 +90,6 @@ type Download struct {
 
 	ratePieceMutex sync.Mutex
 	peersMutex     sync.Mutex
-	reqShedMutex   sync.Mutex
 
 	bitfieldSize uint32
 	peerID       PeerID
@@ -203,7 +201,7 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 
 		bm: bm.New(info.NumPieces),
 
-		pieceCount: make([]uint16, info.NumPieces),
+		reqPieceCount: make(map[uint32]uint32, info.NumPieces),
 
 		bitfieldSize: (info.NumPieces + 7) / 8,
 

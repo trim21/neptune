@@ -8,9 +8,8 @@ package metainfo
 import (
 	"testing"
 
-	"github.com/stretchr/testify/require"
-
 	"github.com/anacrolix/torrent/bencode"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMarshalInfo(t *testing.T) {

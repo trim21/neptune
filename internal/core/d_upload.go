@@ -8,8 +8,10 @@ import (
 	"net/netip"
 	"time"
 
+	"github.com/sourcegraph/conc"
+
 	"tyr/internal/pkg/empty"
-	"tyr/internal/pkg/gslice"
+	"tyr/internal/pkg/heap"
 	"tyr/internal/pkg/mempool"
 	"tyr/internal/proto"
 )
@@ -23,12 +25,17 @@ func (d *Download) backgroundReqHandler() {
 		}
 		d.wait(Downloading | Seeding)
 
-		clear(d.pieceCount)
+		clear(d.reqPieceCount)
 
 		d.conn.Range(func(addr netip.AddrPort, p *Peer) bool {
-			if p.peerChoking.Load() {
-				p.peerChoking.Store(false)
+			if p.peerChoking.CompareAndSwap(true, false) {
 				p.Unchoke()
+			} else {
+				return true
+			}
+
+			if p.Bitmap.Count() == d.info.NumPieces {
+				return true
 			}
 
 			if !p.peerInterested.Load() {
@@ -36,31 +43,42 @@ func (d *Download) backgroundReqHandler() {
 			}
 
 			p.peerRequests.Range(func(key proto.ChunkRequest, _ empty.Empty) bool {
-				d.pieceCount[key.PieceIndex]++
+				d.reqPieceCount[key.PieceIndex]++
 				return true
 			})
+
 			return true
 		})
 
-		idx, v := gslice.Max(d.pieceCount)
+		var s = make([]pieceRare, 0, len(d.reqPieceCount))
 
-		// no pending myRequests
-		if v == 0 {
+		for index, rare := range d.reqPieceCount {
+			s = append(s, pieceRare{
+				index: index,
+				rare:  rare,
+			})
+		}
+
+		if len(s) == 0 {
 			continue
 		}
 
-		pieceIndex := uint32(idx)
+		h := heap.FromSlice(s)
 
-		buf := mempool.GetWithCap(int(d.pieceLength(pieceIndex)))
+		pieceReq := h.Pop()
+
+		buf := mempool.GetWithCap(int(d.pieceLength(pieceReq.index)))
 		//piece := make([]byte, d.pieceLength(pieceIndex))
-		err := d.readPiece(pieceIndex, buf.B)
+		err := d.readPiece(pieceReq.index, buf.B)
 		if err != nil {
 			mempool.Put(buf)
 			d.setError(err)
 			continue
 		}
 
-		d.log.Debug().Msgf("upload piece %d", pieceIndex)
+		var g conc.WaitGroup
+
+		d.log.Debug().Msgf("upload piece %d", pieceReq.index)
 
 		d.conn.Range(func(addr netip.AddrPort, p *Peer) bool {
 			if !p.peerInterested.Load() {
@@ -68,23 +86,27 @@ func (d *Download) backgroundReqHandler() {
 			}
 
 			p.peerRequests.Range(func(key proto.ChunkRequest, _ empty.Empty) bool {
-				if key.PieceIndex == pieceIndex {
+				if key.PieceIndex == pieceReq.index {
 					d.ioUp.Update(int(key.Length))
 					d.c.ioUp.Update(int(key.Length))
 					d.uploaded.Add(int64(key.Length))
-					go p.Response(proto.ChunkResponse{
-						Data:       buf.B[key.Begin : key.Begin+key.Length],
-						Begin:      key.Begin,
-						PieceIndex: pieceIndex,
+					g.Go(func() {
+						p.Response(proto.ChunkResponse{
+							Data:       buf.B[key.Begin : key.Begin+key.Length],
+							Begin:      key.Begin,
+							PieceIndex: pieceReq.index,
+						})
 					})
 				}
 				return true
 			})
 			return true
 		})
+
+		g.Wait()
 		mempool.Put(buf)
 
-		time.Sleep(time.Second / 10)
+		time.Sleep(time.Second)
 	}
 }
 

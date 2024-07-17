@@ -6,9 +6,9 @@ tasks:
       - tools:betteralign
     cmds:
       - ./.bin/betteralign.exe -fix -apply ./...
-      - golangci-lint run
-#      - staticcheck -tests=false ./...
-#      - staticcheck ./...
+      - golangci-lint run --fix
+      - staticcheck -tags=release -tests=false ./...
+      - staticcheck -tags=release ./...
 
   gen: go generate ./...
 
@@ -147,7 +147,7 @@ tasks:
             echo "can't copy, try again"
             sleep 1
           done
-      - dist/dev/tyr.exe --debug --config-file config.toml
+      - dist/dev/tyr.exe --debug --config-file config.yaml
 
   dev:release:
     deps:

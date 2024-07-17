@@ -2,6 +2,16 @@ run:
   go: '1.22'
 
 linters-settings:
+  gci:
+    sections:
+      - standard # Standard section: captures all standard packages.
+      - default # Default section: contains all imports that could not be matched to another section type.
+#      - blank # Blank section: contains all blank imports. This section is not present unless explicitly enabled.
+#      - dot # Dot section: contains all dot imports. This section is not present unless explicitly enabled.
+#      - alias # Alias section: contains all alias imports. This section is not present unless explicitly enabled.
+      - localmodule # Local module section: contains all local packages. This section is not present unless explicitly enabled.
+    skip-generated: true
+    custom-order: true
   govet:
     enable:
       - appends
@@ -65,6 +75,7 @@ linters-settings:
 linters:
   # See the dedicated "linters" documentation section.
   enable:
+    - gci
     - govet
     - exhaustive
     - depguard
