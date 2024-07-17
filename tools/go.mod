@@ -7,7 +7,7 @@ toolchain go1.22.5
 require (
 	github.com/dkorunic/betteralign v0.4.4
 	golang.org/x/tools v0.23.0
-	golang.org/x/vuln v1.1.2
+	golang.org/x/vuln v1.1.3
 	gotest.tools/gotestsum v1.12.0
 )
 
