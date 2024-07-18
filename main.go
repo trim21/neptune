@@ -111,6 +111,8 @@ func main() {
 
 		if debug {
 			listener = conntrack.NewListener(listener, conntrack.TrackWithTracing(), conntrack.TrackWithName("rpc"))
+		} else {
+			listener = conntrack.NewListener(listener, conntrack.TrackWithName("rpc"))
 		}
 
 		if err := http.Serve(listener, server); err != nil {

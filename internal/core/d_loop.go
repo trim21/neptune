@@ -18,12 +18,13 @@ const defaultBlockSize = units.KiB * 16
 
 func (d *Download) Start() {
 	d.m.Lock()
-	if d.done.Load() {
+	if d.bm.Count() == d.info.NumPieces {
 		d.state = Seeding
 	} else {
 		d.state = Downloading
 	}
 	d.m.Unlock()
+
 	d.cond.Broadcast()
 }
 
@@ -32,9 +33,9 @@ func (d *Download) Stop() {
 	d.state = Stopped
 	d.m.Unlock()
 
-	d.announce(EventStopped)
-
 	d.cond.Broadcast()
+
+	d.announce(EventStopped)
 }
 
 func (d *Download) Check() {
@@ -42,6 +43,7 @@ func (d *Download) Check() {
 	d.state = Checking
 	d.bm.Clear()
 	d.m.Unlock()
+
 	d.cond.Broadcast()
 }
 
@@ -72,6 +74,18 @@ func (d *Download) Init() {
 	d.m.Unlock()
 
 	go d.startBackground()
+
+	go func() {
+		d.announce(EventStarted)
+		for {
+			// download removed from application, stop goroutine
+			if d.ctx.Err() != nil {
+				return
+			}
+			time.Sleep(time.Second * 5)
+			d.TryAnnounce()
+		}
+	}()
 }
 
 func (d *Download) handleConnectionChange() {
@@ -114,7 +128,8 @@ func (d *Download) startBackground() {
 				case Seeding, Downloading:
 					break LOOP
 				case Stopped, Moving, Checking, Error:
-					d.cond.Wait()
+					time.Sleep(time.Second)
+					continue
 				}
 			}
 
@@ -125,25 +140,6 @@ func (d *Download) startBackground() {
 			time.Sleep(time.Second)
 		}
 	}()
-
-	for {
-		select {
-		case <-d.ctx.Done():
-			return
-		default:
-		}
-
-		d.m.Lock()
-		if d.state == Stopped {
-			d.log.Trace().Msg("paused, waiting")
-			d.cond.Wait()
-		}
-		d.m.Unlock()
-
-		d.TryAnnounce()
-
-		time.Sleep(time.Second * 5)
-	}
 }
 
 type Priority struct {
@@ -179,11 +175,13 @@ func (p *PriorityQueue) Pop() Priority {
 
 func (d *Download) backgroundResHandler() {
 	for {
-		d.wait(Downloading)
 		select {
 		case <-d.ctx.Done():
 			return
 		case res := <-d.ResChan:
+			if d.GetState() != Downloading {
+				continue
+			}
 			d.handleRes(res)
 		}
 	}

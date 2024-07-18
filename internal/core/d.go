@@ -22,6 +22,7 @@ import (
 	"tyr/internal/pkg/bm"
 	"tyr/internal/pkg/empty"
 	"tyr/internal/pkg/flowrate"
+	"tyr/internal/pkg/gsync"
 	"tyr/internal/pkg/heap"
 	"tyr/internal/proto"
 )
@@ -46,7 +47,6 @@ type Download struct {
 	ctx               context.Context
 	err               error
 	cancel            context.CancelFunc
-	cond              *sync.Cond
 	c                 *Client
 	ioDown            *flowrate.Monitor // io rate for network data and disk moving/checking data
 	netDown           *flowrate.Monitor // io rate for network data
@@ -64,7 +64,8 @@ type Download struct {
 
 	// signal to schedule request to peers
 	// should be fired when peers finish pieces requests
-	scheduleRequest chan empty.Empty
+	scheduleRequest  chan empty.Empty
+	scheduleResponse chan empty.Empty
 
 	basePath        string
 	downloadDir     string
@@ -95,6 +96,7 @@ type Download struct {
 	peerID       PeerID
 	state        State
 	private      bool
+	cond         *gsync.Cond
 }
 
 type pieceRare struct {
@@ -128,19 +130,6 @@ func (d *Download) GetState() State {
 	s := d.state
 	d.m.RUnlock()
 	return s
-}
-
-func (d *Download) wait(state State) {
-	d.cond.L.Lock()
-	for {
-		if d.state&state == 0 {
-			d.cond.Wait()
-			continue
-		}
-
-		break
-	}
-	d.cond.L.Unlock()
 }
 
 var ErrTorrentNotFound = errors.New("torrent not found")
@@ -211,7 +200,7 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 		downloadDir: basePath,
 	}
 
-	d.cond = sync.NewCond(&d.m)
+	d.cond = gsync.NewCond(&d.m)
 
 	d.setAnnounceList(m.UpvertedAnnounceList())
 

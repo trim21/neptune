@@ -377,6 +377,7 @@ func (p *Peer) start(skipHandshake bool) {
 			}
 
 			p.peerRequests.Store(event.Req, empty.Empty{})
+			p.d.scheduleRequest <- empty.Empty{}
 		case proto.Extended:
 			if event.ExtensionID == proto.ExtensionHandshake {
 				p.log.Debug().Any("ext", event.ExtHandshake).Msg("receive handshake")

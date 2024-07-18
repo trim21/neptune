@@ -8,7 +8,6 @@ import (
 	"encoding"
 	"net/netip"
 	"path/filepath"
-	"sync"
 	"time"
 
 	"github.com/anacrolix/torrent/bencode"
@@ -22,6 +21,7 @@ import (
 	"tyr/internal/metainfo"
 	"tyr/internal/pkg/bm"
 	"tyr/internal/pkg/flowrate"
+	"tyr/internal/pkg/gsync"
 	"tyr/internal/pkg/heap"
 	"tyr/internal/proto"
 )
@@ -112,14 +112,11 @@ func (c *Client) UnmarshalResume(data []byte, torrentDirectory string) (*Downloa
 		downloadDir: r.BasePath,
 	}
 
-	d.cond = sync.NewCond(&d.m)
+	d.cond = gsync.NewCond(&d.m)
 
 	d.setAnnounceList(r.Trackers)
 
 	d.log.Info().Msg("download created")
-
-	//spew.Dump(d.pieceChunks[0])
-	//spew.Dump(d.pieceChunks[len(d.pieceChunks)-1])
 
 	return d, nil
 }

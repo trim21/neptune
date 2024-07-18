@@ -31,7 +31,6 @@ func (d *Download) have(index uint32) {
 }
 
 func (d *Download) handleRes(res proto.ChunkResponse) {
-	// TODO: flush chunks to disk instead of waiting whole piece
 	d.log.Trace().
 		Uint32("piece", res.PieceIndex).
 		Uint32("offset", res.Begin).
@@ -139,13 +138,29 @@ func (d *Download) backgroundReqScheduler() {
 			return
 		case <-d.scheduleRequest:
 			if d.GetState() != Downloading {
-				continue
+				select {
+				case <-d.ctx.Done():
+					return
+				case <-d.cond.C:
+					if d.GetState() != Downloading {
+						continue
+					}
+				}
 			}
+
 			d.scheduleSeq()
 		case <-timer.C:
 			if d.GetState() != Downloading {
-				continue
+				select {
+				case <-d.ctx.Done():
+					return
+				case <-d.cond.C:
+					if d.GetState() != Downloading {
+						continue
+					}
+				}
 			}
+
 			d.scheduleSeq()
 		}
 	}

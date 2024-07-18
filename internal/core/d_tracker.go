@@ -59,18 +59,6 @@ func (d *Download) setAnnounceList(trackers metainfo.AnnounceList) {
 
 		d.trackers = append(d.trackers, t)
 	}
-
-	d.announce(EventStarted)
-	go func() {
-		for {
-			// download removed from application, stop goroutine
-			if d.ctx.Err() != nil {
-				return
-			}
-			time.Sleep(time.Second * 5)
-			d.TryAnnounce()
-		}
-	}()
 }
 
 func (d *Download) TryAnnounce() {
