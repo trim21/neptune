@@ -82,7 +82,6 @@ type Download struct {
 	CompletedAt     atomic.Int64
 	downloaded      atomic.Int64
 	corrupted       atomic.Int64
-	done            atomic.Bool
 	uploaded        atomic.Int64
 	uploadAtStart   int64
 	downloadAtStart int64
