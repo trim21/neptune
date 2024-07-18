@@ -236,6 +236,7 @@ func (d *Download) updateRarePieces(force bool) {
 func (d *Download) scheduleSeq() {
 	if d.info.PieceLength*int64(d.info.NumPieces-d.bm.Count()) <= units.MiB*100 {
 		d.scheduleSeqEndGame()
+		return
 	}
 
 	d.updateRarePieces(true)
