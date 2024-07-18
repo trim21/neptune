@@ -25,8 +25,6 @@ func (c *Client) Start() error {
 		return err
 	}
 
-	go c.ch.Start()
-
 	// TODO: impl
 	if !global.Dev {
 		go func() {

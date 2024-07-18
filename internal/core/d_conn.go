@@ -37,16 +37,13 @@ func (d *Download) connectToPeers() {
 		// try connecting first
 		pp := d.peers.Pop()
 
-		if item := d.c.ch.Get(pp.addrPort); item != nil {
-			//ch := item.Value()
-			//if ch.timeout {
-			//	continue
-			//}
-			//if ch.err != nil {
-			//	continue
-			//}
-
-			continue
+		if item, ok := d.c.ch.Get(pp.addrPort); ok {
+			if item.timeout {
+				continue
+			}
+			if item.err != nil {
+				continue
+			}
 		}
 
 		if _, ok := d.conn.Load(pp.addrPort); ok {
@@ -60,7 +57,7 @@ func (d *Download) connectToPeers() {
 
 		tasks.Submit(func() {
 			ch := connHistory{lastTry: time.Now()}
-			d.c.ch.Set(pp.addrPort, ch, time.Hour)
+			d.c.ch.Add(pp.addrPort, ch)
 			//defer func(h connHistory) {
 			//}(ch)
 
@@ -78,7 +75,7 @@ func (d *Download) connectToPeers() {
 					ch.err = err
 				}
 
-				d.c.ch.Set(pp.addrPort, ch, time.Hour)
+				d.c.ch.Add(pp.addrPort, ch)
 				d.c.sem.Release(1)
 				d.c.connectionCount.Sub(1)
 				return
