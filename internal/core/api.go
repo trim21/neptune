@@ -10,6 +10,8 @@ import (
 	"io"
 	"net/http"
 	"net/netip"
+	"os"
+	"path/filepath"
 	"slices"
 	"time"
 
@@ -18,12 +20,14 @@ import (
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/rs/zerolog/log"
 	"github.com/samber/lo"
+	"go.uber.org/multierr"
 
 	"tyr/internal/meta"
 	"tyr/internal/metainfo"
 	"tyr/internal/pkg/as"
 	"tyr/internal/pkg/bm"
 	"tyr/internal/pkg/global/tasks"
+	"tyr/internal/pkg/gslice"
 )
 
 type MainDataTorrent struct {
@@ -250,6 +254,41 @@ func (c *Client) GetTorrentTrackers(h metainfo.Hash) []ApiTrackers {
 	}
 
 	return results
+}
+
+func (c *Client) RemoveTorrent(h metainfo.Hash, removeData bool) error {
+	c.m.Lock()
+	defer c.m.Unlock()
+
+	d, ok := c.downloadMap[h]
+	if !ok {
+		return fmt.Errorf("torrent %s not exists", h)
+	}
+
+	d.log.Info().Msg("torrent removed")
+
+	delete(c.downloadMap, h)
+	gslice.Remove(c.downloads, d)
+
+	d.cancel()
+
+	var err error
+	if removeData {
+		for _, f := range d.info.Files {
+			e := os.Remove(filepath.Join(d.basePath, f.Path))
+			if os.IsNotExist(e) {
+				continue
+			}
+
+			err = multierr.Append(err, e)
+		}
+
+		if err != nil {
+			err = multierr.Append(err, pruneEmptyDirectories(d.basePath))
+		}
+	}
+
+	return err
 }
 
 func (c *Client) DebugHandlers() http.Handler {

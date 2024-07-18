@@ -14,7 +14,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"slices"
 	"strings"
 	"syscall"
@@ -53,8 +52,8 @@ func main() {
 
 	debug := viper.GetBool("debug")
 	if debug {
-		runtime.SetBlockProfileRate(10000)
-		runtime.SetMutexProfileFraction(10000)
+		//runtime.SetBlockProfileRate(10000)
+		//runtime.SetMutexProfileFraction(10000)
 		_, _ = fmt.Fprintln(os.Stderr, "enable debug mode")
 	}
 
@@ -155,7 +154,7 @@ func main() {
 		//if sys.IsLinux {
 		//	lo.Must0(os.RemoveAll("/export/ssd-2t/try/2"))
 		//	m := lo.Must(metainfo.LoadFromFile(`/export/ssd-2t/2.torrent`))
-		//	lo.Must0(app.AddTorrent(m, lo.Must(meta.FromTorrent(*m)), "/export/ssd-2t/try/2", nil))
+		//	lo.Must0(app.addTorrent(m, lo.Must(meta.FromTorrent(*m)), "/export/ssd-2t/try/2", nil))
 		//}
 	}
 

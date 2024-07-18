@@ -100,8 +100,9 @@ func New(c *core.Client, token string, enableDebug bool) http.Handler {
 	listTorrentPeers(h, c)
 	listTorrentTrackers(h, c)
 
-	AddTorrent(h, c)
-	GetTorrent(h, c)
+	addTorrent(h, c)
+	removeTorrent(h, c)
+	getTorrent(h, c)
 	//MoveTorrent(h, c)
 
 	var auth = func(next http.Handler) http.Handler {

@@ -25,7 +25,7 @@ import (
 
 type AddTorrentRequest struct {
 	TorrentFile []byte   `json:"torrent_file" required:"true" description:"base64 encoded torrent file content" validate:"required"`
-	DownloadDir string   `json:"download_dir" description:"download dir"`
+	DownloadDir string   `json:"download_dir" description:"base download dir"`
 	Tags        []string `json:"tags"`
 	IsBaseDir   bool     `json:"is_base_dir" description:"if true, will not append torrent name to download_dir"`
 }
@@ -34,7 +34,7 @@ type AddTorrentResponse struct {
 	InfoHash string `json:"info_hash" description:"torrent file hash" required:"true"`
 }
 
-func AddTorrent(h *jsonrpc.Handler, c *core.Client) {
+func addTorrent(h *jsonrpc.Handler, c *core.Client) {
 	u := usecase.NewInteractor[*AddTorrentRequest, AddTorrentResponse](
 		func(ctx context.Context, req *AddTorrentRequest, res *AddTorrentResponse) error {
 			m, err := metainfo.Load(bytes.NewBuffer(req.TorrentFile))
@@ -89,7 +89,7 @@ type GetTorrentResponse struct {
 	Tags []string `json:"tags"`
 }
 
-func GetTorrent(h *jsonrpc.Handler, c *core.Client) {
+func getTorrent(h *jsonrpc.Handler, c *core.Client) {
 	u := usecase.NewInteractor[*GetTorrentRequest, GetTorrentResponse](
 		func(ctx context.Context, req *GetTorrentRequest, res *GetTorrentResponse) error {
 			r, err := hex.DecodeString(req.InfoHash)
