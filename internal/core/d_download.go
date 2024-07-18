@@ -10,11 +10,13 @@ import (
 	"slices"
 	"time"
 
+	"github.com/docker/go-units"
 	"github.com/kelindar/bitmap"
 	"github.com/trim21/errgo"
 
 	"tyr/internal/meta"
 	"tyr/internal/pkg/as"
+	"tyr/internal/pkg/bm"
 	"tyr/internal/pkg/global/tasks"
 	"tyr/internal/pkg/heap"
 	"tyr/internal/pkg/mempool"
@@ -232,6 +234,10 @@ func (d *Download) updateRarePieces(force bool) {
 }
 
 func (d *Download) scheduleSeq() {
+	if d.info.PieceLength*int64(d.info.NumPieces-d.bm.Count()) <= units.MiB*100 {
+		d.scheduleSeqEndGame()
+	}
+
 	d.updateRarePieces(true)
 	var peers = make([]*Peer, 0, d.conn.Size())
 
@@ -279,6 +285,27 @@ PIECE:
 			}
 		}
 	}
+}
+
+func (d *Download) scheduleSeqEndGame() {
+	missing := bm.New(d.info.NumPieces)
+	missing.Fill()
+
+	d.conn.Range(func(addr netip.AddrPort, p *Peer) bool {
+		p.Bitmap.WithAndNot(missing).Range(func(u uint32) {
+			go func() {
+				select {
+				case <-d.ctx.Done():
+					return
+				case <-p.ctx.Done():
+					return
+				case p.ourPieceRequests <- u:
+				}
+			}()
+		})
+
+		return true
+	})
 }
 
 func pieceChunkLen(info meta.Info, index uint32) int {
