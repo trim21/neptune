@@ -268,9 +268,11 @@ func (c *Client) RemoveTorrent(h metainfo.Hash, removeData bool) error {
 	d.log.Info().Msg("torrent removed")
 
 	delete(c.downloadMap, h)
-	gslice.Remove(c.downloads, d)
+	c.downloads = gslice.Remove(c.downloads, d)
 
 	d.cancel()
+
+	d.filePool.Cache.Purge()
 
 	var err error
 	if removeData {

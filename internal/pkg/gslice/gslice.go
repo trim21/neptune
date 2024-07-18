@@ -3,33 +3,13 @@
 
 package gslice
 
-import (
-	"cmp"
-)
-
 func Remove[T comparable](l []T, item T) []T {
 	for i, other := range l {
 		if other == item {
-			return append(l[:i], l[i+1:]...)
+			copy(l[i:], l[i+1:])
+			clear(l[len(l)-1:]) // avoid reference to item to avoid GC leak
+			return l[:len(l)-1]
 		}
 	}
 	return l
-}
-
-func Max[S ~[]E, E cmp.Ordered](x S) (int, E) {
-	if len(x) < 1 {
-		panic("slices.Max: empty list")
-	}
-
-	m := x[0]
-	var index = 0
-
-	for i := 1; i < len(x); i++ {
-		if x[i] > m {
-			index = i
-			m = x[i]
-		}
-	}
-
-	return index, m
 }

@@ -21,6 +21,7 @@ import (
 	"tyr/internal/metainfo"
 	"tyr/internal/pkg/bm"
 	"tyr/internal/pkg/empty"
+	"tyr/internal/pkg/filepool"
 	"tyr/internal/pkg/flowrate"
 	"tyr/internal/pkg/gsync"
 	"tyr/internal/pkg/heap"
@@ -43,6 +44,8 @@ const (
 // ctx should be canceled when torrent is removed, not stopped.
 type Download struct {
 	log zerolog.Logger
+
+	filePool *filepool.FilePool
 
 	ctx               context.Context
 	err               error
@@ -157,15 +160,18 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 	}
 
 	d := &Download{
-		ctx:      ctx,
+		ctx:    ctx,
+		cancel: cancel,
+
 		info:     info,
-		cancel:   cancel,
 		c:        c,
 		log:      log.With().Stringer("info_hash", info.Hash).Logger(),
 		state:    Checking,
 		peerID:   NewPeerID(),
 		tags:     tags,
 		basePath: basePath,
+
+		filePool: filepool.New(),
 
 		seq: *atomic.NewBool(true),
 

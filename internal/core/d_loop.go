@@ -180,7 +180,7 @@ func (d *Download) backgroundResHandler() {
 func (d *Download) openFile(fileIndex int) (*filepool.File, error) {
 	p := filepath.Join(d.basePath, d.info.Files[fileIndex].Path)
 
-	file, err := filepool.Open(p, os.O_RDWR|os.O_CREATE, os.ModePerm, time.Hour)
+	file, err := d.filePool.Open(p, os.O_RDWR|os.O_CREATE, os.ModePerm, time.Hour)
 	if err == nil {
 		return file, nil
 	}
@@ -193,5 +193,5 @@ func (d *Download) openFile(fileIndex int) (*filepool.File, error) {
 		}
 	}
 
-	return filepool.Open(p, os.O_RDWR|os.O_CREATE, os.ModePerm, time.Hour)
+	return d.filePool.Open(p, os.O_RDWR|os.O_CREATE, os.ModePerm, time.Hour)
 }

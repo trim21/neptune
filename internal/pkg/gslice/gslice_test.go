@@ -11,8 +11,8 @@ import (
 	"tyr/internal/pkg/gslice"
 )
 
-func TestMax(t *testing.T) {
-	i, m := gslice.Max([]int{1, 3, 2})
-	require.Equal(t, 3, m)
-	require.Equal(t, 1, i)
+func TestRemove(t *testing.T) {
+	require.Equal(t, []int{1, 2, 3}, gslice.Remove([]int{1, 2, 3}, 0))
+	require.Equal(t, []int{1, 2, 3}, gslice.Remove([]int{1, 2, 3, 4}, 4))
+	require.Equal(t, []int{1, 2, 3}, gslice.Remove([]int{1, 0, 2, 3}, 0))
 }
