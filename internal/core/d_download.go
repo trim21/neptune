@@ -10,126 +10,19 @@ import (
 	"slices"
 	"time"
 
+	"github.com/kelindar/bitmap"
 	"github.com/trim21/errgo"
 
 	"tyr/internal/meta"
 	"tyr/internal/pkg/as"
-	"tyr/internal/pkg/bm"
 	"tyr/internal/pkg/global/tasks"
 	"tyr/internal/pkg/heap"
 	"tyr/internal/pkg/mempool"
 	"tyr/internal/proto"
 )
 
-func (d *Download) have(index uint32) {
-	tasks.Submit(func() {
-		d.conn.Range(func(addr netip.AddrPort, p *Peer) bool {
-			p.Have(index)
-			return true
-		})
-	})
-}
-
-func (d *Download) handleRes(res proto.ChunkResponse) {
-	d.log.Trace().
-		Uint32("piece", res.PieceIndex).
-		Uint32("offset", res.Begin).
-		Int("length", len(res.Data)).
-		Msg("res received")
-
-	d.ioDown.Update(len(res.Data))
-	d.netDown.Update(len(res.Data))
-	d.c.ioDown.Update(len(res.Data))
-	d.downloaded.Add(int64(len(res.Data)))
-
-	pi := res.Begin / defaultBlockSize
-	normalChunkLen := as.Uint32((d.info.PieceLength + defaultBlockSize - 1) / defaultBlockSize)
-	cid := normalChunkLen*res.PieceIndex + pi
-
-	pieceCidStart := res.PieceIndex * normalChunkLen
-	pieceCidEnd := pieceCidStart + as.Uint32(pieceChunkLen(d.info, res.PieceIndex))
-
-	//tasks.Submit(func() {
-	err := d.writeChunkToDist(res)
-	if err != nil {
-		return
-	}
-
-	d.chunkMap.Add(cid)
-
-	var pieceDone = true
-	for i := pieceCidStart; i <= pieceCidEnd; i++ {
-		if !d.chunkMap.Contains(i) {
-			pieceDone = false
-			break
-		}
-	}
-
-	if !pieceDone {
-		return
-	}
-
-	tasks.Submit(func() {
-		err = d.checkPiece(res.PieceIndex)
-		if err != nil {
-			return
-		}
-
-		d.checkDone()
-	})
-}
-
-func (d *Download) writeChunkToDist(res proto.ChunkResponse) error {
-	size := int64(len(res.Data))
-	begin := int64(res.Begin) + d.info.PieceLength*int64(res.PieceIndex)
-
-	var offset int64
-	for _, chunk := range fileChunks(d.info, begin, begin+size) {
-		f, err := d.openFile(chunk.fileIndex)
-		if err != nil {
-			d.setError(err)
-			return errgo.Wrap(err, "failed to open file for writing chunk")
-		}
-
-		_, err = f.File.WriteAt(res.Data[offset:offset+chunk.length], chunk.offsetOfFile)
-		if err != nil {
-			f.Close()
-			d.setError(err)
-			return errgo.Wrap(err, "failed to write chunk")
-		}
-
-		f.Release()
-		offset += chunk.length
-	}
-
-	return nil
-}
-
-func (d *Download) checkPiece(pieceIndex uint32) error {
-	size := d.pieceLength(pieceIndex)
-	buf := mempool.GetWithCap(int(size))
-	defer mempool.Put(buf)
-
-	err := d.readPiece(pieceIndex, buf.B)
-	if err != nil {
-		d.setError(err)
-		return errgo.Wrap(err, "failed to read piece")
-	}
-
-	if sha1.Sum(buf.B) != d.info.Pieces[pieceIndex] {
-		d.corrupted.Add(d.info.PieceLength)
-		return nil
-	}
-
-	d.bm.Set(pieceIndex)
-	d.log.Trace().Msgf("piece %d done", pieceIndex)
-	d.have(pieceIndex)
-
-	return nil
-}
-
 func (d *Download) backgroundReqScheduler() {
-	timer := time.NewTimer(time.Second / 2)
+	timer := time.NewTimer(time.Second / 5)
 	defer timer.Stop()
 
 	for {
@@ -166,6 +59,120 @@ func (d *Download) backgroundReqScheduler() {
 	}
 }
 
+func (d *Download) have(index uint32) {
+	tasks.Submit(func() {
+		d.conn.Range(func(addr netip.AddrPort, p *Peer) bool {
+			p.Have(index)
+			return true
+		})
+	})
+}
+
+func (d *Download) handleRes(res *proto.ChunkResponse) {
+	defer proto.PiecePool.Put(res)
+
+	d.log.Trace().
+		Int("length", len(res.Data)).
+		Uint32("offset", res.Begin).
+		Uint32("piece", res.PieceIndex).
+		Msg("res received")
+
+	d.ioDown.Update(len(res.Data))
+	d.netDown.Update(len(res.Data))
+	d.c.ioDown.Update(len(res.Data))
+	d.downloaded.Add(int64(len(res.Data)))
+
+	// in endgame mode we may receive duplicated response, just ignore them
+	if d.bm.Contains(res.PieceIndex) {
+		return
+	}
+
+	pi := res.Begin / defaultBlockSize
+	normalChunkLen := as.Uint32((d.info.PieceLength + defaultBlockSize - 1) / defaultBlockSize)
+	cid := normalChunkLen*res.PieceIndex + pi
+
+	pieceCidStart := res.PieceIndex * normalChunkLen
+	pieceCidEnd := pieceCidStart + as.Uint32(pieceChunkLen(d.info, res.PieceIndex))
+
+	pieceIndex := res.PieceIndex
+
+	err := d.writeChunkToDist(res)
+	if err != nil {
+		return
+	}
+
+	d.chunkMap.Set(cid)
+
+	var pieceDone = true
+	for i := pieceCidStart; i < pieceCidEnd; i++ {
+		if !d.chunkMap.Contains(i) {
+			pieceDone = false
+			break
+		}
+	}
+
+	if !pieceDone {
+		return
+	}
+
+	tasks.Submit(func() {
+		err = d.checkPiece(pieceIndex)
+		if err != nil {
+			return
+		}
+
+		d.checkDone()
+	})
+}
+
+func (d *Download) writeChunkToDist(res *proto.ChunkResponse) error {
+	size := int64(len(res.Data))
+	begin := int64(res.Begin) + d.info.PieceLength*int64(res.PieceIndex)
+
+	var offset int64
+	for _, chunk := range fileChunks(d.info, begin, begin+size) {
+		f, err := d.openFile(chunk.fileIndex)
+		if err != nil {
+			d.setError(err)
+			return errgo.Wrap(err, "failed to open file for writing chunk")
+		}
+
+		_, err = f.File.WriteAt(res.Data[offset:offset+chunk.length], chunk.offsetOfFile)
+		if err != nil {
+			f.Close()
+			d.setError(err)
+			return errgo.Wrap(err, "failed to write chunk")
+		}
+
+		f.Release()
+		offset += chunk.length
+	}
+
+	return nil
+}
+
+func (d *Download) checkPiece(pieceIndex uint32) error {
+	size := d.pieceLength(pieceIndex)
+	buf := mempool.GetWithCap(int(size))
+	defer mempool.Put(buf)
+
+	err := d.readPiece(pieceIndex, buf.B)
+	if err != nil {
+		return errgo.Wrap(err, "failed to read piece")
+	}
+
+	if sha1.Sum(buf.B) != d.info.Pieces[pieceIndex] {
+		d.corrupted.Add(d.info.PieceLength)
+		return nil
+	}
+
+	d.bm.Set(pieceIndex)
+	d.log.Trace().Msgf("piece %d done", pieceIndex)
+	d.have(pieceIndex)
+
+	return nil
+}
+
 func (d *Download) checkDone() {
 	if d.bm.Count() != d.info.NumPieces {
 		return
@@ -188,16 +195,19 @@ func (d *Download) checkDone() {
 }
 
 func (d *Download) updateRarePieces(force bool) {
+	d.ratePieceMutex.Lock()
+	defer d.ratePieceMutex.Unlock()
+
 	if len(d.pieceRare) == 0 {
 		d.pieceRare = make([]uint32, d.info.NumPieces)
 	} else {
 		clear(d.pieceRare)
 	}
 
-	var requested = bm.New(d.info.NumPieces)
+	var requested = make(bitmap.Bitmap, d.bitfieldSize)
 
 	d.conn.Range(func(addr netip.AddrPort, p *Peer) bool {
-		requested.XOR(p.Requested)
+		requested.Or(p.Requested)
 		p.Bitmap.Range(func(u uint32) {
 			d.pieceRare[u]++
 		})
@@ -207,30 +217,25 @@ func (d *Download) updateRarePieces(force bool) {
 	var queue = make([]pieceRare, 0, d.info.NumPieces)
 
 	for index, rare := range d.pieceRare {
-		if d.bm.Get(uint32(index)) {
+		if d.bm.Contains(uint32(index)) {
 			continue
 		}
 
-		if requested.Get(uint32(index)) {
+		if requested.Contains(uint32(index)) {
 			continue
 		}
 
 		queue = append(queue, pieceRare{rare: rare, index: uint32(index)})
 	}
 
-	d.ratePieceMutex.Lock()
 	d.rarePieceQueue = heap.FromSlice(queue)
-	d.ratePieceMutex.Unlock()
 }
 
 func (d *Download) scheduleSeq() {
 	d.updateRarePieces(true)
 	var peers = make([]*Peer, 0, d.conn.Size())
 
-	var requested = bm.New(d.info.NumPieces)
-
 	d.conn.Range(func(addr netip.AddrPort, p *Peer) bool {
-		requested.XOR(p.Requested)
 		peers = append(peers, p)
 		return true
 	})
@@ -253,11 +258,8 @@ PIECE:
 		piece := q.Pop()
 
 		if piece.rare == 0 {
-			break
-		}
-
-		if requested.Get(piece.index) {
-			continue
+			d.log.Debug().Msg("no new pieces to download")
+			return
 		}
 
 		for _, p := range peers {
@@ -266,11 +268,11 @@ PIECE:
 				return
 			}
 
-			if !p.Bitmap.Get(piece.index) {
+			if !p.Bitmap.Contains(piece.index) {
 				continue
 			}
 
-			if len(p.ourPieceRequests) != 1 {
+			if len(p.ourPieceRequests) < 1 {
 				p.Requested.Set(piece.index)
 				p.ourPieceRequests <- piece.index
 				continue PIECE

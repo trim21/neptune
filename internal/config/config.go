@@ -9,7 +9,6 @@ import (
 
 	"github.com/pelletier/go-toml/v2"
 	"github.com/trim21/errgo"
-	"go.uber.org/atomic"
 )
 
 type Application struct {
@@ -18,8 +17,8 @@ type Application struct {
 	P2PPort         uint16 `toml:"p2p-port"`
 	NumWant         uint16 `toml:"num-want"`
 	// hard global connection limit
-	GlobalConnectionLimit uint16      `toml:"global-connections-limit"`
-	Fallocate             atomic.Bool `toml:"fallocate"`
+	GlobalConnectionLimit uint16 `toml:"global-connections-limit"`
+	Fallocate             bool   `toml:"fallocate"`
 }
 
 type Config struct {

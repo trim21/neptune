@@ -14,5 +14,10 @@ func Fallocate(file *os.File, offset int64, length int64) error {
 		return nil
 	}
 
-	return file.Truncate(length + offset)
+	err := file.Truncate(length + offset)
+	if err != nil {
+		return err
+	}
+
+	return file.Sync()
 }

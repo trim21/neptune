@@ -6,8 +6,12 @@ package proto
 import (
 	"encoding/binary"
 	"io"
+	"slices"
+
+	"github.com/docker/go-units"
 
 	"tyr/internal/pkg/as"
+	"tyr/internal/pkg/gsync"
 )
 
 type ChunkResponse struct {
@@ -25,7 +29,7 @@ func (c ChunkResponse) Request() ChunkRequest {
 	}
 }
 
-func SendPiece(conn io.Writer, r ChunkResponse) error {
+func SendPiece(conn io.Writer, r *ChunkResponse) error {
 	buf := pool.Get()
 	defer pool.Put(buf)
 
@@ -43,24 +47,25 @@ func SendPiece(conn io.Writer, r ChunkResponse) error {
 	return err
 }
 
-func ReadPiecePayload(conn io.Reader, size uint32) (ChunkResponse, error) {
+var PiecePool = gsync.NewPool(func() *ChunkResponse {
+	return &ChunkResponse{
+		Data: make([]byte, 0, units.KiB*16),
+	}
+})
+
+func ReadPiecePayload(conn io.Reader, size uint32) (*ChunkResponse, error) {
 	var b [sizeUint32 * 2]byte
 
 	_, err := io.ReadFull(conn, b[:])
 	if err != nil {
-		return ChunkResponse{}, err
+		return nil, err
 	}
 
-	var payload = ChunkResponse{
-		PieceIndex: binary.BigEndian.Uint32(b[:]),
-		Begin:      binary.BigEndian.Uint32(b[sizeUint32 : sizeUint32*2]),
-		Data:       make([]byte, size-sizeUint32*2),
-	}
+	var payload = PiecePool.Get()
 
-	//buf := mempool.GetSlice()
-
-	//payload.Data = slices.Grow(buf, int(size-sizeUint32*2))
-	//payload.Data = payload.Data[:size-sizeUint32*2]
+	payload.PieceIndex = binary.BigEndian.Uint32(b[:])
+	payload.Begin = binary.BigEndian.Uint32(b[sizeUint32 : sizeUint32*2])
+	payload.Data = slices.Grow(payload.Data[:0], int(size-sizeUint32*2))[:size-sizeUint32*2]
 
 	_, err = io.ReadFull(conn, payload.Data)
 

@@ -36,7 +36,7 @@ func (d *Download) initCheck() error {
 	var efs = make(map[int]*existingFile, len(d.info.Files)+1)
 	for i, tf := range d.info.Files {
 		p := tf.Path
-		f, e := tryAllocFile(i, filepath.Join(d.basePath, p), tf.Length, d.c.Config.App.Fallocate.Load())
+		f, e := tryAllocFile(i, filepath.Join(d.basePath, p), tf.Length, d.c.Config.App.Fallocate)
 		if e != nil {
 			return e
 		}
@@ -62,10 +62,8 @@ func (d *Download) initCheck() error {
 	}
 
 	for _, pieceIndex := range h {
-		select {
-		case <-d.ctx.Done():
+		if d.ctx.Err() != nil {
 			return d.ctx.Err()
-		default:
 		}
 
 		piece := d.pieceInfo[pieceIndex]
@@ -136,6 +134,10 @@ func tryAllocFile(index int, path string, size int64, doAlloc bool) (*existingFi
 			return nil, nil
 		}
 
+		if err = os.MkdirAll(filepath.Dir(path), os.ModePerm); err != nil {
+			return nil, err
+		}
+
 		f, err = os.Create(path)
 		if err != nil {
 			return nil, err
@@ -145,6 +147,7 @@ func tryAllocFile(index int, path string, size int64, doAlloc bool) (*existingFi
 	}
 
 	defer f.Close()
+
 	stat, err := f.Stat()
 	if err != nil {
 		return nil, err

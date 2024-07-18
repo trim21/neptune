@@ -50,7 +50,7 @@ func (p *Peer) keepAlive() {
 
 type Event struct {
 	Bitmap       *bm.Bitmap
-	Res          proto.ChunkResponse
+	Res          *proto.ChunkResponse
 	ExtHandshake extensionHandshake
 	Req          proto.ChunkRequest
 	Index        uint32

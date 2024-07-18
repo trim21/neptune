@@ -73,7 +73,7 @@ func (b *Bitmap) XOR(bm *Bitmap) {
 	bm.m.RUnlock()
 }
 
-func (b *Bitmap) Get(i uint32) bool {
+func (b *Bitmap) Contains(i uint32) bool {
 	b.m.RLock()
 	v := b.bm.Contains(i)
 	b.m.RUnlock()

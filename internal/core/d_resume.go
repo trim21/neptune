@@ -91,7 +91,7 @@ func (c *Client) UnmarshalResume(data []byte, torrentDirectory string) (*Downloa
 
 		AddAt: time.Now().Unix(),
 
-		ResChan: make(chan proto.ChunkResponse, 1),
+		ResChan: make(chan *proto.ChunkResponse, 1),
 
 		ioDown:  flowrate.New(time.Second, time.Second),
 		netDown: flowrate.New(time.Second, time.Second),

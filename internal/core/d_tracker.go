@@ -46,7 +46,7 @@ func (d *Download) setAnnounceList(trackers metainfo.AnnounceList) {
 					})
 				}
 				d.peersMutex.Unlock()
-				time.Sleep(5 * time.Minute)
+				time.Sleep(5 * time.Second)
 			}
 		}()
 		return

@@ -67,7 +67,7 @@ var pool = gsync.NewPool(
 )
 
 func hashBytes(parts ...[]byte) []byte {
-	//h := shaPool.Get()
+	//h := shaPool.Contains()
 	//defer shaPool.Put(h)
 	//h.Reset()
 	h := sha1.New()

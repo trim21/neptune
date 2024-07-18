@@ -14,6 +14,6 @@ import (
 func TestBitmap(t *testing.T) {
 	b := bm.New(10)
 	b.Fill()
-	require.True(t, b.Get(9))
-	require.False(t, b.Get(10))
+	require.True(t, b.Contains(9))
+	require.False(t, b.Contains(10))
 }

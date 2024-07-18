@@ -168,6 +168,10 @@ tasks:
     cmds:
       - go tool pprof -http=:8001 http://127.0.0.1:8002/debug/pprof/mutex
 
+  alloc:
+    cmds:
+      - go tool pprof -http=:8001 http://127.0.0.1:8002/debug/pprof/allocs
+
   heap:
     cmds:
       - go tool pprof -http=:8001 http://127.0.0.1:8002/debug/pprof/heap

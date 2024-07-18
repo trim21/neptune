@@ -18,6 +18,7 @@ import (
 	"github.com/dchest/uniuri"
 	"github.com/docker/go-units"
 	"github.com/fatih/color"
+	"github.com/kelindar/bitmap"
 	"github.com/puzpuzpuz/xsync/v3"
 	"github.com/rs/zerolog"
 	"go.uber.org/atomic"
@@ -102,7 +103,9 @@ func newPeer(
 
 		ourPieceRequests: make(chan uint32, 1),
 
-		responseCond: sync.Cond{L: &gsync.EmptyLock{}},
+		Requested: make(bitmap.Bitmap, d.bitfieldSize),
+
+		responseCond: gsync.NewCond(gsync.EmptyLock{}),
 
 		//ResChan:   make(chan req.Response, 1),
 		myRequests:       xsync.NewMapOf[proto.ChunkRequest, time.Time](),
@@ -116,7 +119,7 @@ func newPeer(
 		w: bufio.NewWriterSize(conn, units.KiB*8),
 
 		allowFast: bm.New(d.info.NumPieces),
-		Requested: bm.New(d.info.NumPieces),
+		//Requested: bm.New(d.info.NumPieces),
 
 		rttAverage: sizedSlice[time.Duration]{
 			limit: 2000,
@@ -149,7 +152,7 @@ type Peer struct {
 	cancel   context.CancelFunc
 	Bitmap   *bm.Bitmap
 
-	Requested *bm.Bitmap
+	Requested bitmap.Bitmap
 
 	myRequests       *xsync.MapOf[proto.ChunkRequest, time.Time]
 	myRequestHistory *xsync.MapOf[proto.ChunkRequest, empty.Empty]
@@ -166,7 +169,7 @@ type Peer struct {
 
 	ourPieceRequests chan uint32 // our requests for peer chan
 
-	responseCond sync.Cond
+	responseCond *gsync.Cond
 	Address      netip.AddrPort
 
 	rttAverage sizedSlice[time.Duration]
@@ -186,7 +189,7 @@ type Peer struct {
 	supportExtensionHandshake bool
 }
 
-func (p *Peer) Response(res proto.ChunkResponse) {
+func (p *Peer) Response(res *proto.ChunkResponse) {
 	_, ok := p.peerRequests.LoadAndDelete(res.Request())
 	if !ok {
 		panic("send response without request")
@@ -231,10 +234,10 @@ func (p *Peer) Have(index uint32) {
 func (p *Peer) close() {
 	p.log.Trace().Caller(1).Msg("close")
 	if p.closed.CompareAndSwap(false, true) {
-		p.cancel()
 		p.d.conn.Delete(p.Address)
 		p.d.c.sem.Release(1)
 		p.d.c.connectionCount.Sub(1)
+		p.cancel()
 		_ = p.Conn.Close()
 	}
 }
@@ -252,8 +255,12 @@ func (p *Peer) ourRequestHandle() {
 				}
 
 				// 10 is a magic number to avoid peer reject our requests
-				for p.myRequests.Size() >= int(p.QueueLimit.Load())-10 {
-					p.responseCond.Wait()
+				for p.myRequests.Size() >= min(int(p.QueueLimit.Load())-10, 300) {
+					select {
+					case <-p.ctx.Done():
+						return
+					case <-p.responseCond.C:
+					}
 				}
 
 				p.Request(pieceChunk(p.d.info, index, i))
@@ -494,7 +501,7 @@ func (p *Peer) validateRequest(req proto.ChunkRequest) bool {
 	return !(req.Begin+req.Length > expectedLen)
 }
 
-func (p *Peer) resIsValid(res proto.ChunkResponse) bool {
+func (p *Peer) resIsValid(res *proto.ChunkResponse) bool {
 	r := proto.ChunkRequest{
 		PieceIndex: res.PieceIndex,
 		Begin:      res.Begin,

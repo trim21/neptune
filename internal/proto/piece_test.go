@@ -15,7 +15,7 @@ import (
 func TestSendPiece(t *testing.T) {
 	var b bytes.Buffer
 
-	require.NoError(t, proto.SendPiece(&b, proto.ChunkResponse{
+	require.NoError(t, proto.SendPiece(&b, &proto.ChunkResponse{
 		Data:       []byte("hello world"),
 		Begin:      20,
 		PieceIndex: 5,

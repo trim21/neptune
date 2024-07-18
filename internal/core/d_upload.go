@@ -92,7 +92,7 @@ func (d *Download) backgroundReqHandler() {
 						d.c.ioUp.Update(int(key.Length))
 						d.uploaded.Add(int64(key.Length))
 						g.Go(func() {
-							p.Response(proto.ChunkResponse{
+							p.Response(&proto.ChunkResponse{
 								Data:       buf.B[key.Begin : key.Begin+key.Length],
 								Begin:      key.Begin,
 								PieceIndex: pieceReq.index,
@@ -125,7 +125,6 @@ func (d *Download) readPiece(index uint32, buf []byte) error {
 		n, err := f.File.ReadAt(buf[offset:offset+chunk.length], chunk.offsetOfFile)
 		if err != nil {
 			if !(int64(n) == chunk.length && err == io.EOF) {
-				f.Close()
 				return err
 			}
 		}

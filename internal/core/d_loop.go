@@ -190,8 +190,13 @@ func (d *Download) backgroundResHandler() {
 func (d *Download) openFile(fileIndex int) (*filepool.File, error) {
 	p := filepath.Join(d.basePath, d.info.Files[fileIndex].Path)
 
-	// only try to create directory if we are not seeding.
-	if d.GetState() != Seeding {
+	file, err := filepool.Open(p, os.O_RDWR|os.O_CREATE, os.ModePerm, time.Hour)
+	if err == nil {
+		return file, nil
+	}
+
+	if os.IsNotExist(err) {
+		// only try to create directory if needed.
 		err := os.MkdirAll(filepath.Dir(p), os.ModePerm)
 		if err != nil {
 			return nil, err

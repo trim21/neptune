@@ -21,6 +21,7 @@ import (
 	"tyr/internal/meta"
 	"tyr/internal/metainfo"
 	"tyr/internal/pkg/as"
+	"tyr/internal/pkg/bm"
 	"tyr/internal/pkg/global/tasks"
 )
 
@@ -166,7 +167,7 @@ func (c *Client) GetTorrentFiles(h metainfo.Hash) []TorrentFile {
 		pieceDoneCount := 0
 
 		for i := startIndex; i < endIndex; i++ {
-			if d.bm.Get(i) {
+			if d.bm.Contains(i) {
 				pieceDoneCount++
 			}
 		}
@@ -271,6 +272,14 @@ func (c *Client) DebugHandlers() http.Handler {
 		})
 
 		_, _ = io.WriteString(w, t.Render())
+
+		_, _ = fmt.Fprintln(w, "\nmissing pieces")
+
+		missing := bm.New(d.info.NumPieces)
+
+		missing.Fill()
+
+		_, _ = io.WriteString(w, missing.WithAndNot(d.bm).String())
 	})
 	return router
 }

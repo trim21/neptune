@@ -38,13 +38,15 @@ func (d *Download) connectToPeers() {
 		pp := d.peers.Pop()
 
 		if item := d.c.ch.Get(pp.addrPort); item != nil {
-			ch := item.Value()
-			if ch.timeout {
-				continue
-			}
-			if ch.err != nil {
-				continue
-			}
+			//ch := item.Value()
+			//if ch.timeout {
+			//	continue
+			//}
+			//if ch.err != nil {
+			//	continue
+			//}
+
+			continue
 		}
 
 		if _, ok := d.conn.Load(pp.addrPort); ok {
@@ -58,9 +60,9 @@ func (d *Download) connectToPeers() {
 
 		tasks.Submit(func() {
 			ch := connHistory{lastTry: time.Now()}
-			defer func(h connHistory) {
-				d.c.ch.Set(pp.addrPort, h, time.Hour)
-			}(ch)
+			d.c.ch.Set(pp.addrPort, ch, time.Hour)
+			//defer func(h connHistory) {
+			//}(ch)
 
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 			defer cancel()
@@ -75,6 +77,8 @@ func (d *Download) connectToPeers() {
 				} else {
 					ch.err = err
 				}
+
+				d.c.ch.Set(pp.addrPort, ch, time.Hour)
 				d.c.sem.Release(1)
 				d.c.connectionCount.Sub(1)
 				return
@@ -83,9 +87,9 @@ func (d *Download) connectToPeers() {
 			_ = conn.SetDeadline(time.Now().Add(global.ConnTimeout))
 
 			// conn is wrapped by conntrack, so we need to cast it with interface
-			//if tcp, ok := conn.(interface{ SetLinger(sec int) error }); ok {
-			//	_ = tcp.SetLinger(0)
-			//}
+			if tcp, ok := conn.(interface{ SetLinger(sec int) error }); ok {
+				_ = tcp.SetLinger(0)
+			}
 
 			NewOutgoingPeer(conn, d, pp.addrPort)
 		})

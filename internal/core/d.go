@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/RoaringBitmap/roaring/v2"
+	"github.com/kelindar/bitmap"
 	"github.com/puzpuzpuz/xsync/v3"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -51,7 +51,7 @@ type Download struct {
 	ioDown            *flowrate.Monitor // io rate for network data and disk moving/checking data
 	netDown           *flowrate.Monitor // io rate for network data
 	ioUp              *flowrate.Monitor
-	ResChan           chan proto.ChunkResponse
+	ResChan           chan *proto.ChunkResponse
 	conn              *xsync.MapOf[netip.AddrPort, *Peer]
 	connectionHistory *xsync.MapOf[netip.AddrPort, connHistory]
 	bm                *bm.Bitmap
@@ -67,14 +67,16 @@ type Download struct {
 	scheduleRequest  chan empty.Empty
 	scheduleResponse chan empty.Empty
 
+	reqPieceCount map[uint32]uint32
+	cond          *gsync.Cond
+
 	basePath        string
 	downloadDir     string
 	tags            []string
 	pieceInfo       []pieceFileChunks
 	trackers        []TrackerTier
 	pieceRare       []uint32 // mapping from piece index to rare
-	reqPieceCount   map[uint32]uint32
-	chunkMap        roaring.Bitmap
+	chunkMap        bitmap.Bitmap
 	info            meta.Info
 	AddAt           int64
 	CompletedAt     atomic.Int64
@@ -96,7 +98,6 @@ type Download struct {
 	peerID       PeerID
 	state        State
 	private      bool
-	cond         *gsync.Cond
 }
 
 type pieceRare struct {
@@ -107,7 +108,7 @@ type pieceRare struct {
 func (p pieceRare) Less(o pieceRare) bool {
 	// ordered by rare 1 < 2 < 0
 	if p.rare == o.rare {
-		return false
+		return p.index < o.index
 	}
 
 	if p.rare == 0 {
@@ -118,11 +119,7 @@ func (p pieceRare) Less(o pieceRare) bool {
 		return true
 	}
 
-	if p.rare < o.rare {
-		return true
-	}
-
-	return false
+	return p.rare < o.rare
 }
 
 func (d *Download) GetState() State {
@@ -170,7 +167,7 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 
 		AddAt: time.Now().Unix(),
 
-		ResChan: make(chan proto.ChunkResponse, 1),
+		ResChan: make(chan *proto.ChunkResponse, 1),
 
 		ioDown:  flowrate.New(time.Second, time.Second),
 		netDown: flowrate.New(time.Second, time.Second),
@@ -180,6 +177,7 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 		connectionHistory: xsync.NewMapOf[netip.AddrPort, connHistory](),
 
 		//chunkMap: roaring.New(),
+		chunkMap: make(bitmap.Bitmap, (info.NumPieces+7)/8),
 
 		peers: heap.New[peerWithPriority](),
 
@@ -211,7 +209,7 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 
 func (d *Download) completed() int64 {
 	var completed = int64(d.bm.Count()) * d.info.PieceLength
-	if d.bm.Get(d.info.NumPieces - 1) {
+	if d.bm.Contains(d.info.NumPieces - 1) {
 		completed = completed - d.info.PieceLength + d.info.LastPieceSize
 	}
 
