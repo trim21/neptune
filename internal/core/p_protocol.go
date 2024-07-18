@@ -9,7 +9,6 @@ import (
 	"io"
 	"time"
 
-	"github.com/RoaringBitmap/roaring/v2"
 	"github.com/anacrolix/torrent/bencode"
 	"github.com/docker/go-units"
 	"github.com/fatih/color"
@@ -18,7 +17,6 @@ import (
 
 	"tyr/internal/pkg/assert"
 	"tyr/internal/pkg/bm"
-	"tyr/internal/pkg/mempool"
 	"tyr/internal/pkg/null"
 	"tyr/internal/proto"
 )
@@ -169,33 +167,25 @@ func (p *Peer) DecodeEvents() (Event, error) {
 	return event, err
 }
 
-func (p *Peer) decodeBitfield(l uint32) (Event, error) {
-	l = l - 1
+func (p *Peer) decodeBitfield(eventSize uint32) (Event, error) {
+	eventSize = eventSize - 1
 
-	if l != p.d.bitfieldSize {
+	if eventSize != p.d.bitfieldSize {
 		return Event{}, errgo.Wrap(ErrPeerSendInvalidData,
-			fmt.Sprintf("expecting bitfield length %d, receive %d", p.d.bitfieldSize, l))
+			fmt.Sprintf("expecting bitfield length %d, receive %d", p.d.bitfieldSize, eventSize))
 	}
 
-	buf := mempool.GetWithCap(int(l + 64))
-	defer mempool.Put(buf)
+	buf := make([]byte, eventSize)
 
-	n, err := io.ReadFull(p.r, buf.B[:l])
+	n, err := io.ReadFull(p.r, buf)
 	if err != nil {
 		return Event{}, err
 	}
-	assert.Equal(n, int(l))
+	assert.Equal(n, int(eventSize))
 
-	bmLen := l/8 + 8
+	//fmt.Printf("%s %x\n", *p.UserAgent.Load(), buf)
 
-	var bb = make([]uint64, bmLen)
-	for i := 0; i < int(bmLen); i++ {
-		bb[i] = binary.BigEndian.Uint64(buf.B[i*8 : i*8+8])
-	}
-
-	bitmap := roaring.FromDense(bb, false)
-
-	return Event{Event: proto.Bitfield, Bitmap: bm.FromBitmap(bitmap, p.d.info.NumPieces)}, nil
+	return Event{Event: proto.Bitfield, Bitmap: bm.FromBitfields(buf, p.d.info.NumPieces)}, nil
 }
 
 func (p *Peer) decodeCancel() (Event, error) {

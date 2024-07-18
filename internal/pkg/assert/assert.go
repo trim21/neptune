@@ -5,6 +5,10 @@
 
 package assert
 
+import (
+	"cmp"
+)
+
 func panicMessage(msg []string) {
 	if len(msg) == 0 {
 		panic("assert failed")
@@ -21,6 +25,12 @@ func Equal[T comparable](actual, expected T, msg ...string) {
 
 func NotEqual[T comparable](actual, expected T, msg ...string) {
 	if !(expected != actual) {
+		panicMessage(msg)
+	}
+}
+
+func Less[T cmp.Ordered](v1, v2 T, msg ...string) {
+	if !(v1 < v2) {
 		panicMessage(msg)
 	}
 }

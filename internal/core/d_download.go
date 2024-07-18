@@ -207,12 +207,18 @@ func (d *Download) updateRarePieces(force bool) {
 
 	var requested = make(bitmap.Bitmap, d.bitfieldSize)
 
+	var base uint32
 	d.conn.Range(func(addr netip.AddrPort, p *Peer) bool {
 		if p.peerChoking.Load() {
 			return true
 		}
 
 		requested.Or(p.Requested)
+		// doesn't contribute to rare
+		if p.Bitmap.Count() == d.info.NumPieces {
+			base++
+			return true
+		}
 		p.Bitmap.Range(func(u uint32) {
 			d.pieceRare[u]++
 		})
@@ -230,7 +236,7 @@ func (d *Download) updateRarePieces(force bool) {
 			continue
 		}
 
-		queue = append(queue, pieceRare{rare: rare, index: uint32(index)})
+		queue = append(queue, pieceRare{rare: rare + base, index: uint32(index)})
 	}
 
 	d.rarePieceQueue = heap.FromSlice(queue)
@@ -268,7 +274,6 @@ PIECE:
 		piece := q.Pop()
 
 		if piece.rare == 0 {
-			d.log.Debug().Msg("no new pieces to download")
 			return
 		}
 

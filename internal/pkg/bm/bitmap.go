@@ -5,31 +5,48 @@ package bm
 
 import (
 	"encoding/binary"
+	"fmt"
+	"math/bits"
+	"runtime"
+	"slices"
 	"sync"
 
-	"github.com/RoaringBitmap/roaring/v2"
-	"github.com/samber/lo"
+	"github.com/kelindar/bitmap"
 )
+
+func init() {
+	if binary.NativeEndian.Uint16([]byte{0x12, 0x34}) != uint16(0x3412) {
+		panic(fmt.Sprintf("current implement of bitmap asscume running on little endian cpu, but %s is a big endian", runtime.GOARCH))
+	}
+}
 
 func New(size uint32) *Bitmap {
 	return &Bitmap{
 		size: size,
-		bm:   roaring.New(),
+		bm:   make(bitmap.Bitmap, (size+7)/8),
 	}
 }
 
-func FromBitmap(bm *roaring.Bitmap, size uint32) *Bitmap {
-	bm.RemoveRange(uint64(size), uint64(size+64*8))
+func FromBitfields(bitfield []byte, size uint32) *Bitmap {
+	var b = make(bitmap.Bitmap, (size+7)/8)
+
+	nn := make([]byte, size+8)
+
+	copy(nn, bitfield)
+
+	for i := uint32(0); i < (size+7)/8; i++ {
+		b[i] = bits.Reverse64(binary.BigEndian.Uint64(nn[i*8 : i*8+8]))
+	}
 
 	return &Bitmap{
 		size: size,
-		bm:   bm,
+		bm:   b,
 	}
 }
 
 // Bitmap is thread-safe bitmap wrapper
 type Bitmap struct {
-	bm   *roaring.Bitmap
+	bm   bitmap.Bitmap
 	m    sync.RWMutex
 	size uint32
 }
@@ -40,22 +57,31 @@ func (b *Bitmap) Clear() {
 	b.m.Unlock()
 }
 
+// Fill bitmap [0, b.size)
 func (b *Bitmap) Fill() {
 	b.m.Lock()
-	b.bm.AddRange(0, uint64(b.size))
+	if b.size >= 63 {
+		b.bm.Grow((b.size) / 64 * 64)
+		b.bm.Ones()
+	}
+
+	for i := b.size / 64 * 64; i < b.size; i++ {
+		b.bm.Set(i)
+	}
+
 	b.m.Unlock()
 }
 
 func (b *Bitmap) Count() uint32 {
 	b.m.RLock()
-	v := uint32(b.bm.GetCardinality())
+	v := uint32(b.bm.CountTo(b.size))
 	b.m.RUnlock()
 	return v
 }
 
 func (b *Bitmap) Set(i uint32) {
 	b.m.Lock()
-	b.bm.Add(i)
+	b.bm.Set(i)
 	b.m.Unlock()
 }
 
@@ -82,67 +108,47 @@ func (b *Bitmap) Contains(i uint32) bool {
 
 func (b *Bitmap) CompressedBytes() []byte {
 	b.m.RLock()
-	v := lo.Must(b.bm.MarshalBinary())
-	b.m.RUnlock()
-	return v
-}
-
-func (b *Bitmap) RangeX(fn func(uint32) bool) bool {
-	b.m.RLock()
 	defer b.m.RUnlock()
-	i := b.bm.Iterator()
-	for i.HasNext() {
-		if !fn(i.Next()) {
-			return true
-		}
-	}
-
-	return false
+	return slices.Clone(b.bm.ToBytes())
 }
 
 func (b *Bitmap) Range(fn func(uint32)) {
 	b.m.RLock()
 	defer b.m.RUnlock()
-	i := b.bm.Iterator()
-	for i.HasNext() {
-		fn(i.Next())
-	}
+	b.bm.Range(fn)
 }
 
 // Bitfield return bytes as bittorrent protocol
 func (b *Bitmap) Bitfield() []byte {
 	b.m.RLock()
-	v := b.bm.ToDense()
-	b.m.RUnlock()
+	defer b.m.RUnlock()
 
-	var buf = make([]byte, 0, (b.size+7)/8)
-	for _, u := range v {
-		buf = binary.BigEndian.AppendUint64(buf, u)
+	bytes := slices.Clone(b.bm.ToBytes())
+	for i, item := range bytes {
+		bytes[i] = bits.Reverse8(item)
 	}
 
-	return buf[:(b.size+7)/8]
-}
-
-func (b *Bitmap) XorRaw(bitmap *roaring.Bitmap) {
-	b.m.Lock()
-	b.bm.Xor(bitmap)
-	b.m.Unlock()
+	return bytes[:(b.size+7)/8]
 }
 
 func (b *Bitmap) OR(bm *Bitmap) {
 	b.m.Lock()
+	defer b.m.Unlock()
+
 	bm.m.RLock()
+	defer bm.m.RUnlock()
+
 	b.bm.Or(bm.bm)
-	bm.m.RUnlock()
-	b.m.Unlock()
 }
 
 func (b *Bitmap) Clone() *Bitmap {
 	b.m.RLock()
-	m := b.bm.Clone()
-	b.m.RUnlock()
+	defer b.m.RUnlock()
 
-	return FromBitmap(m, b.size)
+	return &Bitmap{
+		size: b.size,
+		bm:   slices.Clone(b.bm),
+	}
 }
 
 func (b *Bitmap) WithAnd(bm *Bitmap) *Bitmap {
@@ -178,5 +184,11 @@ func (b *Bitmap) WithOr(bm *Bitmap) *Bitmap {
 func (b *Bitmap) String() string {
 	b.m.RLock()
 	defer b.m.RUnlock()
-	return b.bm.String()
+	var s []uint32
+
+	b.bm.Range(func(x uint32) {
+		s = append(s, x)
+	})
+
+	return fmt.Sprintf("*Bitmap{size: %v, bm: %v}", b.size, s)
 }

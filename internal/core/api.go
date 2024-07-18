@@ -296,7 +296,7 @@ func (c *Client) DebugHandlers() http.Handler {
 
 		missing.Fill()
 
-		_, _ = io.WriteString(w, missing.WithAndNot(d.bm).String())
+		_, _ = fmt.Fprintln(w, missing.WithAndNot(d.bm).String())
 
 		debugPrintPendingPeers(w, d)
 	})
@@ -330,7 +330,7 @@ func debugPrintTrackers(w io.Writer, d *Download) {
 	}
 
 	_, _ = io.WriteString(w, t.Render())
-	w.Write([]byte("\n"))
+	_, _ = fmt.Fprintln(w)
 }
 
 func debugPrintPeers(w io.Writer, d *Download) {
@@ -353,7 +353,7 @@ func debugPrintPeers(w io.Writer, d *Download) {
 	t.SortBy([]table.SortBy{{Name: "address"}})
 
 	_, _ = io.WriteString(w, t.Render())
-	w.Write([]byte("\n"))
+	_, _ = fmt.Fprintln(w)
 }
 
 func debugPrintPendingPeers(w io.Writer, d *Download) {
@@ -369,5 +369,5 @@ func debugPrintPendingPeers(w io.Writer, d *Download) {
 	}
 
 	_, _ = io.WriteString(w, t.Render())
-	w.Write([]byte("\n"))
+	_, _ = fmt.Fprintln(w)
 }

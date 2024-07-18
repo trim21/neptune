@@ -76,8 +76,7 @@ type Download struct {
 	tags        []string
 	pieceInfo   []pieceFileChunks
 
-	trackerMutex sync.RWMutex
-	trackers     []TrackerTier
+	trackers []TrackerTier
 
 	pieceRare       []uint32 // mapping from piece index to rare
 	chunkMap        bitmap.Bitmap
@@ -92,7 +91,9 @@ type Download struct {
 
 	seq             atomic.Bool
 	announcePending atomic.Bool
-	m               sync.RWMutex
+
+	trackerMutex sync.RWMutex
+	m            sync.RWMutex
 
 	ratePieceMutex sync.Mutex
 	peersMutex     sync.Mutex
