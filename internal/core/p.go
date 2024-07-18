@@ -359,6 +359,11 @@ func (p *Peer) start(skipHandshake bool) {
 				}
 			}
 		case proto.Have:
+			if event.Index >= p.d.info.NumPieces {
+				p.log.Debug().Uint32("index", event.Index).Msg("peer send 'Have' message with invalid index")
+				return
+			}
+
 			p.Bitmap.Set(event.Index)
 		case proto.Interested:
 			p.peerInterested.Store(true)
@@ -423,6 +428,11 @@ func (p *Peer) start(skipHandshake bool) {
 			p.Rejected.Store(event.Req, empty.Empty{})
 			p.myRequests.Delete(event.Req)
 		case proto.AllowedFast:
+			if event.Index >= p.d.info.NumPieces {
+				p.log.Debug().Uint32("index", event.Index).Msg("peer send 'AllowedFast' message with invalid index")
+				return
+			}
+
 			p.allowFast.Set(event.Index)
 		// currently ignored and unsupported
 		case proto.BitCometExtension:
@@ -495,9 +505,9 @@ func (p *Peer) validateRequest(req proto.ChunkRequest) bool {
 		return false
 	}
 
-	expectedLen := as.Uint32(p.d.pieceLength(req.PieceIndex))
+	pieceSize := as.Uint32(p.d.pieceLength(req.PieceIndex))
 
-	return !(req.Begin+req.Length > expectedLen)
+	return req.Begin+req.Length <= pieceSize
 }
 
 func (p *Peer) resIsValid(res *proto.ChunkResponse) bool {
