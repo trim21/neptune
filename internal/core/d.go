@@ -64,17 +64,21 @@ type Download struct {
 
 	// signal to schedule request to peers
 	// should be fired when peers finish pieces requests
-	scheduleRequest  chan empty.Empty
-	scheduleResponse chan empty.Empty
+	scheduleRequestSignal chan empty.Empty
+	scheduleResponse      chan empty.Empty
+	pendingPeersSignal    chan empty.Empty
 
 	reqPieceCount map[uint32]uint32
 	cond          *gsync.Cond
 
-	basePath        string
-	downloadDir     string
-	tags            []string
-	pieceInfo       []pieceFileChunks
-	trackers        []TrackerTier
+	basePath    string
+	downloadDir string
+	tags        []string
+	pieceInfo   []pieceFileChunks
+
+	trackerMutex sync.RWMutex
+	trackers     []TrackerTier
+
 	pieceRare       []uint32 // mapping from piece index to rare
 	chunkMap        bitmap.Bitmap
 	info            meta.Info
@@ -191,8 +195,9 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 
 		bitfieldSize: (info.NumPieces + 7) / 8,
 
-		scheduleRequest:    make(chan empty.Empty, 1),
-		buildNetworkPieces: make(chan empty.Empty, 1),
+		scheduleRequestSignal: make(chan empty.Empty, 1),
+		pendingPeersSignal:    make(chan empty.Empty),
+		buildNetworkPieces:    make(chan empty.Empty, 1),
 
 		downloadDir: basePath,
 	}

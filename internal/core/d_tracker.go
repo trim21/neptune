@@ -6,12 +6,10 @@ package core
 import (
 	"bytes"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"net/netip"
 	"slices"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/anacrolix/torrent/bencode"
@@ -22,6 +20,7 @@ import (
 	"github.com/valyala/bytebufferpool"
 
 	"tyr/internal/metainfo"
+	"tyr/internal/pkg/empty"
 	"tyr/internal/pkg/global"
 	"tyr/internal/pkg/null"
 )
@@ -46,10 +45,10 @@ func (d *Download) setAnnounceList(trackers metainfo.AnnounceList) {
 					})
 				}
 				d.peersMutex.Unlock()
+				d.pendingPeersSignal <- empty.Empty{}
 				time.Sleep(5 * time.Second)
 			}
 		}()
-		return
 	}
 
 	for _, tier := range trackers {
@@ -61,25 +60,42 @@ func (d *Download) setAnnounceList(trackers metainfo.AnnounceList) {
 	}
 }
 
+func (d *Download) backgroundTrackerHandler() {
+	timer := time.NewTimer(time.Second * 10)
+	defer timer.Stop()
+
+	for {
+		select {
+		case <-d.ctx.Done():
+			return
+		case <-timer.C:
+			d.TryAnnounce()
+		}
+	}
+}
+
 func (d *Download) TryAnnounce() {
 	if d.announcePending.CompareAndSwap(false, true) {
-		defer d.announcePending.Store(true)
+		defer d.announcePending.Store(false)
 		d.announce("")
-		return
+		d.pendingPeersSignal <- empty.Empty{}
 	}
 }
 
 func (d *Download) announce(event AnnounceEvent) {
-	d.asyncAnnounce(event)
-}
+	d.trackerMutex.Lock()
+	defer d.trackerMutex.Unlock()
 
-func (d *Download) asyncAnnounce(event AnnounceEvent) {
-	// TODO: do all level tracker announce by config
 	for _, tier := range d.trackers {
-		r, err := tier.Announce(d, event)
+		r, announced, err := tier.Announce(d, event)
 		if err != nil {
 			continue
 		}
+
+		if !announced {
+			return
+		}
+
 		if len(r.Peers) != 0 {
 			d.peersMutex.Lock()
 			for _, peer := range r.Peers {
@@ -98,47 +114,46 @@ type TrackerTier struct {
 	trackers []*Tracker
 }
 
-func (tier TrackerTier) Announce(d *Download, event AnnounceEvent) (AnnounceResult, error) {
+func (tier TrackerTier) Announce(d *Download, event AnnounceEvent) (AnnounceResult, bool, error) {
 	if event == EventStarted {
 		tier.announceStop(d)
-		return AnnounceResult{}, nil
+		return AnnounceResult{}, false, nil
 	}
 
 	for _, t := range tier.trackers {
-		if !time.Now().After(t.nextAnnounce) {
-			return AnnounceResult{}, nil
+		now := time.Now()
+		if t.nextAnnounce.After(now) {
+			return AnnounceResult{}, false, nil
 		}
 
 		r, err := t.announce(d, event)
+		if r.Interval == 0 {
+			r.Interval = defaultTrackerInterval
+		}
+
+		t.lastAnnounceTime = now
+		t.nextAnnounce = now.Add(r.Interval)
+
 		if err != nil {
-			t.m.Lock()
 			t.err = err
-			t.nextAnnounce = time.Now().Add(time.Minute * 30)
-			t.m.Unlock()
 			continue
 		}
 
-		if r.FailedReason.Set {
-			t.m.Lock()
-			t.err = errors.New(r.FailedReason.Value)
-			t.m.Unlock()
-			return AnnounceResult{}, nil
-		}
-		t.m.Lock()
 		t.peerCount = len(r.Peers)
-		t.m.Unlock()
 
 		r.Peers = lo.Uniq(r.Peers)
 
-		return r, nil
+		return r, true, nil
 	}
 
-	return AnnounceResult{}, nil
+	return AnnounceResult{}, false, nil
 }
 
 func (tier TrackerTier) announceStop(d *Download) {
 	for _, t := range tier.trackers {
-		_ = t.announceStop(d)
+		if !t.lastAnnounceTime.IsZero() {
+			_ = t.announceStop(d)
+		}
 	}
 }
 
@@ -184,11 +199,11 @@ type Tracker struct {
 	lastAnnounceTime time.Time
 	nextAnnounce     time.Time
 	err              error
+	failureMessage   string
 	url              string
 	peerCount        int
 	//leechers         int
 	//seeders          int
-	m sync.RWMutex
 }
 
 func (t *Tracker) req(d *Download) *resty.Request {
@@ -212,12 +227,12 @@ func (t *Tracker) req(d *Download) *resty.Request {
 	return req
 }
 
+const defaultTrackerInterval = time.Minute * 30
+
 func (t *Tracker) announce(d *Download, event AnnounceEvent) (AnnounceResult, error) {
 	d.log.Trace().Str("url", t.url).Msg("announce to tracker")
-	now := time.Now()
 
 	req := t.req(d)
-	t.lastAnnounceTime = now
 
 	if event != "" {
 		req = req.SetQueryParam("event", string(event))
@@ -235,23 +250,18 @@ func (t *Tracker) announce(d *Download, event AnnounceEvent) (AnnounceResult, er
 		return AnnounceResult{}, errgo.Wrap(err, "failed to parse torrent announce response")
 	}
 
-	var m map[string]any
-	fmt.Println(bencode.Unmarshal(res.Body(), &m))
-
 	if r.FailureReason.Set {
+		t.failureMessage = r.FailureReason.Value
 		return AnnounceResult{FailedReason: r.FailureReason}, nil
 	}
 
 	var result = AnnounceResult{
-		Interval: time.Minute * 30,
+		Interval: defaultTrackerInterval,
 	}
 
 	if r.Interval.Set {
 		result.Interval = time.Second * time.Duration(r.Interval.Value)
 	}
-
-	t.nextAnnounce = now.Add(result.Interval)
-	d.log.Trace().Str("url", t.url).Time("next", t.nextAnnounce).Msg("next announce")
 
 	// BEP says we must support both format
 	if r.Peers.Set {

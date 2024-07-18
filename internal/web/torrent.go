@@ -243,3 +243,32 @@ func listTorrentPeers(h *jsonrpc.Handler, c *core.Client) {
 	u.SetName("torrent.peers")
 	h.Add(u)
 }
+
+type listTorrentTrackersRequest struct {
+	InfoHash string `json:"info_hash" description:"torrent file hash" required:"true"`
+}
+
+type listTorrentTrackersResponse struct {
+	Trackers []core.ApiTrackers `json:"trackers"`
+}
+
+func listTorrentTrackers(h *jsonrpc.Handler, c *core.Client) {
+	u := usecase.NewInteractor[*listTorrentTrackersRequest, listTorrentTrackersResponse](
+		func(ctx context.Context, req *listTorrentTrackersRequest, res *listTorrentTrackersResponse) error {
+			if len(req.InfoHash) != sha1.Size*2 {
+				return errInvalidInfoHash
+			}
+
+			h, err := hex.DecodeString(req.InfoHash)
+			if err != nil {
+				return errInvalidInfoHash
+			}
+
+			res.Trackers = c.GetTorrentTrackers(metainfo.Hash(h))
+
+			return nil
+		},
+	)
+	u.SetName("torrent.trackers")
+	h.Add(u)
+}

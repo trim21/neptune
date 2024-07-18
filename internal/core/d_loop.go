@@ -114,30 +114,20 @@ func (d *Download) startBackground() {
 	// upload
 	go d.backgroundReqHandler()
 
+	go d.backgroundTrackerHandler()
+
 	go func() {
 		for {
-			if d.ctx.Err() != nil {
+			select {
+			case <-d.ctx.Done():
 				return
-			}
-
-			d.m.Lock()
-
-		LOOP:
-			for {
-				switch d.state {
-				case Seeding, Downloading:
-					break LOOP
-				case Stopped, Moving, Checking, Error:
-					time.Sleep(time.Second)
+			case <-d.pendingPeersSignal:
+				if d.GetState()|Seeding|Downloading == 0 {
 					continue
 				}
+
+				d.connectToPeers()
 			}
-
-			d.m.Unlock()
-
-			d.connectToPeers()
-
-			time.Sleep(time.Second)
 		}
 	}()
 }

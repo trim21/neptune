@@ -12,18 +12,18 @@ type Lesser[T any] interface {
 
 // Heap implements a binary heap.
 type Heap[T Lesser[T]] struct {
-	data []T
+	Data []T
 }
 
 // New returns a new heap with the given less function.
 func New[T Lesser[T]]() *Heap[T] {
 	return &Heap[T]{
-		data: make([]T, 0),
+		Data: make([]T, 0),
 	}
 }
 
-// FromSlice returns a new heap with the given less function and initial data.
-// The `data` is not copied and used as the inside array.
+// FromSlice returns a new heap with the given less function and initial Data.
+// The `Data` is not copied and used as the inside array.
 func FromSlice[T Lesser[T]](data []T) *Heap[T] {
 	n := len(data)
 	for i := n/2 - 1; i >= 0; i-- {
@@ -31,37 +31,37 @@ func FromSlice[T Lesser[T]](data []T) *Heap[T] {
 	}
 
 	return &Heap[T]{
-		data: data,
+		Data: data,
 	}
 }
 
 // Push pushes the given element onto the heap.
 func (h *Heap[T]) Push(x T) {
-	h.data = append(h.data, x)
-	up(h.data, len(h.data)-1)
+	h.Data = append(h.Data, x)
+	up(h.Data, len(h.Data)-1)
 }
 
 // Pop removes and returns the minimum element from the heap.
 // panic if slice is empty
 func (h *Heap[T]) Pop() T {
-	x := h.data[0]
+	x := h.Data[0]
 
-	h.data[0] = h.data[len(h.data)-1]
-	h.data = h.data[:len(h.data)-1]
+	h.Data[0] = h.Data[len(h.Data)-1]
+	h.Data = h.Data[:len(h.Data)-1]
 
-	down(h.data, 0)
+	down(h.Data, 0)
 
 	return x
 }
 
 // Peek returns the minimum element from the heap without removing it.
 func (h *Heap[T]) Peek() T {
-	return h.data[0]
+	return h.Data[0]
 }
 
 // Len returns the number of elements in the heap.
 func (h *Heap[T]) Len() int {
-	return len(h.data)
+	return len(h.Data)
 }
 
 func down[T Lesser[T]](h []T, i int) {

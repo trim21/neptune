@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/netip"
 	"slices"
+	"time"
 
 	"github.com/dustin/go-humanize"
 	"github.com/go-chi/chi/v5"
@@ -220,6 +221,37 @@ func (c *Client) GetTorrentPeers(h metainfo.Hash) []ApiPeers {
 	return results
 }
 
+type ApiTrackers struct {
+	URL  string `json:"url"`
+	Tier int    `json:"tier"`
+}
+
+func (c *Client) GetTorrentTrackers(h metainfo.Hash) []ApiTrackers {
+	c.m.RLock()
+	d, ok := c.downloadMap[h]
+	if !ok {
+		c.m.RUnlock()
+		return nil
+	}
+	c.m.RUnlock()
+
+	var results = make([]ApiTrackers, 0, 10)
+
+	d.trackerMutex.RLock()
+	defer d.trackerMutex.RUnlock()
+
+	for iterIndex, tier := range d.trackers {
+		for _, tracker := range tier.trackers {
+			results = append(results, ApiTrackers{
+				Tier: iterIndex,
+				URL:  tracker.url,
+			})
+		}
+	}
+
+	return results
+}
+
 func (c *Client) DebugHandlers() http.Handler {
 	router := chi.NewRouter()
 	router.Get("/{info_hash}", func(w http.ResponseWriter, r *http.Request) {
@@ -255,23 +287,8 @@ func (c *Client) DebugHandlers() http.Handler {
 			humanize.IBytes(uint64(d.ioUp.Status().CurRate))+"/s",
 		)
 
-		t := table.NewWriter()
-
-		t.AppendHeader(table.Row{"address", "download rate", "pending requests", "pending pieces"})
-
-		t.SortBy([]table.SortBy{{Name: "address"}})
-
-		d.conn.Range(func(addr netip.AddrPort, p *Peer) bool {
-			t.AppendRow(table.Row{
-				addr.String(),
-				humanize.IBytes(uint64(p.ioIn.Status().CurRate)) + "/s",
-				p.myRequests.Size(),
-				len(p.ourPieceRequests),
-			})
-			return true
-		})
-
-		_, _ = io.WriteString(w, t.Render())
+		debugPrintTrackers(w, d)
+		debugPrintPeers(w, d)
 
 		_, _ = fmt.Fprintln(w, "\nmissing pieces")
 
@@ -280,6 +297,77 @@ func (c *Client) DebugHandlers() http.Handler {
 		missing.Fill()
 
 		_, _ = io.WriteString(w, missing.WithAndNot(d.bm).String())
+
+		debugPrintPendingPeers(w, d)
 	})
 	return router
+}
+
+func debugPrintTrackers(w io.Writer, d *Download) {
+	d.trackerMutex.RLock()
+	defer d.trackerMutex.RUnlock()
+
+	t := table.NewWriter()
+
+	t.AppendHeader(table.Row{"tier", "url", "seeders", "leechers", "last announce", "next announce", "peers", "msg", "error"})
+
+	t.SortBy([]table.SortBy{{Name: "tier"}, {Name: "url"}})
+
+	for iterIndex, tier := range d.trackers {
+		for _, tracker := range tier.trackers {
+			t.AppendRow(table.Row{
+				iterIndex,
+				lo.Elipse(tracker.url, 40),
+				0,
+				0,
+				tracker.lastAnnounceTime.Format(time.RFC3339),
+				tracker.nextAnnounce.Format(time.RFC3339),
+				tracker.peerCount,
+				tracker.failureMessage,
+				tracker.err,
+			})
+		}
+	}
+
+	_, _ = io.WriteString(w, t.Render())
+	w.Write([]byte("\n"))
+}
+
+func debugPrintPeers(w io.Writer, d *Download) {
+	t := table.NewWriter()
+
+	t.AppendHeader(table.Row{"address", "download rate", "pending requests", "pending pieces", "client", "progress"})
+
+	d.conn.Range(func(addr netip.AddrPort, p *Peer) bool {
+		t.AppendRow(table.Row{
+			addr,
+			humanize.IBytes(uint64(p.ioIn.Status().CurRate)) + "/s",
+			p.myRequests.Size(),
+			len(p.ourPieceRequests),
+			*p.UserAgent.Load(),
+			fmt.Sprintf("%6.2f %%", float64(p.Bitmap.Count())/float64(d.info.NumPieces)*100),
+		})
+		return true
+	})
+
+	t.SortBy([]table.SortBy{{Name: "address"}})
+
+	_, _ = io.WriteString(w, t.Render())
+	w.Write([]byte("\n"))
+}
+
+func debugPrintPendingPeers(w io.Writer, d *Download) {
+	d.peersMutex.Lock()
+	defer d.peersMutex.Unlock()
+
+	t := table.NewWriter()
+	t.AppendHeader(table.Row{"address"})
+	t.SortBy([]table.SortBy{{Name: "address"}})
+
+	for _, item := range d.peers.Data {
+		t.AppendRow(table.Row{item.addrPort.String()})
+	}
+
+	_, _ = io.WriteString(w, t.Render())
+	w.Write([]byte("\n"))
 }

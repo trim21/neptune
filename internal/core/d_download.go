@@ -10,7 +10,6 @@ import (
 	"slices"
 	"time"
 
-	"github.com/docker/go-units"
 	"github.com/kelindar/bitmap"
 	"github.com/trim21/errgo"
 
@@ -31,7 +30,7 @@ func (d *Download) backgroundReqScheduler() {
 		select {
 		case <-d.ctx.Done():
 			return
-		case <-d.scheduleRequest:
+		case <-d.scheduleRequestSignal:
 			if d.GetState() != Downloading {
 				select {
 				case <-d.ctx.Done():
@@ -209,6 +208,10 @@ func (d *Download) updateRarePieces(force bool) {
 	var requested = make(bitmap.Bitmap, d.bitfieldSize)
 
 	d.conn.Range(func(addr netip.AddrPort, p *Peer) bool {
+		if p.peerChoking.Load() {
+			return true
+		}
+
 		requested.Or(p.Requested)
 		p.Bitmap.Range(func(u uint32) {
 			d.pieceRare[u]++
@@ -234,25 +237,25 @@ func (d *Download) updateRarePieces(force bool) {
 }
 
 func (d *Download) scheduleSeq() {
-	if d.info.PieceLength*int64(d.info.NumPieces-d.bm.Count()) <= units.MiB*100 {
-		d.scheduleSeqEndGame()
-		return
-	}
+	//if d.info.PieceLength*int64(d.info.NumPieces-d.bm.Count()) <= units.MiB*100 {
+	//	d.scheduleSeqEndGame()
+	//	return
+	//}
 
 	d.updateRarePieces(true)
 	var peers = make([]*Peer, 0, d.conn.Size())
 
 	d.conn.Range(func(addr netip.AddrPort, p *Peer) bool {
+		if p.peerChoking.Load() {
+			return true
+		}
+
 		peers = append(peers, p)
 		return true
 	})
 
 	slices.SortFunc(peers, func(a, b *Peer) int {
-		da := a.ioIn.Status().CurRate
-
-		db := b.ioIn.Status().CurRate
-
-		return cmp.Compare(da, db)
+		return cmp.Compare(a.ioIn.Status().CurRate, b.ioIn.Status().CurRate)
 	})
 
 	d.ratePieceMutex.Lock()

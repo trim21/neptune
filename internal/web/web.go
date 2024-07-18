@@ -92,13 +92,17 @@ func New(c *core.Client, token string, enableDebug bool) http.Handler {
 	}
 
 	addPing(h)
+
+	getTransferSummary(h, c)
+
 	listTorrent(h, c)
 	listTorrentFiles(h, c)
 	listTorrentPeers(h, c)
-	getTransferSummary(h, c)
+	listTorrentTrackers(h, c)
+
 	AddTorrent(h, c)
 	GetTorrent(h, c)
-	MoveTorrent(h, c)
+	//MoveTorrent(h, c)
 
 	var auth = func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

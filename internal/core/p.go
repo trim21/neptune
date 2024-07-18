@@ -76,7 +76,7 @@ func newPeer(
 	skipHandshake bool,
 	fast bool,
 ) *Peer {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(d.ctx)
 	l := d.log.With().Stringer("addr", addr)
 	var ua string
 	if !peerID.Zero() {
@@ -94,7 +94,7 @@ func newPeer(
 		ioOut:                flowrate.New(time.Second, time.Second),
 		ioIn:                 flowrate.New(time.Second, time.Second),
 		Address:              addr,
-		QueueLimit:           *atomic.NewUint32(100),
+		QueueLimit:           *atomic.NewUint32(200),
 		Incoming:             skipHandshake,
 		amChoking:            *atomic.NewBool(true),
 		amInterested:         *atomic.NewBool(fast),
@@ -239,6 +239,7 @@ func (p *Peer) close() {
 		p.d.c.connectionCount.Sub(1)
 		p.cancel()
 		_ = p.Conn.Close()
+		p.d.buildNetworkPieces <- empty.Empty{}
 	}
 }
 
@@ -266,7 +267,7 @@ func (p *Peer) ourRequestHandle() {
 				p.Request(pieceChunk(p.d.info, index, i))
 			}
 
-			p.d.scheduleRequest <- empty.Empty{}
+			p.d.scheduleRequestSignal <- empty.Empty{}
 		}
 	}
 }
@@ -283,7 +284,7 @@ func (p *Peer) start(skipHandshake bool) {
 	if !skipHandshake {
 		h, err := proto.ReadHandshake(p.Conn)
 		if err != nil {
-			p.log.Trace().Err(err).Msg("failed to read handshake")
+			p.log.Debug().Err(err).Msg("failed to read handshake")
 			return
 		}
 		if h.InfoHash != p.d.info.Hash {
@@ -384,10 +385,9 @@ func (p *Peer) start(skipHandshake bool) {
 			}
 
 			p.peerRequests.Store(event.Req, empty.Empty{})
-			p.d.scheduleRequest <- empty.Empty{}
 		case proto.Extended:
 			if event.ExtensionID == proto.ExtensionHandshake {
-				p.log.Debug().Any("ext", event.ExtHandshake).Msg("receive handshake")
+				p.log.Trace().Any("ext", event.ExtHandshake).Msg("receive handshake")
 
 				if event.ExtHandshake.V.Set {
 					p.UserAgent.Store(&event.ExtHandshake.V.Value)
@@ -411,6 +411,7 @@ func (p *Peer) start(skipHandshake bool) {
 
 		// TODO
 		case proto.Cancel:
+			p.peerRequests.Delete(event.Req)
 		case proto.Port:
 		case proto.Suggest:
 		case proto.HaveAll:
@@ -423,16 +424,14 @@ func (p *Peer) start(skipHandshake bool) {
 			p.myRequests.Delete(event.Req)
 		case proto.AllowedFast:
 			p.allowFast.Set(event.Index)
-		// currently unsupported
-
-		// currently ignored
+		// currently ignored and unsupported
 		case proto.BitCometExtension:
 		}
 
 		//nolint:exhaustive
 		switch event.Event {
 		case proto.Have, proto.HaveAll, proto.Bitfield:
-			p.d.buildNetworkPieces <- empty.Empty{}
+			p.d.scheduleRequestSignal <- empty.Empty{}
 
 			go func() {
 				if p.Bitmap.WithAndNot(p.d.bm).Count() != 0 {
