@@ -49,7 +49,6 @@ func (d *Download) MarshalBinary() (data []byte, err error) {
 		State:       d.state,
 		AddAt:       d.AddAt,
 		CompletedAt: d.CompletedAt.Load(),
-		Bitmap:      d.bm.CompressedBytes(),
 		Trackers: lo.Map(d.trackers, func(tier TrackerTier, index int) []string {
 			return lo.Map(tier.trackers, func(tracker *Tracker, index int) string {
 				return tracker.url

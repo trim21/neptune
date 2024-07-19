@@ -75,7 +75,7 @@ func (c *Client) GetTorrentList() TorrentList {
 			DownloadTotal:   d.downloaded.Load(),
 			UploadRate:      d.ioUp.Status().CurRate,
 			UploadTotal:     d.uploaded.Load(),
-			Completed:       d.completed(),
+			Completed:       d.completed.Load(),
 			TotalLength:     d.info.TotalLength,
 			Comment:         d.info.Comment,
 			AddedAt:         d.AddAt,
@@ -328,8 +328,12 @@ func (c *Client) DebugHandlers() http.Handler {
 			humanize.IBytes(uint64(d.ioUp.Status().CurRate))+"/s",
 		)
 
+		fmt.Fprintf(w, "progress: %6.2f %%\n", float64(d.completed.Load())/float64(d.info.TotalLength)*100)
+
 		debugPrintTrackers(w, d)
 		debugPrintPeers(w, d)
+
+		_, _ = fmt.Fprintln(w, d.bm.String())
 
 		_, _ = fmt.Fprintln(w, "\nmissing pieces")
 

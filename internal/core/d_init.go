@@ -61,6 +61,8 @@ func (d *Download) initCheck() error {
 		w = ratelimit.Writer(sum, bucket)
 	}
 
+	var sha1Sum = make([]byte, sha1.Size)
+
 	for _, pieceIndex := range h {
 		if d.ctx.Err() != nil {
 			return d.ctx.Err()
@@ -81,9 +83,10 @@ func (d *Download) initCheck() error {
 
 			f.Release()
 		}
-
-		if [sha1.Size]byte(sum.Sum(nil)) == d.info.Pieces[pieceIndex] {
+		sha1Sum = sum.Sum(sha1Sum[:0])
+		if [sha1.Size]byte(sha1Sum[:sha1.Size]) == d.info.Pieces[pieceIndex] {
 			d.bm.Set(pieceIndex)
+			d.completed.Add(d.pieceLength(pieceIndex))
 		}
 
 		sum.Reset()

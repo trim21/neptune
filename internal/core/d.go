@@ -86,9 +86,14 @@ type Download struct {
 
 	trackers []TrackerTier
 
-	pieceRare       []uint32 // mapping from piece index to rare
-	chunkMap        bitmap.Bitmap
-	info            meta.Info
+	pieceRare []uint32 // mapping from piece index to rare
+	chunkMap  bitmap.Bitmap
+	info      meta.Info
+
+	completed atomic.Int64
+
+	endGameMode atomic.Bool
+
 	AddAt           int64
 	CompletedAt     atomic.Int64
 	downloaded      atomic.Int64
@@ -224,15 +229,6 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 	d.log.Info().Msg("download created")
 
 	return d
-}
-
-func (d *Download) completed() int64 {
-	var completed = int64(d.bm.Count()) * d.info.PieceLength
-	if d.bm.Contains(d.info.NumPieces - 1) {
-		completed = completed - d.info.PieceLength + d.info.LastPieceSize
-	}
-
-	return completed
 }
 
 // if download encounter an error must stop downloading/uploading

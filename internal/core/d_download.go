@@ -10,6 +10,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/docker/go-units"
 	"github.com/kelindar/bitmap"
 	"github.com/trim21/errgo"
 
@@ -96,6 +97,8 @@ func (d *Download) backgroundResHandler() {
 
 const defaultChunkHeapSizeLimit = 1000
 
+var pieceChunksPool = mempool.New()
+
 func (d *Download) handleRes(res *proto.ChunkResponse) {
 	d.log.Trace().
 		Int("length", len(res.Data)).
@@ -113,6 +116,11 @@ func (d *Download) handleRes(res *proto.ChunkResponse) {
 		return
 	}
 
+	if d.endGameMode.Load() {
+		d.handleResEndgame(res)
+		return
+	}
+
 	d.chunkHeap.Push(responseChunk{
 		res: res,
 		pi:  res.Begin/defaultBlockSize + res.PieceIndex*d.normalChunkLen,
@@ -125,8 +133,8 @@ func (d *Download) handleRes(res *proto.ChunkResponse) {
 	head := d.chunkHeap.Pop()
 	headPi := head.pi
 
-	mergedChunk := mempool.Get()
-	defer mempool.Put(mergedChunk)
+	mergedChunk := pieceChunksPool.Get()
+	defer pieceChunksPool.Put(mergedChunk)
 
 	d.chunkMap.Set(headPi)
 
@@ -162,20 +170,14 @@ func (d *Download) handleRes(res *proto.ChunkResponse) {
 		return
 	}
 
-PIECES:
 	for pieceIndex := headPiece; pieceIndex <= tailPiece; pieceIndex++ {
-		pieceCidStart := pieceIndex * d.normalChunkLen
-		pieceCidEnd := pieceCidStart + uint32(pieceChunksCount(d.info, pieceIndex))
-
-		for i := pieceCidStart; i < pieceCidEnd; i++ {
-			if !d.chunkMap.Contains(i) {
-				continue PIECES
-			}
+		if !d.checkPieceBitmapDone(pieceIndex) {
+			continue
 		}
 
 		pieceIndex := pieceIndex
 		tasks.Submit(func() {
-			err = d.checkPiece(pieceIndex)
+			err := d.checkPiece(pieceIndex)
 			if err != nil {
 				return
 			}
@@ -183,6 +185,49 @@ PIECES:
 			d.checkDone()
 		})
 	}
+}
+
+func (d *Download) handleResEndgame(res *proto.ChunkResponse) {
+	d.chunkHeap.Push(responseChunk{
+		res: res,
+		pi:  res.Begin/defaultBlockSize + res.PieceIndex*d.normalChunkLen,
+	})
+
+	for d.chunkHeap.Len() != 0 {
+		chunk := d.chunkHeap.Pop()
+		index := chunk.res.PieceIndex
+		err := d.writeChunkToDist(int64(index)*d.info.PieceLength+int64(chunk.res.Begin), chunk.res.Data)
+		d.chunkMap.Set(chunk.pi)
+		proto.PiecePool.Put(chunk.res)
+
+		if err != nil {
+			continue
+		}
+
+		if d.checkPieceBitmapDone(index) {
+			tasks.Submit(func() {
+				err := d.checkPiece(index)
+				if err != nil {
+					return
+				}
+
+				d.checkDone()
+			})
+		}
+	}
+}
+
+func (d *Download) checkPieceBitmapDone(index uint32) bool {
+	pieceCidStart := index * d.normalChunkLen
+	pieceCidEnd := pieceCidStart + uint32(pieceChunksCount(d.info, index))
+
+	for i := pieceCidStart; i < pieceCidEnd; i++ {
+		if !d.chunkMap.Contains(i) {
+			return false
+		}
+	}
+
+	return true
 }
 
 func (d *Download) writeChunkToDist(begin int64, data []byte) error {
@@ -230,9 +275,13 @@ func (d *Download) checkPiece(pieceIndex uint32) error {
 		return nil
 	}
 
-	d.bm.Set(pieceIndex)
-	d.log.Trace().Msgf("piece %d done", pieceIndex)
-	d.have(pieceIndex)
+	notHave := d.bm.SetX(pieceIndex)
+
+	if notHave {
+		d.completed.Add(size)
+		d.log.Trace().Msgf("piece %d done", pieceIndex)
+		d.have(pieceIndex)
+	}
 
 	return nil
 }
@@ -306,10 +355,16 @@ func (d *Download) updateRarePieces(force bool) {
 }
 
 func (d *Download) scheduleSeq() {
-	//if d.info.PieceLength*int64(d.info.NumPieces-d.bm.Count()) <= units.MiB*100 {
-	//	d.scheduleSeqEndGame()
-	//	return
-	//}
+	if d.endGameMode.Load() {
+		d.scheduleSeqEndGame()
+		return
+	}
+
+	if d.info.TotalLength-d.completed.Load() <= units.MiB*100 {
+		d.endGameMode.Store(true)
+		d.scheduleSeqEndGame()
+		return
+	}
 
 	d.updateRarePieces(true)
 	var peers = make([]*Peer, 0, d.conn.Size())
@@ -362,19 +417,22 @@ PIECE:
 func (d *Download) scheduleSeqEndGame() {
 	missing := bm.New(d.info.NumPieces)
 	missing.Fill()
+	missing.AndNot(d.bm)
+	s := missing.ToArray()
 
 	d.conn.Range(func(addr netip.AddrPort, p *Peer) bool {
-		p.Bitmap.WithAndNot(missing).Range(func(u uint32) {
-			go func() {
+		for _, u := range s {
+			if p.Bitmap.Contains(u) {
 				select {
 				case <-d.ctx.Done():
-					return
+					return true
 				case <-p.ctx.Done():
-					return
+					return true
 				case p.ourPieceRequests <- u:
+				default:
 				}
-			}()
-		})
+			}
+		}
 
 		return true
 	})

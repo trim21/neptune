@@ -14,10 +14,23 @@ import (
 )
 
 func TestBitmap(t *testing.T) {
-	b := bm.New(10)
-	b.Fill()
-	require.True(t, b.Contains(9))
-	require.False(t, b.Contains(10))
+	{
+		b := bm.New(10)
+		b.Fill()
+		require.True(t, b.Contains(9))
+		require.False(t, b.Contains(10))
+	}
+
+	{
+		b := bm.New(1600)
+		b.Fill()
+
+		for i := uint32(0); i < 1600; i++ {
+			require.True(t, b.Contains(i))
+		}
+
+		require.False(t, b.Contains(1600))
+	}
 }
 
 func TestParseBitfield(t *testing.T) {

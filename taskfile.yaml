@@ -135,6 +135,7 @@ tasks:
       - go.sum
       - config.toml
       - "**/*.go"
+      - exclude: "**/*_test.go"
     dotenv:
       - .env
     cmds:

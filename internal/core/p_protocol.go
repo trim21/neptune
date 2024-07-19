@@ -183,8 +183,6 @@ func (p *Peer) decodeBitfield(eventSize uint32) (Event, error) {
 	}
 	assert.Equal(n, int(eventSize))
 
-	//fmt.Printf("%s %x\n", *p.UserAgent.Load(), buf)
-
 	return Event{Event: proto.Bitfield, Bitmap: bm.FromBitfields(buf, p.d.info.NumPieces)}, nil
 }
 

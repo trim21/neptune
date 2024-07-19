@@ -6,35 +6,32 @@ package bm
 import (
 	"encoding/binary"
 	"fmt"
+	"math"
 	"math/bits"
-	"runtime"
 	"slices"
 	"sync"
 
 	"github.com/kelindar/bitmap"
 )
 
-func init() {
-	if binary.NativeEndian.Uint16([]byte{0x12, 0x34}) != uint16(0x3412) {
-		panic(fmt.Sprintf("current implement of bitmap asscume running on little endian cpu, but %s is a big endian", runtime.GOARCH))
-	}
-}
-
 func New(size uint32) *Bitmap {
 	return &Bitmap{
 		size: size,
-		bm:   make(bitmap.Bitmap, (size+7)/8),
+		bm:   make(bitmap.Bitmap, (size+63)/64),
 	}
 }
 
 func FromBitfields(bitfield []byte, size uint32) *Bitmap {
-	var b = make(bitmap.Bitmap, (size+7)/8)
+	var b = make(bitmap.Bitmap, (size+63)/64)
 
 	nn := make([]byte, size+8)
 
 	copy(nn, bitfield)
 
-	for i := uint32(0); i < (size+7)/8; i++ {
+	for i := uint32(0); i < (size+63)/64; i++ {
+		// github.com/kelindar/bitmap impl bitmap as little endian in all platform.
+		// for example, []uint64{0x00000001} is a bitmap [true, false, ...].
+		// so we need to reverse its bits here.
 		b[i] = bits.Reverse64(binary.BigEndian.Uint64(nn[i*8 : i*8+8]))
 	}
 
@@ -60,14 +57,17 @@ func (b *Bitmap) Clear() {
 // Fill bitmap [0, b.size)
 func (b *Bitmap) Fill() {
 	b.m.Lock()
-	if b.size >= 63 {
-		b.bm.Grow((b.size) / 64 * 64)
-		b.bm.Ones()
+
+	blkAt := b.size >> 6
+
+	bm := make(bitmap.Bitmap, blkAt+1)
+	for i := range bm {
+		bm[i] = math.MaxUint64
 	}
 
-	for i := b.size / 64 * 64; i < b.size; i++ {
-		b.bm.Set(i)
-	}
+	bm[blkAt] = math.MaxUint64 >> (64 - b.size%64)
+
+	b.bm = bm
 
 	b.m.Unlock()
 }
@@ -77,6 +77,17 @@ func (b *Bitmap) Count() uint32 {
 	v := uint32(b.bm.CountTo(b.size))
 	b.m.RUnlock()
 	return v
+}
+
+func (b *Bitmap) SetX(i uint32) bool {
+	b.m.Lock()
+	defer b.m.Unlock()
+	if b.bm.Contains(i) {
+		return false
+	}
+
+	b.bm.Set(i)
+	return true
 }
 
 func (b *Bitmap) Set(i uint32) {
@@ -106,12 +117,6 @@ func (b *Bitmap) Contains(i uint32) bool {
 	return v
 }
 
-func (b *Bitmap) CompressedBytes() []byte {
-	b.m.RLock()
-	defer b.m.RUnlock()
-	return slices.Clone(b.bm.ToBytes())
-}
-
 func (b *Bitmap) Range(fn func(uint32)) {
 	b.m.RLock()
 	defer b.m.RUnlock()
@@ -123,9 +128,12 @@ func (b *Bitmap) Bitfield() []byte {
 	b.m.RLock()
 	defer b.m.RUnlock()
 
-	bytes := slices.Clone(b.bm.ToBytes())
-	for i, item := range bytes {
-		bytes[i] = bits.Reverse8(item)
+	// avoid alloc
+	var bytes = make([]byte, 0, len(b.bm)*8)
+
+	for _, u := range b.bm {
+		// see [FromBitfields] why we do this
+		bytes = binary.BigEndian.AppendUint64(bytes, bits.Reverse64(u))
 	}
 
 	return bytes[:(b.size+7)/8]
@@ -161,6 +169,16 @@ func (b *Bitmap) WithAnd(bm *Bitmap) *Bitmap {
 	return m
 }
 
+func (b *Bitmap) AndNot(bm *Bitmap) {
+	bm.m.RLock()
+	defer bm.m.RUnlock()
+
+	b.m.Lock()
+	defer b.m.Unlock()
+
+	b.bm.AndNot(bm.bm)
+}
+
 func (b *Bitmap) WithAndNot(bm *Bitmap) *Bitmap {
 	m := b.Clone()
 
@@ -179,6 +197,16 @@ func (b *Bitmap) WithOr(bm *Bitmap) *Bitmap {
 	bm.m.RUnlock()
 
 	return m
+}
+
+func (b *Bitmap) ToArray() []uint32 {
+	var s = make([]uint32, 0, 10)
+
+	b.bm.Range(func(x uint32) {
+		s = append(s, x)
+	})
+
+	return s
 }
 
 func (b *Bitmap) String() string {

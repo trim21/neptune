@@ -144,11 +144,11 @@ func main() {
 				lo.Must0(app.AddTorrent(m, lo.Must(meta.FromTorrent(*m)), "D:\\Downloads\\2", []string{}))
 			}
 
-			//{
-			//	lo.Must0(os.RemoveAll("D:\\downloads\\ubuntu"))
-			//	m := lo.Must(metainfo.LoadFromFile(`C:\Users\Trim21\Downloads\ubuntu-24.04-desktop-amd64.iso.torrent.patched`))
-			//	lo.Must0(app.AddTorrent(m, lo.Must(meta.FromTorrent(*m)), "D:\\Downloads\\ubuntu", []string{}))
-			//}
+			{
+				lo.Must0(os.RemoveAll("D:\\downloads\\ubuntu"))
+				m := lo.Must(metainfo.LoadFromFile(`C:\Users\Trim21\Downloads\ubuntu-24.04-desktop-amd64.iso.torrent.patched`))
+				lo.Must0(app.AddTorrent(m, lo.Must(meta.FromTorrent(*m)), "D:\\Downloads\\ubuntu", []string{}))
+			}
 		}
 
 		//if sys.IsLinux {
