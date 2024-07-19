@@ -115,7 +115,7 @@ func (c *Client) startListen() error {
 				continue
 			}
 
-			// conn is wrapped by conntrack, so we need to cast it with interface
+			// peers is wrapped by conntrack, so we need to cast it with interface
 			if tcp, ok := conn.(interface{ SetLinger(sec int) error }); ok {
 				_ = tcp.SetLinger(0)
 			}
@@ -139,17 +139,17 @@ func (c *Client) startListen() error {
 			//	keys := c.infoHashes
 			//	c.m.RUnlock()
 			//
-			//	rwc, err := mse.NewAccept(conn, keys, c.mseSelector)
+			//	rwc, err := mse.NewAccept(peers, keys, c.mseSelector)
 			//	if err != nil {
 			//		c.sem.Release(1)
 			//		c.connectionCount.Sub(1)
-			//		_ = conn.Close()
+			//		_ = peers.Close()
 			//		return
 			//	}
 			//
 			//	c.connChan <- incomingConn{
-			//		addr: lo.Must(netip.ParseAddrPort(conn.RemoteAddr().String())),
-			//		conn: rwc,
+			//		addr: lo.Must(netip.ParseAddrPort(peers.RemoteAddr().String())),
+			//		peers: rwc,
 			//	}
 			//}()
 		}

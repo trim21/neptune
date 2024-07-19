@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/go-resty/resty/v2"
-	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/trim21/conntrack"
 	"go.uber.org/atomic"
@@ -54,7 +53,6 @@ func New(cfg config.Config, sessionPath string, debug bool) *Client {
 		Config:      cfg,
 		ctx:         ctx,
 		cancel:      cancel,
-		ch:          expirable.NewLRU[netip.AddrPort, connHistory](-1, nil, time.Minute*20),
 		sem:         semaphore.NewWeighted(int64(cfg.App.GlobalConnectionLimit)),
 		checkQueue:  make([]metainfo.Hash, 0, 3),
 		downloadMap: make(map[metainfo.Hash]*Download),
@@ -106,7 +104,6 @@ type Client struct {
 	downloadMap map[metainfo.Hash]*Download
 	connChan    chan incomingConn
 	sem         *semaphore.Weighted
-	ch          *expirable.LRU[netip.AddrPort, connHistory]
 	fh          map[string]*os.File
 
 	ioDown *flowrate.Monitor

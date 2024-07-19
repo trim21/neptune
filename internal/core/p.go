@@ -174,7 +174,7 @@ type Peer struct {
 
 	rttAverage sizedSlice[time.Duration]
 
-	peerChoking    atomic.Bool
+	peerChoking    atomic.Bool // peer is choking us
 	peerInterested atomic.Bool
 	amChoking      atomic.Bool
 	amInterested   atomic.Bool
@@ -234,7 +234,7 @@ func (p *Peer) Have(index uint32) {
 func (p *Peer) close() {
 	p.log.Trace().Caller(1).Msg("close")
 	if p.closed.CompareAndSwap(false, true) {
-		p.d.conn.Delete(p.Address)
+		p.d.peers.Delete(p.Address)
 		p.d.c.sem.Release(1)
 		p.d.c.connectionCount.Sub(1)
 		p.cancel()
@@ -314,7 +314,7 @@ func (p *Peer) start(skipHandshake bool) {
 	}()
 
 	// make it visible to download
-	_, loaded := p.d.conn.LoadAndStore(p.Address, p)
+	_, loaded := p.d.peers.LoadAndStore(p.Address, p)
 	if loaded {
 		panic("unexpected connected peer")
 	}
@@ -373,6 +373,7 @@ func (p *Peer) start(skipHandshake bool) {
 			p.peerChoking.Store(true)
 		case proto.Unchoke:
 			p.peerChoking.Store(false)
+			p.d.scheduleRequestSignal <- empty.Empty{}
 		case proto.Piece:
 			if !p.resIsValid(event.Res) {
 				p.log.Trace().Msg("failed to validate response")
@@ -385,7 +386,7 @@ func (p *Peer) start(skipHandshake bool) {
 			p.d.ResChan <- event.Res
 		case proto.Request:
 			if !p.validateRequest(event.Req) {
-				p.log.Warn().Msg("failed to validate request, maybe malicious peers")
+				p.log.Warn().Msg("failed to validate request, maybe malicious pendingPeers")
 				return
 			}
 

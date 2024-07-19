@@ -39,7 +39,7 @@ func (d *Download) setAnnounceList(trackers metainfo.AnnounceList) {
 			for {
 				d.peersMutex.Lock()
 				for i, s := range []string{"192.168.1.3:50025", "192.168.1.3:6885", "127.0.0.1:51343"} {
-					d.peers.Push(peerWithPriority{
+					d.pendingPeers.Push(peerWithPriority{
 						addrPort: netip.MustParseAddrPort(s),
 						priority: uint32(i),
 					})
@@ -99,7 +99,7 @@ func (d *Download) announce(event AnnounceEvent) {
 		if len(r.Peers) != 0 {
 			d.peersMutex.Lock()
 			for _, peer := range r.Peers {
-				d.peers.Push(peerWithPriority{
+				d.pendingPeers.Push(peerWithPriority{
 					addrPort: peer,
 					priority: d.c.PeerPriority(peer),
 				})
@@ -188,7 +188,7 @@ type AnnounceResult struct {
 
 type trackerAnnounceResponse struct {
 	FailureReason null.Null[string]        `bencode:"failure reason"`
-	Peers         null.Null[bencode.Bytes] `bencode:"peers"`
+	Peers         null.Null[bencode.Bytes] `bencode:"pendingPeers"`
 	Peers6        null.Null[bencode.Bytes] `bencode:"peers6"`
 	Interval      null.Null[int64]         `bencode:"interval"`
 	Complete      null.Null[int]           `bencode:"complete"`
@@ -274,7 +274,7 @@ func (t *Tracker) announce(d *Download, event AnnounceEvent) (AnnounceResult, er
 			defer bytebufferpool.Put(b)
 			err = bencode.Unmarshal(r.Peers.Value, &b.B)
 			if err != nil {
-				return result, errgo.Wrap(err, "failed to parse binary format 'peers'")
+				return result, errgo.Wrap(err, "failed to parse binary format 'pendingPeers'")
 			}
 
 			if b.Len()%6 != 0 {

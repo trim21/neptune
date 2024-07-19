@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/kelindar/bitmap"
 	"github.com/puzpuzpuz/xsync/v3"
 	"github.com/rs/zerolog"
@@ -57,24 +58,24 @@ type Download struct {
 	netDown           *flowrate.Monitor // io rate for network data
 	ioUp              *flowrate.Monitor
 	ResChan           chan *proto.ChunkResponse
-	conn              *xsync.MapOf[netip.AddrPort, *Peer]
-	connectionHistory *xsync.MapOf[netip.AddrPort, connHistory]
+	peers             *xsync.MapOf[netip.AddrPort, *Peer]
+	connectionHistory *expirable.LRU[netip.AddrPort, connHistory]
 	bm                *bm.Bitmap
-	peers             *heap.Heap[peerWithPriority]
+	pendingPeers      *heap.Heap[peerWithPriority]
 	rarePieceQueue    *heap.Heap[pieceRare] // piece index ordered by rare
 
-	// signal to rebuild connected peers bitmap
-	// should be fired when peers send bitmap/Have/HaveAll message
+	// signal to rebuild connected pendingPeers bitmap
+	// should be fired when pendingPeers send bitmap/Have/HaveAll message
 	buildNetworkPieces chan empty.Empty
 
-	// signal to schedule request to peers
-	// should be fired when peers finish pieces requests
+	// signal to schedule request to pendingPeers
+	// should be fired when pendingPeers finish pieces requests
 	scheduleRequestSignal chan empty.Empty
 	scheduleResponse      chan empty.Empty
 	pendingPeersSignal    chan empty.Empty
 
 	reqPieceCount map[uint32]uint32
-	cond          *gsync.Cond
+	stateCond     *gsync.Cond
 
 	basePath    string
 	downloadDir string
@@ -86,9 +87,10 @@ type Download struct {
 
 	trackers []TrackerTier
 
-	pieceRare []uint32 // mapping from piece index to rare
-	chunkMap  bitmap.Bitmap
-	info      meta.Info
+	pieceRare        []uint32 // mapping from piece index to rare
+	chunkMap         bitmap.Bitmap
+	pendingChunksMap bitmap.Bitmap
+	info             meta.Info
 
 	completed atomic.Int64
 
@@ -196,13 +198,12 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 		netDown: flowrate.New(time.Second, time.Second),
 		ioUp:    flowrate.New(time.Second, time.Second),
 
-		conn:              xsync.NewMapOf[netip.AddrPort, *Peer](),
-		connectionHistory: xsync.NewMapOf[netip.AddrPort, connHistory](),
+		peers:             xsync.NewMapOf[netip.AddrPort, *Peer](),
+		connectionHistory: expirable.NewLRU[netip.AddrPort, connHistory](1024, nil, time.Minute*10),
 
-		//chunkMap: roaring.New(),
-		chunkMap: make(bitmap.Bitmap, (info.NumPieces+7)/8),
+		chunkMap: make(bitmap.Bitmap, int64(info.NumPieces)*((info.PieceLength+defaultBlockSize-1)/defaultBlockSize)),
 
-		peers: heap.New[peerWithPriority](),
+		pendingPeers: heap.New[peerWithPriority](),
 
 		// will use about 1mb per torrent, can be optimized later
 		pieceInfo: buildPieceInfos(info),
@@ -222,7 +223,7 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 		downloadDir: basePath,
 	}
 
-	d.cond = gsync.NewCond(&d.m)
+	d.stateCond = gsync.NewCond(&d.m)
 
 	d.setAnnounceList(m.UpvertedAnnounceList())
 

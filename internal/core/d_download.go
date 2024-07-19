@@ -18,6 +18,7 @@ import (
 	"tyr/internal/pkg/as"
 	"tyr/internal/pkg/bm"
 	"tyr/internal/pkg/global/tasks"
+	"tyr/internal/pkg/gslice"
 	"tyr/internal/pkg/heap"
 	"tyr/internal/pkg/mempool"
 	"tyr/internal/proto"
@@ -36,7 +37,7 @@ func (d *Download) backgroundReqScheduler() {
 				select {
 				case <-d.ctx.Done():
 					return
-				case <-d.cond.C:
+				case <-d.stateCond.C:
 					if d.GetState() != Downloading {
 						continue
 					}
@@ -49,7 +50,7 @@ func (d *Download) backgroundReqScheduler() {
 				select {
 				case <-d.ctx.Done():
 					return
-				case <-d.cond.C:
+				case <-d.stateCond.C:
 					if d.GetState() != Downloading {
 						continue
 					}
@@ -63,7 +64,7 @@ func (d *Download) backgroundReqScheduler() {
 
 func (d *Download) have(index uint32) {
 	tasks.Submit(func() {
-		d.conn.Range(func(addr netip.AddrPort, p *Peer) bool {
+		d.peers.Range(func(addr netip.AddrPort, p *Peer) bool {
 			p.Have(index)
 			return true
 		})
@@ -121,12 +122,23 @@ func (d *Download) handleRes(res *proto.ChunkResponse) {
 		return
 	}
 
-	d.chunkHeap.Push(responseChunk{
+	c := responseChunk{
 		res: res,
 		pi:  res.Begin/defaultBlockSize + res.PieceIndex*d.normalChunkLen,
-	})
+	}
+
+	d.chunkHeap.Push(c)
+	d.pendingChunksMap.Set(c.pi)
 
 	if d.chunkHeap.Len() < defaultChunkHeapSizeLimit {
+		piecePiStart := res.Begin/defaultBlockSize + res.PieceIndex*d.normalChunkLen
+		piecePiEnd := piecePiStart + uint32(pieceChunksCount(d.info, res.PieceIndex))
+		for i := piecePiStart; i < piecePiEnd; i++ {
+			if !d.pendingChunksMap.Contains(c.pi) {
+				return
+			}
+		}
+		d.handlePieceFromHeap(res.PieceIndex)
 		return
 	}
 
@@ -217,6 +229,49 @@ func (d *Download) handleResEndgame(res *proto.ChunkResponse) {
 	}
 }
 
+// find all chunks from chunkHeap and write them to disk
+func (d *Download) handlePieceFromHeap(index uint32) {
+	chunks := heap.New[responseChunk]()
+	for _, chunk := range d.chunkHeap.Data {
+		if chunk.res.PieceIndex == index {
+			chunks.Push(chunk)
+		}
+	}
+
+	if chunks.Len() != int(pieceChunksCount(d.info, index)) {
+		return
+	}
+
+	for _, chunk := range chunks.Data {
+		d.chunkHeap.Data = gslice.Remove(d.chunkHeap.Data, chunk)
+	}
+
+	buf := mempool.GetWithCap(int(d.pieceLength(index)))
+	defer mempool.Put(buf)
+	buf.Reset()
+
+	for chunks.Len() != 0 {
+		chunk := chunks.Pop()
+		buf.Write(chunk.res.Data)
+		d.chunkMap.Set(chunk.pi)
+		proto.PiecePool.Put(chunk.res)
+	}
+
+	err := d.writeChunkToDist(int64(index)*d.info.PieceLength, buf.B)
+	if err != nil {
+		return
+	}
+
+	tasks.Submit(func() {
+		err := d.checkPiece(index)
+		if err != nil {
+			return
+		}
+
+		d.checkDone()
+	})
+}
+
 func (d *Download) checkPieceBitmapDone(index uint32) bool {
 	pieceCidStart := index * d.normalChunkLen
 	pieceCidEnd := pieceCidStart + uint32(pieceChunksCount(d.info, index))
@@ -296,7 +351,7 @@ func (d *Download) checkDone() {
 	d.ioDown.Reset()
 	d.m.Unlock()
 
-	d.conn.Range(func(addr netip.AddrPort, p *Peer) bool {
+	d.peers.Range(func(addr netip.AddrPort, p *Peer) bool {
 		if p.Bitmap.Count() == d.info.NumPieces {
 			p.close()
 		}
@@ -319,21 +374,28 @@ func (d *Download) updateRarePieces(force bool) {
 
 	var requested = make(bitmap.Bitmap, d.bitfieldSize)
 
-	var base uint32
-	d.conn.Range(func(addr netip.AddrPort, p *Peer) bool {
+	var baseRare uint32
+	d.peers.Range(func(addr netip.AddrPort, p *Peer) bool {
+		requested.Or(p.Requested)
 		if p.peerChoking.Load() {
+			p.allowFast.Range(func(u uint32) {
+				if p.Bitmap.Contains(u) {
+					d.pieceRare[u]++
+				}
+			})
 			return true
 		}
 
-		requested.Or(p.Requested)
 		// doesn't contribute to rare
 		if p.Bitmap.Count() == d.info.NumPieces {
-			base++
+			baseRare++
 			return true
 		}
+
 		p.Bitmap.Range(func(u uint32) {
 			d.pieceRare[u]++
 		})
+
 		return true
 	})
 
@@ -348,7 +410,11 @@ func (d *Download) updateRarePieces(force bool) {
 			continue
 		}
 
-		queue = append(queue, pieceRare{rare: rare + base, index: uint32(index)})
+		if rare+baseRare == 0 {
+			continue
+		}
+
+		queue = append(queue, pieceRare{rare: rare + baseRare, index: uint32(index)})
 	}
 
 	d.rarePieceQueue = heap.FromSlice(queue)
@@ -367,13 +433,9 @@ func (d *Download) scheduleSeq() {
 	}
 
 	d.updateRarePieces(true)
-	var peers = make([]*Peer, 0, d.conn.Size())
+	var peers = make([]*Peer, 0, d.peers.Size())
 
-	d.conn.Range(func(addr netip.AddrPort, p *Peer) bool {
-		if p.peerChoking.Load() {
-			return true
-		}
-
+	d.peers.Range(func(addr netip.AddrPort, p *Peer) bool {
 		peers = append(peers, p)
 		return true
 	})
@@ -401,14 +463,29 @@ PIECE:
 				return
 			}
 
+			if p.peerChoking.Load() {
+				if !p.allowFast.Contains(piece.index) {
+					continue
+				}
+
+				select {
+				case p.ourPieceRequests <- piece.index:
+					p.Requested.Set(piece.index)
+				default:
+				}
+
+				continue
+			}
+
 			if !p.Bitmap.Contains(piece.index) {
 				continue
 			}
 
-			if len(p.ourPieceRequests) < 1 {
+			select {
+			case p.ourPieceRequests <- piece.index:
 				p.Requested.Set(piece.index)
-				p.ourPieceRequests <- piece.index
 				continue PIECE
+			default:
 			}
 		}
 	}
@@ -420,7 +497,7 @@ func (d *Download) scheduleSeqEndGame() {
 	missing.AndNot(d.bm)
 	s := missing.ToArray()
 
-	d.conn.Range(func(addr netip.AddrPort, p *Peer) bool {
+	d.peers.Range(func(addr netip.AddrPort, p *Peer) bool {
 		for _, u := range s {
 			if p.Bitmap.Contains(u) {
 				select {

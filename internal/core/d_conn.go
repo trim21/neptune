@@ -25,7 +25,7 @@ type connHistory struct {
 func (d *Download) AddConn(addr netip.AddrPort, conn net.Conn, h proto.Handshake) {
 	//d.connMutex.Lock()
 	//defer d.connMutex.Unlock()
-	d.connectionHistory.Store(addr, connHistory{})
+	d.connectionHistory.Add(addr, connHistory{})
 	NewIncomingPeer(conn, d, addr, h)
 }
 
@@ -33,11 +33,11 @@ func (d *Download) connectToPeers() {
 	d.peersMutex.Lock()
 	defer d.peersMutex.Unlock()
 
-	for d.peers.Len() > 0 {
+	for d.pendingPeers.Len() > 0 {
 		// try connecting first
-		pp := d.peers.Pop()
+		pp := d.pendingPeers.Pop()
 
-		if item, ok := d.c.ch.Get(pp.addrPort); ok {
+		if item, ok := d.connectionHistory.Get(pp.addrPort); ok {
 			if item.timeout {
 				continue
 			}
@@ -46,7 +46,7 @@ func (d *Download) connectToPeers() {
 			}
 		}
 
-		if _, ok := d.conn.Load(pp.addrPort); ok {
+		if _, ok := d.peers.Load(pp.addrPort); ok {
 			continue
 		}
 
@@ -57,9 +57,7 @@ func (d *Download) connectToPeers() {
 
 		tasks.Submit(func() {
 			ch := connHistory{lastTry: time.Now()}
-			d.c.ch.Add(pp.addrPort, ch)
-			//defer func(h connHistory) {
-			//}(ch)
+			d.connectionHistory.Add(pp.addrPort, ch)
 
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 			defer cancel()
@@ -75,7 +73,7 @@ func (d *Download) connectToPeers() {
 					ch.err = err
 				}
 
-				d.c.ch.Add(pp.addrPort, ch)
+				d.connectionHistory.Add(pp.addrPort, ch)
 				d.c.sem.Release(1)
 				d.c.connectionCount.Sub(1)
 				return
@@ -83,7 +81,7 @@ func (d *Download) connectToPeers() {
 
 			_ = conn.SetDeadline(time.Now().Add(global.ConnTimeout))
 
-			// conn is wrapped by conntrack, so we need to cast it with interface
+			// peers is wrapped by conntrack, so we need to cast it with interface
 			if tcp, ok := conn.(interface{ SetLinger(sec int) error }); ok {
 				_ = tcp.SetLinger(0)
 			}

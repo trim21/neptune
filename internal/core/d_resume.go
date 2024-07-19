@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/anacrolix/torrent/bencode"
+	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/puzpuzpuz/xsync/v3"
 	"github.com/rs/zerolog/log"
 	"github.com/samber/lo"
@@ -96,10 +97,10 @@ func (c *Client) UnmarshalResume(data []byte, torrentDirectory string) (*Downloa
 		netDown: flowrate.New(time.Second, time.Second),
 		ioUp:    flowrate.New(time.Second, time.Second),
 
-		conn:              xsync.NewMapOf[netip.AddrPort, *Peer](),
-		connectionHistory: xsync.NewMapOf[netip.AddrPort, connHistory](),
+		peers:             xsync.NewMapOf[netip.AddrPort, *Peer](),
+		connectionHistory: expirable.NewLRU[netip.AddrPort, connHistory](1024, nil, time.Minute*10),
 
-		peers: heap.New[peerWithPriority](),
+		pendingPeers: heap.New[peerWithPriority](),
 
 		// will use about 1mb per torrent, can be optimized later
 		pieceInfo: buildPieceInfos(info),
@@ -111,7 +112,7 @@ func (c *Client) UnmarshalResume(data []byte, torrentDirectory string) (*Downloa
 		downloadDir: r.BasePath,
 	}
 
-	d.cond = gsync.NewCond(&d.m)
+	d.stateCond = gsync.NewCond(&d.m)
 
 	d.setAnnounceList(r.Trackers)
 

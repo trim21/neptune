@@ -28,7 +28,7 @@ func (d *Download) backgroundReqHandler() {
 
 			clear(d.reqPieceCount)
 
-			d.conn.Range(func(addr netip.AddrPort, p *Peer) bool {
+			d.peers.Range(func(addr netip.AddrPort, p *Peer) bool {
 				if p.peerChoking.CompareAndSwap(true, false) {
 					p.Unchoke()
 				} else {
@@ -81,7 +81,7 @@ func (d *Download) backgroundReqHandler() {
 
 			d.log.Debug().Msgf("upload piece %d", pieceReq.index)
 
-			d.conn.Range(func(addr netip.AddrPort, p *Peer) bool {
+			d.peers.Range(func(addr netip.AddrPort, p *Peer) bool {
 				if !p.peerInterested.Load() {
 					return true
 				}

@@ -82,7 +82,7 @@ func (c *Client) GetTorrentList() TorrentList {
 			DirectoryBase:   d.downloadDir,
 			Private:         d.info.Private,
 			Tags:            d.tags,
-			ConnectionCount: d.conn.Size(),
+			ConnectionCount: d.peers.Size(),
 			Message:         msg,
 		}
 
@@ -208,9 +208,9 @@ func (c *Client) GetTorrentPeers(h metainfo.Hash) []ApiPeers {
 	}
 	c.m.RUnlock()
 
-	var results = make([]ApiPeers, 0, d.conn.Size())
+	var results = make([]ApiPeers, 0, d.peers.Size())
 
-	d.conn.Range(func(addr netip.AddrPort, p *Peer) bool {
+	d.peers.Range(func(addr netip.AddrPort, p *Peer) bool {
 		results = append(results, ApiPeers{
 			Address:      addr.String(),
 			Client:       lo.FromPtrOr(p.UserAgent.Load(), ""),
@@ -354,7 +354,7 @@ func debugPrintTrackers(w io.Writer, d *Download) {
 
 	t := table.NewWriter()
 
-	t.AppendHeader(table.Row{"tier", "url", "seeders", "leechers", "last announce", "next announce", "peers", "msg", "error"})
+	t.AppendHeader(table.Row{"tier", "url", "seeders", "leechers", "last announce", "next announce", "pendingPeers", "msg", "error"})
 
 	t.SortBy([]table.SortBy{{Name: "tier"}, {Name: "url"}})
 
@@ -381,9 +381,10 @@ func debugPrintTrackers(w io.Writer, d *Download) {
 func debugPrintPeers(w io.Writer, d *Download) {
 	t := table.NewWriter()
 
-	t.AppendHeader(table.Row{"address", "download rate", "pending requests", "pending pieces", "client", "progress"})
+	t.AppendHeader(table.Row{"address", "download rate", "pending requests", "pending pieces", "client", "progress",
+		"peer choke", "peer interested", "our choke", "our interest", "allow fast"})
 
-	d.conn.Range(func(addr netip.AddrPort, p *Peer) bool {
+	d.peers.Range(func(addr netip.AddrPort, p *Peer) bool {
 		t.AppendRow(table.Row{
 			addr,
 			humanize.IBytes(uint64(p.ioIn.Status().CurRate)) + "/s",
@@ -391,6 +392,11 @@ func debugPrintPeers(w io.Writer, d *Download) {
 			len(p.ourPieceRequests),
 			*p.UserAgent.Load(),
 			fmt.Sprintf("%6.2f %%", float64(p.Bitmap.Count())/float64(d.info.NumPieces)*100),
+			p.peerChoking.Load(),
+			p.peerInterested.Load(),
+			p.amChoking.Load(),
+			p.amInterested.Load(),
+			p.allowFast.ToArray(),
 		})
 		return true
 	})
@@ -409,7 +415,7 @@ func debugPrintPendingPeers(w io.Writer, d *Download) {
 	t.AppendHeader(table.Row{"address"})
 	t.SortBy([]table.SortBy{{Name: "address"}})
 
-	for _, item := range d.peers.Data {
+	for _, item := range d.pendingPeers.Data {
 		t.AppendRow(table.Row{item.addrPort.String()})
 	}
 

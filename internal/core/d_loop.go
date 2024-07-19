@@ -25,7 +25,7 @@ func (d *Download) Start() {
 	}
 	d.m.Unlock()
 
-	d.cond.Broadcast()
+	d.stateCond.Broadcast()
 }
 
 func (d *Download) Stop() {
@@ -33,7 +33,7 @@ func (d *Download) Stop() {
 	d.state = Stopped
 	d.m.Unlock()
 
-	d.cond.Broadcast()
+	d.stateCond.Broadcast()
 
 	d.announce(EventStopped)
 }
@@ -44,7 +44,7 @@ func (d *Download) Check() {
 	d.bm.Clear()
 	d.m.Unlock()
 
-	d.cond.Broadcast()
+	d.stateCond.Broadcast()
 }
 
 // Init check existing files
@@ -94,13 +94,9 @@ func (d *Download) handleConnectionChange() {
 		case <-d.ctx.Done():
 			return
 		case <-d.buildNetworkPieces:
-			d.onConnectionChanged()
+			//d.onConnectionChanged()
 		}
 	}
-}
-
-func (d *Download) onConnectionChanged() {
-	d.updateRarePieces(true)
 }
 
 func (d *Download) startBackground() {
