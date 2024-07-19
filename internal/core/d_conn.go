@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net"
 	"net/netip"
+	"syscall"
 	"time"
 
 	"tyr/internal/pkg/global"
@@ -19,6 +20,7 @@ type connHistory struct {
 	lastTry time.Time
 	err     error
 	timeout bool
+	refused bool
 }
 
 // AddConn add an incoming connection from client listener
@@ -41,7 +43,7 @@ func (d *Download) connectToPeers() {
 			if item.timeout {
 				continue
 			}
-			if item.err != nil {
+			if item.refused {
 				continue
 			}
 		}
@@ -69,6 +71,8 @@ func (d *Download) connectToPeers() {
 				d.log.Debug().Err(err).Msgf("failed to connect to peer %s", pp.addrPort)
 				if errors.Is(err, context.DeadlineExceeded) {
 					ch.timeout = true
+				} else if errors.Is(err, syscall.ECONNREFUSED) {
+					ch.refused = true
 				} else {
 					ch.err = err
 				}
