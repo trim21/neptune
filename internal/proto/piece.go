@@ -21,6 +21,14 @@ type ChunkResponse struct {
 	PieceIndex uint32
 }
 
+func (c *ChunkResponse) Less(b *ChunkResponse) bool {
+	if c.PieceIndex == b.PieceIndex {
+		return c.Begin < b.Begin
+	}
+
+	return c.PieceIndex < b.PieceIndex
+}
+
 func (c ChunkResponse) Request() ChunkRequest {
 	return ChunkRequest{
 		PieceIndex: c.PieceIndex,

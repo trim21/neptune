@@ -249,7 +249,7 @@ func (p *Peer) ourRequestHandle() {
 		case <-p.ctx.Done():
 			return
 		case index := <-p.ourPieceRequests:
-			chunkLen := pieceChunkLen(p.d.info, index)
+			chunkLen := int(pieceChunksCount(p.d.info, index))
 			for i := 0; i < chunkLen; i++ {
 				if p.closed.Load() {
 					return

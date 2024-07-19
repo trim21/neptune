@@ -69,9 +69,34 @@ func (d *Download) have(index uint32) {
 	})
 }
 
-func (d *Download) handleRes(res *proto.ChunkResponse) {
-	defer proto.PiecePool.Put(res)
+type responseChunk struct {
+	res *proto.ChunkResponse
+	pi  uint32
+}
 
+func (r responseChunk) Less(o responseChunk) bool {
+	return r.pi < o.pi
+}
+
+func (d *Download) backgroundResHandler() {
+	d.chunkHeap = heap.Heap[responseChunk]{}
+	for {
+		select {
+		case <-d.ctx.Done():
+			return
+		case res := <-d.ResChan:
+			if d.GetState() != Downloading {
+				continue
+			}
+
+			d.handleRes(res)
+		}
+	}
+}
+
+const defaultChunkHeapSizeLimit = 1000
+
+func (d *Download) handleRes(res *proto.ChunkResponse) {
 	d.log.Trace().
 		Int("length", len(res.Data)).
 		Uint32("offset", res.Begin).
@@ -88,47 +113,80 @@ func (d *Download) handleRes(res *proto.ChunkResponse) {
 		return
 	}
 
-	pi := res.Begin / defaultBlockSize
-	normalChunkLen := as.Uint32((d.info.PieceLength + defaultBlockSize - 1) / defaultBlockSize)
-	cid := normalChunkLen*res.PieceIndex + pi
+	d.chunkHeap.Push(responseChunk{
+		res: res,
+		pi:  res.Begin/defaultBlockSize + res.PieceIndex*d.normalChunkLen,
+	})
 
-	pieceCidStart := res.PieceIndex * normalChunkLen
-	pieceCidEnd := pieceCidStart + as.Uint32(pieceChunkLen(d.info, res.PieceIndex))
+	if d.chunkHeap.Len() < defaultChunkHeapSizeLimit {
+		return
+	}
 
-	pieceIndex := res.PieceIndex
+	head := d.chunkHeap.Pop()
+	headPi := head.pi
 
-	err := d.writeChunkToDist(res)
+	mergedChunk := mempool.Get()
+	defer mempool.Put(mergedChunk)
+
+	d.chunkMap.Set(headPi)
+
+	headPiece := head.res.PieceIndex
+	tailPiece := headPiece
+	tailPi := headPi
+
+	start := int64(headPiece)*d.info.PieceLength + int64(head.res.Begin)
+
+	mergedChunk.Write(head.res.Data)
+
+	proto.PiecePool.Put(head.res)
+
+	for d.chunkHeap.Len() != 0 {
+		peak := d.chunkHeap.Peek()
+		if tailPi+1 != peak.pi {
+			break
+		}
+
+		tailPi++
+		tailPiece = peak.res.PieceIndex
+
+		d.chunkMap.Set(tailPi)
+
+		mergedChunk.Write(peak.res.Data)
+
+		d.chunkHeap.Pop()
+		proto.PiecePool.Put(peak.res)
+	}
+
+	err := d.writeChunkToDist(start, mergedChunk.B)
 	if err != nil {
 		return
 	}
 
-	d.chunkMap.Set(cid)
+PIECES:
+	for pieceIndex := headPiece; pieceIndex <= tailPiece; pieceIndex++ {
+		pieceCidStart := pieceIndex * d.normalChunkLen
+		pieceCidEnd := pieceCidStart + uint32(pieceChunksCount(d.info, pieceIndex))
 
-	var pieceDone = true
-	for i := pieceCidStart; i < pieceCidEnd; i++ {
-		if !d.chunkMap.Contains(i) {
-			pieceDone = false
-			break
-		}
-	}
-
-	if !pieceDone {
-		return
-	}
-
-	tasks.Submit(func() {
-		err = d.checkPiece(pieceIndex)
-		if err != nil {
-			return
+		for i := pieceCidStart; i < pieceCidEnd; i++ {
+			if !d.chunkMap.Contains(i) {
+				continue PIECES
+			}
 		}
 
-		d.checkDone()
-	})
+		pieceIndex := pieceIndex
+		tasks.Submit(func() {
+			err = d.checkPiece(pieceIndex)
+			if err != nil {
+				return
+			}
+
+			d.checkDone()
+		})
+	}
 }
 
-func (d *Download) writeChunkToDist(res *proto.ChunkResponse) error {
-	size := int64(len(res.Data))
-	begin := int64(res.Begin) + d.info.PieceLength*int64(res.PieceIndex)
+func (d *Download) writeChunkToDist(begin int64, data []byte) error {
+	size := int64(len(data))
 
 	var offset int64
 	for _, chunk := range fileChunks(d.info, begin, begin+size) {
@@ -138,7 +196,7 @@ func (d *Download) writeChunkToDist(res *proto.ChunkResponse) error {
 			return errgo.Wrap(err, "failed to open file for writing chunk")
 		}
 
-		_, err = f.File.WriteAt(res.Data[offset:offset+chunk.length], chunk.offsetOfFile)
+		_, err = f.File.WriteAt(data[offset:offset+chunk.length], chunk.offsetOfFile)
 		if err != nil {
 			f.Close()
 			d.setError(err)
@@ -153,6 +211,8 @@ func (d *Download) writeChunkToDist(res *proto.ChunkResponse) error {
 }
 
 func (d *Download) checkPiece(pieceIndex uint32) error {
+	// TODO(perf): there are some torrents have piece size 256mib, and we should not read them into memory in one shot
+
 	size := d.pieceLength(pieceIndex)
 	buf := mempool.GetWithCap(int(size))
 	defer mempool.Put(buf)
@@ -164,6 +224,9 @@ func (d *Download) checkPiece(pieceIndex uint32) error {
 
 	if sha1.Sum(buf.B) != d.info.Pieces[pieceIndex] {
 		d.corrupted.Add(d.info.PieceLength)
+		for i := pieceIndex * d.normalChunkLen; i < uint32(pieceChunksCount(d.info, pieceIndex)); i++ {
+			d.chunkMap.Remove(i)
+		}
 		return nil
 	}
 
@@ -317,13 +380,13 @@ func (d *Download) scheduleSeqEndGame() {
 	})
 }
 
-func pieceChunkLen(info meta.Info, index uint32) int {
+func pieceChunksCount(info meta.Info, index uint32) int64 {
 	pieceSize := info.PieceLength
 	if index == info.NumPieces-1 {
 		pieceSize = info.LastPieceSize
 	}
 
-	return as.Int((pieceSize + defaultBlockSize - 1) / defaultBlockSize)
+	return (pieceSize + defaultBlockSize - 1) / defaultBlockSize
 }
 
 func pieceChunk(info meta.Info, index uint32, chunkIndex int) proto.ChunkRequest {

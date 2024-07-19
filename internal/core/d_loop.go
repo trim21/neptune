@@ -163,20 +163,6 @@ func (p *PriorityQueue) Pop() Priority {
 	return x
 }
 
-func (d *Download) backgroundResHandler() {
-	for {
-		select {
-		case <-d.ctx.Done():
-			return
-		case res := <-d.ResChan:
-			if d.GetState() != Downloading {
-				continue
-			}
-			d.handleRes(res)
-		}
-	}
-}
-
 func (d *Download) openFile(fileIndex int) (*filepool.File, error) {
 	p := filepath.Join(d.basePath, d.info.Files[fileIndex].Path)
 

@@ -19,6 +19,7 @@ import (
 
 	"tyr/internal/meta"
 	"tyr/internal/metainfo"
+	"tyr/internal/pkg/as"
 	"tyr/internal/pkg/bm"
 	"tyr/internal/pkg/empty"
 	"tyr/internal/pkg/filepool"
@@ -45,10 +46,11 @@ const (
 type Download struct {
 	log zerolog.Logger
 
+	ctx context.Context
+	err error
+
 	filePool *filepool.FilePool
 
-	ctx               context.Context
-	err               error
 	cancel            context.CancelFunc
 	c                 *Client
 	ioDown            *flowrate.Monitor // io rate for network data and disk moving/checking data
@@ -76,8 +78,11 @@ type Download struct {
 
 	basePath    string
 	downloadDir string
-	tags        []string
-	pieceInfo   []pieceFileChunks
+
+	chunkHeap heap.Heap[responseChunk]
+
+	tags      []string
+	pieceInfo []pieceFileChunks
 
 	trackers []TrackerTier
 
@@ -100,6 +105,8 @@ type Download struct {
 
 	ratePieceMutex sync.Mutex
 	peersMutex     sync.Mutex
+
+	normalChunkLen uint32
 
 	bitfieldSize uint32
 	peerID       PeerID
@@ -171,7 +178,8 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 		tags:     tags,
 		basePath: basePath,
 
-		filePool: filepool.New(),
+		filePool:       filepool.New(),
+		normalChunkLen: as.Uint32((info.PieceLength + defaultBlockSize - 1) / defaultBlockSize),
 
 		seq: *atomic.NewBool(true),
 
