@@ -33,6 +33,36 @@ func UrlSafeStr(size int) string {
 	return unsafe.Str(r)
 }
 
+const printable = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
+const printableCharsLength = byte(len(printable))
+const printableMaxByte = byte(255 - (256 % len(printable)))
+
+func PrintableBytes(size int) []byte {
+	reader := p.Get()
+	defer p.Put(reader)
+
+	b := make([]byte, size)
+	r := make([]byte, size+size/2) // storage for random bytes.
+	i := 0
+
+	for {
+		_, err := io.ReadFull(reader, r)
+		if err != nil {
+			panic("unexpected error happened when reading from bufio.NewReader(crypto/rand.Reader)")
+		}
+		for _, rb := range r {
+			if rb > printableMaxByte { // Skip this number to avoid modulo bias.
+				continue
+			}
+			b[i] = printable[rb%printableCharsLength]
+			i++
+			if i == size {
+				return b
+			}
+		}
+	}
+}
+
 // Bytes generate a cryptographically secure random bytes.
 // Will panic if it can't read from 'crypto/rand'.
 // entropy = 256^size

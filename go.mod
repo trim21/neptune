@@ -6,7 +6,6 @@ toolchain go1.22.5
 
 require (
 	github.com/anacrolix/torrent v1.56.1
-	github.com/dchest/uniuri v1.2.0
 	github.com/docker/go-units v0.5.0
 	github.com/dustin/go-humanize v1.0.1
 	github.com/fatih/color v1.17.0

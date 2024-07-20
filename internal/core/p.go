@@ -15,7 +15,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dchest/uniuri"
 	"github.com/docker/go-units"
 	"github.com/fatih/color"
 	"github.com/kelindar/bitmap"
@@ -29,6 +28,7 @@ import (
 	"tyr/internal/pkg/flowrate"
 	"tyr/internal/pkg/gsync"
 	"tyr/internal/pkg/null"
+	"tyr/internal/pkg/random"
 	"tyr/internal/pkg/unsafe"
 	"tyr/internal/proto"
 	"tyr/internal/util"
@@ -47,16 +47,13 @@ func (i PeerID) Zero() bool {
 	return i == emptyPeerID
 }
 
-var peerIDChars = []byte("0123456789abcdefghijklmnopqrstuvwxyz" +
-	"ABCDEFGHIJKLMNOPQRSTUVWXYZ!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~")
-
 var peerIDPrefix = fmt.Sprintf("-TY%x%x%x0-", version.MAJOR, version.MINOR, version.PATCH)
 
 var handshakeAgent = fmt.Sprintf("Tyr %d.%d.%d", version.MAJOR, version.MINOR, version.PATCH)
 
 func NewPeerID() (peerID PeerID) {
 	copy(peerID[:], peerIDPrefix)
-	copy(peerID[8:], uniuri.NewLenCharsBytes(12, peerIDChars))
+	copy(peerID[8:], random.PrintableBytes(12))
 	return
 }
 
