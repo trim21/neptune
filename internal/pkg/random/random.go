@@ -26,7 +26,7 @@ func UrlSafeStr(size int) string {
 	r := Bytes(size)
 
 	for i, rb := range r {
-		// len(base64UrlSafeChars) % 64 == 0 so it's not biaed
+		// len(base64UrlSafeChars) % 64 == 0 so it's not bias
 		r[i] = base64UrlSafeChars[rb%64]
 	}
 

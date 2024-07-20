@@ -212,6 +212,7 @@ func (t *Tracker) req(d *Download) *resty.Request {
 		SetQueryParam("peer_id", d.peerID.AsString()).
 		SetQueryParam("port", strconv.FormatUint(uint64(d.c.Config.App.P2PPort), 10)).
 		SetQueryParam("compat", "1").
+		SetQueryParam("key", d.trackerKey).
 		SetQueryParam("uploaded", strconv.FormatInt(d.uploaded.Load()-d.uploadAtStart, 10)).
 		SetQueryParam("downloaded", strconv.FormatInt(d.downloaded.Load()-d.downloadAtStart, 10)).
 		SetQueryParam("left", strconv.FormatInt(d.info.TotalLength-d.completed.Load(), 10))

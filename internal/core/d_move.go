@@ -19,13 +19,12 @@ func (d *Download) Move(target string) error {
 
 	d.m.RLock()
 	originalState := d.state
-	d.m.RUnlock()
 
 	if originalState == Moving || originalState == Checking {
+		d.m.RUnlock()
 		return nil
 	}
 
-	d.m.Lock()
 	d.state = Moving
 	d.m.Unlock()
 

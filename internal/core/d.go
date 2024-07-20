@@ -27,6 +27,7 @@ import (
 	"tyr/internal/pkg/flowrate"
 	"tyr/internal/pkg/gsync"
 	"tyr/internal/pkg/heap"
+	"tyr/internal/pkg/random"
 	"tyr/internal/proto"
 )
 
@@ -79,6 +80,7 @@ type Download struct {
 
 	basePath    string
 	downloadDir string
+	trackerKey  string
 
 	chunkHeap heap.Heap[responseChunk]
 
@@ -221,6 +223,8 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 		buildNetworkPieces:    make(chan empty.Empty, 1),
 
 		downloadDir: basePath,
+
+		trackerKey: random.UrlSafeStr(16),
 	}
 
 	d.stateCond = gsync.NewCond(&d.m)
