@@ -3,6 +3,7 @@ services:
     image: ghcr.io/trim21/tyr:master
     init: true
     environment:
+      TYR_DEBUG: true
       TYR_LOG_LEVEL: debug
       TYR_WEB_SECRET_TOKEN: a-secret-token
       TYR_SESSION_PATH: '/var/lib/tyr'
