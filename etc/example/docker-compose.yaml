@@ -1,10 +1,11 @@
 services:
   tyr:
     image: ghcr.io/trim21/tyr:master
+    user: 1000:1000
     init: true
     environment:
       TYR_LOG_LEVEL: debug
-      TYR_WEB_SECRET_TOKEN: a-random-token
+      TYR_WEB_SECRET_TOKEN: a-secret-token
       TYR_SESSION_PATH: '/var/lib/tyr'
       TYR_CONFIG_FILE: '/var/lib/config/tyr.toml'
     network_mode: host
@@ -22,13 +23,20 @@ services:
 
       - ./config.toml:/var/lib/config/tyr.toml:ro
 
-#  flood:
-#    image: 'jesec/flood:latest'
-#    ports:
-#      - 3000:3000
-#    volumes:
-#      # keep this in sync with tyr container mount config
-#      - ./data/tyr/:/var/lib/tyr/
-#
-#      # keep this in sync with tyr container mount config
-#      - ./data/downloads/:/downloads/
+  flood:
+    image: 'ghcr.io/trim21/flood:tyr'
+    user: 1000:1000
+    init: true
+    network_mode: host
+    command:
+      - --noauth
+      - --tyr-url=http://127.0.0.1:8002/json_rpc
+      - --tyr-token=a-secret-token
+    ports:
+      - 3000:3000
+    volumes:
+      # keep this in sync with tyr container mount config
+      - ./data/tyr/:/var/lib/tyr/
+
+      # keep this in sync with tyr container mount config
+      - ./data/downloads/:/downloads/
