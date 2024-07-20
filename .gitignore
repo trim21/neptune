@@ -10,3 +10,4 @@ env.txt
 coverage.txt
 internal/web/docs/swagger/
 config.toml
+etc/example/data/
