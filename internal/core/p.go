@@ -6,12 +6,14 @@ package core
 import (
 	"bufio"
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/netip"
 	"net/url"
+	"runtime"
 	"sync"
 	"time"
 
@@ -34,6 +36,8 @@ import (
 	"tyr/internal/util"
 	"tyr/internal/version"
 )
+
+const outPexExtID proto.ExtensionMessage = 1
 
 type PeerID [20]byte
 
@@ -118,9 +122,7 @@ func newPeer(
 		allowFast: bm.New(d.info.NumPieces),
 		//Requested: bm.New(d.info.NumPieces),
 
-		rttAverage: sizedSlice[time.Duration]{
-			limit: 2000,
-		},
+		rttAverage: sizedSlice[time.Duration]{limit: 2000},
 	}
 
 	p.cancel = func() {
@@ -149,8 +151,6 @@ type Peer struct {
 	cancel   context.CancelFunc
 	Bitmap   *bm.Bitmap
 
-	Requested bitmap.Bitmap
-
 	myRequests       *xsync.MapOf[proto.ChunkRequest, time.Time]
 	myRequestHistory *xsync.MapOf[proto.ChunkRequest, empty.Empty]
 
@@ -162,12 +162,12 @@ type Peer struct {
 	ioIn      *flowrate.Monitor
 	UserAgent atomic.Pointer[string]
 
-	ltDontHaveExtensionId atomic.Pointer[proto.ExtensionMessage]
-
 	ourPieceRequests chan uint32 // our requests for peer chan
 
 	responseCond *gsync.Cond
 	Address      netip.AddrPort
+
+	Requested bitmap.Bitmap
 
 	rttAverage sizedSlice[time.Duration]
 
@@ -178,8 +178,12 @@ type Peer struct {
 	QueueLimit     atomic.Uint32
 	closed         atomic.Bool
 
-	rttMutex                  sync.RWMutex
-	wm                        sync.Mutex
+	rttMutex sync.RWMutex
+	wm       sync.Mutex
+
+	extDontHaveID gsync.AtomicUint[proto.ExtensionMessage]
+	extPexID      gsync.AtomicUint[proto.ExtensionMessage]
+
 	readBuf                   [4]byte // buffer for reading message size and event id
 	Incoming                  bool
 	supportFastExtension      bool
@@ -399,28 +403,38 @@ func (p *Peer) start(skipHandshake bool) {
 					p.QueueLimit.Store(event.ExtHandshake.QueueLength.Value)
 				}
 
-				if event.ExtHandshake.M.LTDontHave.Set {
-					p.ltDontHaveExtensionId.Store(&event.ExtHandshake.M.LTDontHave.Value)
+				if event.ExtHandshake.Mapping.DontHave.Set {
+					p.extDontHaveID.Store(event.ExtHandshake.Mapping.DontHave.Value)
+				}
+
+				if event.ExtHandshake.Mapping.Pex.Set {
+					p.extPexID.Store(event.ExtHandshake.Mapping.Pex.Value)
 				}
 				continue
 			}
 
-			if dontHave := p.ltDontHaveExtensionId.Load(); dontHave != nil {
-				if event.ExtensionID == *dontHave {
-					p.Bitmap.Unset(event.Index)
-				}
+			if event.ExtensionID == p.extDontHaveID.Load() {
+				p.Bitmap.Unset(event.Index)
 				continue
 			}
 
-		// TODO
-		case proto.Cancel:
-			p.peerRequests.Delete(event.Req)
-		case proto.Port:
-		case proto.Suggest:
+			if event.ExtensionID == p.extPexID.Load() {
+				r, err := parsePex(event.ExtPex)
+				if err != nil {
+					return
+				}
+
+				runtime.KeepAlive(r)
+				continue
+			}
+
+			continue
 		case proto.HaveAll:
 			p.Bitmap.Fill()
 		case proto.HaveNone:
 			p.Bitmap.Clear()
+		case proto.Cancel:
+			p.peerRequests.Delete(event.Req)
 		case proto.Reject:
 			p.log.Debug().Msgf("reject %+v", event.Req)
 			p.Rejected.Store(event.Req, empty.Empty{})
@@ -432,6 +446,10 @@ func (p *Peer) start(skipHandshake bool) {
 			}
 
 			p.allowFast.Set(event.Index)
+
+		// TODO
+		case proto.Port:
+		case proto.Suggest:
 		// currently ignored and unsupported
 		case proto.BitCometExtension:
 		}
@@ -474,8 +492,10 @@ func (p *Peer) sendInitPayload() error {
 
 	if p.supportExtensionHandshake {
 		return p.sendEvent(Event{Event: proto.Extended, ExtHandshake: proto.ExtHandshake{
-			V:           null.NewString(handshakeAgent),
-			M:           proto.ExtM{},
+			V: null.NewString(handshakeAgent),
+			Mapping: proto.ExtMapping{
+				Pex: null.Null[proto.ExtensionMessage]{Value: outPexExtID, Set: !p.d.info.Private},
+			},
 			QueueLength: null.NewUint32(1000),
 		}})
 	}
@@ -536,6 +556,71 @@ func (p *Peer) Unchoke() {
 	if err != nil {
 		p.close()
 	}
+}
+
+type pexPeer struct {
+	addrPort         netip.AddrPort
+	preferEnc        bool
+	seedOnly         bool
+	supportUTP       bool
+	supportHolePunch bool
+	outGoing         bool
+}
+
+func parsePex(msg proto.ExtPex) ([]pexPeer, error) {
+	if len(msg.Added)&6 != 0 {
+		return nil, fmt.Errorf("invalid added address")
+	}
+
+	if len(msg.Added)/6 != len(msg.AddedFlag) {
+		return nil, fmt.Errorf("added and added.f size mismatch")
+	}
+
+	if len(msg.Added6)&18 != 0 {
+		return nil, fmt.Errorf("invalid added6 address")
+	}
+
+	if len(msg.Added6)/6 != len(msg.Added6Flag) {
+		return nil, fmt.Errorf("added6 and added6.f size mismatch")
+	}
+
+	if len(msg.Dropped)&6 != 0 {
+		return nil, fmt.Errorf("invalid added6 address")
+	}
+
+	if len(msg.Dropped6)&18 != 0 {
+		return nil, fmt.Errorf("invalid added6 address")
+	}
+
+	var r = make([]pexPeer, 0, len(msg.AddedFlag)+len(msg.Added6Flag))
+
+	for i := 0; i < len(msg.AddedFlag); i++ {
+		flag := msg.AddedFlag[i]
+
+		r = append(r, pexPeer{
+			addrPort:         netip.AddrPortFrom(netip.AddrFrom4([4]byte(msg.Added[i*6:i*6+4])), binary.BigEndian.Uint16(msg.Added[i*6+4:i*6+6])),
+			preferEnc:        flag&proto.PexFlagPreferEnc != 0,
+			seedOnly:         flag&proto.PexFlagSeedOnly != 0,
+			supportUTP:       flag&proto.PexFlagSupportUTP != 0,
+			supportHolePunch: flag&proto.PexFlagSupportHolePunchP != 0,
+			outGoing:         flag&proto.PexFlagOutgoing != 0,
+		})
+	}
+
+	for i := 0; i < len(msg.Added6Flag); i++ {
+		flag := msg.Added6Flag[i]
+
+		r = append(r, pexPeer{
+			addrPort:         netip.AddrPortFrom(netip.AddrFrom16([16]byte(msg.Added[i*18:i*18+16])), binary.BigEndian.Uint16(msg.Added[i*18+16:i*18+18])),
+			preferEnc:        flag&proto.PexFlagPreferEnc != 0,
+			seedOnly:         flag&proto.PexFlagSeedOnly != 0,
+			supportUTP:       flag&proto.PexFlagSupportUTP != 0,
+			supportHolePunch: flag&proto.PexFlagSupportHolePunchP != 0,
+			outGoing:         flag&proto.PexFlagOutgoing != 0,
+		})
+	}
+
+	return r, nil
 }
 
 type sizedSlice[T interface{ ~int | ~int64 }] struct {

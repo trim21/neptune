@@ -48,6 +48,7 @@ func (p *Peer) keepAlive() {
 type Event struct {
 	Bitmap       *bm.Bitmap
 	Res          *proto.ChunkResponse
+	ExtPex       proto.ExtPex
 	ExtHandshake proto.ExtHandshake
 	Req          proto.ChunkRequest
 	Index        uint32
@@ -127,7 +128,7 @@ func (p *Peer) DecodeEvents() (Event, error) {
 
 		if extMsgID == proto.ExtensionHandshake {
 			var raw = make([]byte, size-2)
-			_, err := io.ReadFull(p.r, raw)
+			_, err = io.ReadFull(p.r, raw)
 			if err != nil {
 				return event, err
 			}
@@ -136,18 +137,28 @@ func (p *Peer) DecodeEvents() (Event, error) {
 			return event, err
 		}
 
-		if dontHave := p.ltDontHaveExtensionId.Load(); dontHave != nil {
-			if extMsgID == *dontHave {
-				assert.Equal(size, 6)
+		if extMsgID == p.extDontHaveID.Load() {
+			assert.Equal(size, 6)
 
-				_, err = io.ReadFull(p.r, p.readBuf[:])
-				if err != nil {
-					return event, err
-				}
-
-				event.Index = binary.BigEndian.Uint32(p.readBuf[:])
+			_, err = io.ReadFull(p.r, p.readBuf[:])
+			if err != nil {
 				return event, err
 			}
+
+			event.Index = binary.BigEndian.Uint32(p.readBuf[:])
+			return event, err
+		}
+
+		if extMsgID == p.extPexID.Load() {
+			var raw = make([]byte, size-2)
+
+			_, err = io.ReadFull(p.r, raw)
+			if err != nil {
+				return event, err
+			}
+
+			err = bencode.Unmarshal(raw, &event.ExtPex)
+			return event, err
 		}
 
 		// unknown events
@@ -187,7 +198,7 @@ func (p *Peer) decodeCancel() (Event, error) {
 		return Event{}, err
 	}
 
-	return Event{Event: proto.Cancel, Req: payload}, err
+	return Event{Event: proto.Cancel, Req: payload}, nil
 }
 
 func (p *Peer) decodeRequest() (Event, error) {
@@ -196,7 +207,7 @@ func (p *Peer) decodeRequest() (Event, error) {
 		return Event{}, err
 	}
 
-	return Event{Event: proto.Request, Req: payload}, err
+	return Event{Event: proto.Request, Req: payload}, nil
 }
 
 func (p *Peer) decodeReject() (Event, error) {
@@ -205,7 +216,7 @@ func (p *Peer) decodeReject() (Event, error) {
 		return Event{}, err
 	}
 
-	return Event{Event: proto.Reject, Req: payload}, err
+	return Event{Event: proto.Reject, Req: payload}, nil
 }
 
 func (p *Peer) decodePiece(size uint32) (Event, error) {

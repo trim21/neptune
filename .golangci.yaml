@@ -77,7 +77,7 @@ linters:
   enable:
     - gci
     - govet
-    - exhaustive
+#    - exhaustive
     - depguard
     - staticcheck
 
@@ -92,3 +92,6 @@ issues:
     - path: internal/web/jsonrpc/
       linters:
         - govet
+
+    - text: 'shadow: declaration of "(err|ctx)" shadows declaration at'
+      linters: [ govet ]

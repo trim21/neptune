@@ -9,11 +9,28 @@ import (
 
 type ExtHandshake struct {
 	V           null.String `bencode:"v,omitempty"`
-	M           ExtM        `bencode:"m,omitempty"`
+	Mapping     ExtMapping  `bencode:"m,omitempty"` // mapping from supported name to extension id
 	QueueLength null.Uint32 `bencode:"reqq,omitempty"`
 }
 
-type ExtM struct {
-	UTPex      null.Uint8                  `bencode:"ut_pex,omitempty"`
-	LTDontHave null.Null[ExtensionMessage] `bencode:"lt_donthave,omitempty"`
+type ExtMapping struct {
+	Pex      null.Null[ExtensionMessage] `bencode:"ut_pex,omitempty"`
+	DontHave null.Null[ExtensionMessage] `bencode:"lt_donthave,omitempty"`
+}
+
+// http://bittorrent.org/beps/bep_0011.html
+
+const PexFlagPreferEnc = 0x01
+const PexFlagSeedOnly = 0x02
+const PexFlagSupportUTP = 0x04
+const PexFlagSupportHolePunchP = 0x08
+const PexFlagOutgoing = 0x10
+
+type ExtPex struct {
+	Added      []byte `json:"added,omitempty"`
+	AddedFlag  []byte `json:"added.f,omitempty"`
+	Added6     []byte `json:"added6,omitempty"`
+	Added6Flag []byte `json:"added6.f,omitempty"`
+	Dropped    []byte `json:"dropped,omitempty"`
+	Dropped6   []byte `json:"dropped6,omitempty"`
 }

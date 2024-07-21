@@ -18,8 +18,8 @@ func TestEncodeExtHandshake(t *testing.T) {
 
 	raw, err := bencode.Marshal(proto.ExtHandshake{
 		V: null.NewString("tyr 0.0.1"),
-		M: proto.ExtM{
-			UTPex: null.Uint8{
+		Mapping: proto.ExtMapping{
+			Pex: null.Null[proto.ExtensionMessage]{
 				Value: 10,
 				Set:   true,
 			},
