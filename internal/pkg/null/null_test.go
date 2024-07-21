@@ -7,8 +7,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/anacrolix/torrent/bencode"
 	"github.com/stretchr/testify/require"
+	"github.com/trim21/go-bencode"
 
 	"tyr/internal/pkg/null"
 )
@@ -69,15 +69,15 @@ func Test_UnmarshalBencode(t *testing.T) {
 	require.False(t, s.N.Set)
 
 	var s2 struct {
-		N null.Null[bencode.Bytes] `bencode:"n"`
+		N null.Null[bencode.RawBytes] `bencode:"n"`
 	}
 	require.NoError(t, bencode.Unmarshal([]byte("de"), &s2))
 	require.False(t, s2.N.Set)
 
 	var s3 struct {
-		N null.Null[bencode.Bytes] `bencode:"n"`
+		N null.Null[bencode.RawBytes] `bencode:"n"`
 	}
 	require.NoError(t, bencode.Unmarshal([]byte("d1:ni10ee"), &s3))
 	require.True(t, s3.N.Set)
-	require.EqualValues(t, bencode.Bytes("i10e"), s3.N.Value)
+	require.EqualValues(t, bencode.RawBytes("i10e"), s3.N.Value)
 }

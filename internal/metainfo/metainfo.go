@@ -6,12 +6,10 @@
 package metainfo
 
 import (
-	"bufio"
 	"crypto/sha1"
-	"io"
 	"os"
 
-	"github.com/anacrolix/torrent/bencode"
+	"github.com/trim21/go-bencode"
 )
 
 type MetaInfo struct {
@@ -26,30 +24,36 @@ type MetaInfo struct {
 	// https://wiki.theory.org/index.php/BitTorrentSpecification: (optional) the creation time of
 	// the torrent, in standard UNIX epoch format (integer, seconds since 1-Jan-1970 00:00:00 UTC)
 	//CreationDate null.Null[bencode.Total] `bencode:"creation date,omitempty,ignore_unmarshal_type_error"`
-	InfoBytes    bencode.Bytes `bencode:"info,omitempty"`          // BEP 3
-	AnnounceList AnnounceList  `bencode:"announce-list,omitempty"` // BEP 12
+	InfoBytes    bencode.RawBytes `bencode:"info,omitempty"`          // BEP 3
+	AnnounceList AnnounceList     `bencode:"announce-list,omitempty"` // BEP 12
 }
 
 // Load a MetaInfo from an io.Reader. Returns a non-nil error in case of failure.
-func Load(r io.Reader) (*MetaInfo, error) {
+func Load(raw []byte) (*MetaInfo, error) {
 	var mi MetaInfo
-	d := bencode.NewDecoder(r)
-	err := d.Decode(&mi)
+
+	err := bencode.Unmarshal(raw, &mi)
 	if err != nil {
 		return nil, err
 	}
+
 	return &mi, nil
 }
 
 func LoadFromFile(filename string) (*MetaInfo, error) {
-	f, err := os.Open(filename)
+	raw, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
-	var buf bufio.Reader
-	buf.Reset(f)
-	return Load(&buf)
+
+	var mi MetaInfo
+
+	err = bencode.Unmarshal(raw, &mi)
+	if err != nil {
+		return nil, err
+	}
+	return &mi, nil
+
 }
 
 func (mi MetaInfo) UnmarshalInfo() (info Info, err error) {
@@ -59,11 +63,6 @@ func (mi MetaInfo) UnmarshalInfo() (info Info, err error) {
 
 func (mi *MetaInfo) HashInfoBytes() Hash {
 	return sha1.Sum(mi.InfoBytes)
-}
-
-// Encode to bencoded form.
-func (mi MetaInfo) Write(w io.Writer) error {
-	return bencode.NewEncoder(w).Encode(mi)
 }
 
 func (mi *MetaInfo) UpvertedAnnounceList() AnnounceList {

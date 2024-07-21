@@ -6,9 +6,9 @@ package core
 import (
 	"net/url"
 
-	"github.com/anacrolix/torrent/bencode"
 	"github.com/rs/zerolog/log"
 	"github.com/samber/lo"
+	"github.com/trim21/go-bencode"
 
 	"tyr/internal/metainfo"
 	"tyr/internal/pkg/null"

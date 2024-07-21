@@ -19,7 +19,7 @@ type Info struct {
 	Length      int64 `bencode:"length,omitempty"` // BEP3, mutually exclusive with Files
 
 	// BEP 52 (BitTorrent v2)
-	MetaVersion int64 `bencode:"meta version,omitempty"`
+	MetaVersion int `bencode:"meta version,omitempty"`
 }
 
 func (info *Info) TotalLength() int64 {

@@ -4,7 +4,6 @@
 package web
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha1"
 	"encoding/hex"
@@ -37,7 +36,7 @@ type AddTorrentResponse struct {
 func addTorrent(h *jsonrpc.Handler, c *core.Client) {
 	u := usecase.NewInteractor[*AddTorrentRequest, AddTorrentResponse](
 		func(ctx context.Context, req *AddTorrentRequest, res *AddTorrentResponse) error {
-			m, err := metainfo.Load(bytes.NewBuffer(req.TorrentFile))
+			m, err := metainfo.Load(req.TorrentFile)
 			if err != nil {
 				return CodeError(2, errgo.Wrap(err, "failed to parse torrent file"))
 			}

@@ -9,15 +9,14 @@ import (
 	"io"
 	"time"
 
-	"github.com/anacrolix/torrent/bencode"
 	"github.com/docker/go-units"
 	"github.com/fatih/color"
 	"github.com/samber/lo"
 	"github.com/trim21/errgo"
+	"github.com/trim21/go-bencode"
 
 	"tyr/internal/pkg/assert"
 	"tyr/internal/pkg/bm"
-	"tyr/internal/pkg/null"
 	"tyr/internal/proto"
 )
 
@@ -49,7 +48,7 @@ func (p *Peer) keepAlive() {
 type Event struct {
 	Bitmap       *bm.Bitmap
 	Res          *proto.ChunkResponse
-	ExtHandshake extensionHandshake
+	ExtHandshake proto.ExtHandshake
 	Req          proto.ChunkRequest
 	Index        uint32
 	Port         uint16
@@ -57,16 +56,6 @@ type Event struct {
 	Event        proto.Message
 	keepAlive    bool
 	Ignored      bool
-}
-
-type extensionHandshake struct {
-	V           null.String  `bencode:"v" json:"v"`
-	Main        extensionMsg `bencode:"m" json:"m"`
-	QueueLength null.Uint32  `bencode:"reqq" json:"reqq"`
-}
-
-type extensionMsg struct {
-	LTDontHave null.Null[proto.ExtensionMessage] `bencode:"lt_donthave"`
 }
 
 func (p *Peer) DecodeEvents() (Event, error) {
@@ -137,7 +126,13 @@ func (p *Peer) DecodeEvents() (Event, error) {
 		extMsgID := proto.ExtensionMessage(b)
 
 		if extMsgID == proto.ExtensionHandshake {
-			err = bencode.NewDecoder(io.LimitReader(p.r, int64(size-2))).Decode(&event.ExtHandshake)
+			var raw = make([]byte, size-2)
+			_, err := io.ReadFull(p.r, raw)
+			if err != nil {
+				return event, err
+			}
+
+			err = bencode.Unmarshal(raw, &event.ExtHandshake)
 			return event, err
 		}
 
@@ -275,7 +270,13 @@ func (p *Peer) write(e Event) error {
 				return err
 			}
 
-			return bencode.NewEncoder(p.w).Encode(e.ExtHandshake)
+			raw, err := bencode.Marshal(e.ExtHandshake)
+			if err != nil {
+				return err
+			}
+
+			_, err = p.w.Write(raw)
+			return err
 		}
 
 		fallthrough

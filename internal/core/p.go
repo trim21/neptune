@@ -296,7 +296,7 @@ func (p *Peer) start(skipHandshake bool) {
 	}
 
 	if p.supportFastExtension {
-		p.log.Trace().Msg("allow fast extensionHandshake")
+		p.log.Trace().Msg("allow fast ExtensionHandshake")
 	}
 
 	// sync point, after both side send handshake and starting send peer messages
@@ -399,8 +399,8 @@ func (p *Peer) start(skipHandshake bool) {
 					p.QueueLimit.Store(event.ExtHandshake.QueueLength.Value)
 				}
 
-				if event.ExtHandshake.Main.LTDontHave.Set {
-					p.ltDontHaveExtensionId.Store(&event.ExtHandshake.Main.LTDontHave.Value)
+				if event.ExtHandshake.M.LTDontHave.Set {
+					p.ltDontHaveExtensionId.Store(&event.ExtHandshake.M.LTDontHave.Value)
 				}
 				continue
 			}
@@ -473,8 +473,9 @@ func (p *Peer) sendInitPayload() error {
 	}
 
 	if p.supportExtensionHandshake {
-		return p.sendEvent(Event{Event: proto.Extended, ExtHandshake: extensionHandshake{
+		return p.sendEvent(Event{Event: proto.Extended, ExtHandshake: proto.ExtHandshake{
 			V:           null.NewString(handshakeAgent),
+			M:           proto.ExtM{},
 			QueueLength: null.NewUint32(1000),
 		}})
 	}

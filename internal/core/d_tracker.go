@@ -12,11 +12,11 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/anacrolix/torrent/bencode"
 	"github.com/go-resty/resty/v2"
 	"github.com/rs/zerolog/log"
 	"github.com/samber/lo"
 	"github.com/trim21/errgo"
+	"github.com/trim21/go-bencode"
 	"github.com/valyala/bytebufferpool"
 
 	"tyr/internal/metainfo"
@@ -187,12 +187,12 @@ type AnnounceResult struct {
 }
 
 type trackerAnnounceResponse struct {
-	FailureReason null.Null[string]        `bencode:"failure reason"`
-	Peers         null.Null[bencode.Bytes] `bencode:"pendingPeers"`
-	Peers6        null.Null[bencode.Bytes] `bencode:"peers6"`
-	Interval      null.Null[int64]         `bencode:"interval"`
-	Complete      null.Null[int]           `bencode:"complete"`
-	Incomplete    null.Null[int]           `bencode:"incomplete"`
+	FailureReason null.Null[string]           `bencode:"failure reason"`
+	Peers         null.Null[bencode.RawBytes] `bencode:"pendingPeers"`
+	Peers6        null.Null[bencode.RawBytes] `bencode:"peers6"`
+	Interval      null.Null[int64]            `bencode:"interval"`
+	Complete      null.Null[int]              `bencode:"complete"`
+	Incomplete    null.Null[int]              `bencode:"incomplete"`
 }
 
 type Tracker struct {

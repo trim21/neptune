@@ -8,8 +8,8 @@ package metainfo
 import (
 	"testing"
 
-	"github.com/anacrolix/torrent/bencode"
 	"github.com/stretchr/testify/require"
+	"github.com/trim21/go-bencode"
 )
 
 func TestMarshalInfo(t *testing.T) {

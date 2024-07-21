@@ -10,12 +10,12 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/anacrolix/torrent/bencode"
 	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/puzpuzpuz/xsync/v3"
 	"github.com/rs/zerolog/log"
 	"github.com/samber/lo"
 	"github.com/trim21/errgo"
+	"github.com/trim21/go-bencode"
 	"go.uber.org/atomic"
 
 	"tyr/internal/meta"

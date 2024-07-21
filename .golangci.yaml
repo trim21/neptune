@@ -84,6 +84,7 @@ linters:
   disable:
     - errcheck
     - unused
+    - gochecknoglobals
 #  fast: true
 
 issues:

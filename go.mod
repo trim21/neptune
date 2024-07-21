@@ -33,6 +33,7 @@ require (
 	github.com/swaggest/usecase v1.3.1
 	github.com/trim21/conntrack v0.0.2
 	github.com/trim21/errgo v0.0.3
+	github.com/trim21/go-bencode v0.0.4
 	github.com/valyala/bytebufferpool v1.0.0
 	go.uber.org/atomic v1.11.0
 	go.uber.org/automaxprocs v1.5.3
@@ -64,9 +65,7 @@ require (
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-runewidth v0.0.15 // indirect
-	github.com/minio/sha256-simd v1.0.1 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
-	github.com/multiformats/go-varint v0.0.7 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/prometheus/client_model v0.6.1 // indirect
@@ -88,5 +87,4 @@ require (
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	lukechampine.com/blake3 v1.3.0 // indirect
 )

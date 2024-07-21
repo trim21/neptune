@@ -6,12 +6,14 @@ package null
 import (
 	"encoding/json"
 
-	"github.com/anacrolix/torrent/bencode"
+	"github.com/trim21/go-bencode"
 )
 
 var _ json.Marshaler = (*Null[any])(nil)
 var _ json.Unmarshaler = (*Null[any])(nil)
 var _ bencode.Unmarshaler = (*Null[any])(nil)
+var _ bencode.Marshaler = (*Null[any])(nil)
+var _ bencode.IsZeroValue = (*Null[any])(nil)
 
 // Null is a nullable type.
 type Null[T any] struct {
@@ -79,10 +81,18 @@ func (t *Null[T]) UnmarshalJSON(data []byte) error {
 	}
 
 	t.Set = true
-	return json.Unmarshal(data, &t.Value) //nolint:wrapcheck
+	return json.Unmarshal(data, &t.Value)
+}
+
+func (t Null[T]) IsZeroBencodeValue() bool {
+	return !t.Set
+}
+
+func (t Null[T]) MarshalBencode() ([]byte, error) {
+	return bencode.Marshal(t.Value)
 }
 
 func (t *Null[T]) UnmarshalBencode(data []byte) error {
 	t.Set = true
-	return bencode.Unmarshal(data, &t.Value) //nolint:wrapcheck
+	return bencode.Unmarshal(data, &t.Value)
 }
