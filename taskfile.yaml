@@ -2,6 +2,7 @@ version: 3
 
 tasks:
   lint:
+    desc: run lint
     deps:
       - tools:betteralign
     cmds:
@@ -10,7 +11,9 @@ tasks:
       - staticcheck -tags=release -tests=false ./...
       - staticcheck -tags=release ./...
 
-  gen: go generate ./...
+  gen:
+    desc: run go generate
+    cmd: go generate ./...
 
   tools:betteralign:
     internal: true
@@ -33,6 +36,7 @@ tasks:
       - go build -modfile tools/go.mod -o ./.bin/gotestsum.exe gotest.tools/gotestsum
 
   test:
+    desc: run go test
     deps:
       - tools:gotestsum
     cmd: ./.bin/gotestsum.exe --format-hide-empty-pkg -- -count=1 -coverprofile=coverage.txt -covermode=atomic -tags assert ./...
@@ -48,13 +52,16 @@ tasks:
     cmd: go mod tidy
 
   release:
+    desc: build release binary for all supported platform
     cmds:
-      - task: release:linux
-      - task: release:windows
-      - task: release:darwin
+      - task: release:windows:arm64
+      - task: release:windows:amd64
+      - task: release:linux:amd64
+      - task: release:linux:arm64
+      - task: release:darwin:arm64
+      - task: release:darwin:amd64
 
-  release:windows:
-    internal: true
+  release:windows:amd64:
     cmds:
       - task: binary
         vars:
@@ -62,34 +69,40 @@ tasks:
           GOARCH: amd64
           OUT_PATH: 'dist/neptune_windows_amd64.exe'
 
+  release:windows:arm64:
+    cmds:
       - task: binary
         vars:
           GOOS: windows
           GOARCH: arm64
           OUT_PATH: 'dist/neptune_windows_arm64.exe'
 
-  release:darwin:
-    internal: true
+  release:darwin:amd64:
     cmds:
       - task: binary
         vars:
           GOOS: darwin
           GOARCH: amd64
           OUT_PATH: 'dist/neptune_darwin_amd64'
+
+  release:darwin:arm64:
+    cmds:
       - task: binary
         vars:
           GOOS: darwin
           GOARCH: arm64
           OUT_PATH: 'dist/neptune_darwin_arm64'
 
-  release:linux:
-    internal: true
+  release:linux:amd64:
     cmds:
       - task: binary
         vars:
           GOOS: linux
           GOARCH: amd64
           OUT_PATH: 'dist/neptune_linux_amd64'
+
+  release:linux:arm64:
+    cmds:
       - task: binary
         vars:
           GOOS: linux
@@ -127,6 +140,7 @@ tasks:
           OUT_PATH: dist/neptune.exe
 
   dev:
+    desc: watch source file and start development binary
     generates:
       - dist/a-file-not-exists-so-task-always-run
     sources:
@@ -140,46 +154,35 @@ tasks:
       - .env
     cmds:
       - go build -trimpath -o dist/dev/tmp.exe
-      - cmd: |
-          until rm dist/dev/server.exe -rf && cp dist/dev/tmp.exe dist/dev/neptune.exe
-          do
-            echo "can't copy, try again"
-            sleep 1
-          done
+      - |
+        until rm dist/dev/server.exe -rf && cp dist/dev/tmp.exe dist/dev/neptune.exe
+        do
+          echo "can't copy, try again"
+          sleep 1
+        done
       - dist/dev/neptune.exe --debug --config-file config.yaml
 
-  dev:release:
-    deps:
-      - release:windows
-    cmds:
-      - cp dist/neptune_windows_amd64.exe dist/dev/release.exe
-      - dist/dev/release.exe --web 127.0.0.1:8002 --debug
-
   pprof:
+    desc: run golang pprof tool
     cmds:
       - go tool pprof -http=:8001 http://127.0.0.1:8002
 
   pprof:block:
+    desc: run golang pprof tool for block
     cmds:
       - go tool pprof -http=:8001 http://127.0.0.1:8002/debug/pprof/block
 
   pprof:mutex:
+    desc: run golang pprof tool for mutex
     cmds:
       - go tool pprof -http=:8001 http://127.0.0.1:8002/debug/pprof/mutex
 
-  alloc:
+  pprof:alloc:
+    desc: run golang pprof tool for alloc
     cmds:
       - go tool pprof -http=:8001 http://127.0.0.1:8002/debug/pprof/allocs
 
-  heap:
+  pprof:heap:
+    desc: run golang pprof tool for heap
     cmds:
       - go tool pprof -http=:8001 http://127.0.0.1:8002/debug/pprof/heap
-
-  heap-compare:
-    cmds:
-      - curl -s http://127.0.0.1:8002/debug/pprof/heap > tmp/base.heap
-      - sleep 5
-      - go tool pprof -http=:8001 --base tmp/base.heap http://127.0.0.1:8002/debug/pprof/heap
-
-  update-swagger:
-    cmd: cp ./node_modules/swagger-ui-dist/  internal/web/frontend/docs/ -r
