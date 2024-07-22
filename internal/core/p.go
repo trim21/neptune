@@ -459,7 +459,6 @@ func (p *Peer) start(skipHandshake bool) {
 		case proto.BitCometExtension:
 		}
 
-		//nolint:exhaustive
 		switch event.Event {
 		case proto.Have, proto.HaveAll, proto.Bitfield:
 			p.d.scheduleRequestSignal <- empty.Empty{}
