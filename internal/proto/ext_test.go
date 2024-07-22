@@ -28,5 +28,5 @@ func TestEncodeExtHandshake(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	require.Equal(t, `d1:md6:ut_pexi10ee4:reqqi20e1:v9:neptune 0.0.1e`, string(raw))
+	require.Equal(t, `d1:md6:ut_pexi10ee4:reqqi20e1:v13:neptune 0.0.1e`, string(raw))
 }
