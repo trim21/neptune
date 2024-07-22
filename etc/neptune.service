@@ -1,5 +1,5 @@
 [Unit]
-Description=Tyr service for %I
+Description=Neptune BitTorrent client for %I
 
 After=network-online.target
 
