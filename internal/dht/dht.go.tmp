@@ -1,0 +1,54 @@
+package dht
+
+import (
+	"math"
+	"net"
+	"time"
+
+	"github.com/anacrolix/dht/v2"
+	"github.com/anacrolix/dht/v2/bep44"
+	"github.com/anacrolix/dht/v2/krpc"
+	"github.com/anacrolix/dht/v2/peer-store"
+	"github.com/rs/zerolog/log"
+	"golang.org/x/time/rate"
+
+	"tyr/internal/metainfo"
+)
+
+func StartServer() *Server {
+	// TODO: implement dht
+	conn, err := net.ListenPacket("udp", ":0")
+	if err != nil {
+		panic(err)
+	}
+
+	log.Info().Msgf("dht port %d", conn.(*net.UDPConn).LocalAddr().(*net.UDPAddr).Port)
+
+	s, err := dht.NewServer(&dht.ServerConfig{
+		NodeId:        krpc.RandomNodeID(),
+		Conn:          conn,
+		StartingNodes: func() ([]dht.Addr, error) { return dht.ResolveHostPorts(dht.DefaultGlobalBootstrapHostPorts) },
+		NoSecurity:    false,
+		PeerStore:     &peer_store.InMemory{},
+		Store:         &bep44.Memory{},
+		Exp:           time.Hour * 2,
+		DefaultWant:   []krpc.Want{krpc.WantNodes, krpc.WantNodes6},
+		SendLimiter:   rate.NewLimiter(rate.Inf, math.MaxInt),
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	return &Server{s}
+}
+
+type Server struct {
+	s *dht.Server
+}
+
+func (s *Server) Announce(infoHash metainfo.Hash, port uint16) {
+	s.s.AnnounceTraversal(infoHash, dht.AnnouncePeer(dht.AnnouncePeerOpts{
+		Port:        int(port),
+		ImpliedPort: false,
+	}))
+}

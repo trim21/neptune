@@ -187,6 +187,7 @@ type Peer struct {
 	readBuf                   [4]byte // buffer for reading message size and event id
 	Incoming                  bool
 	supportFastExtension      bool
+	dhtEnabled                bool
 	supportExtensionHandshake bool
 }
 
@@ -277,7 +278,7 @@ func (p *Peer) start(skipHandshake bool) {
 	p.log.Trace().Msg("start")
 	defer p.close()
 
-	if err := proto.SendHandshake(p.Conn, p.d.info.Hash, NewPeerID()); err != nil {
+	if err := proto.SendHandshake(p.Conn, p.d.info.Hash, NewPeerID(), p.d.private); err != nil {
 		p.log.Trace().Err(err).Msg("failed to send handshake to addrPort")
 		return
 	}
@@ -288,10 +289,12 @@ func (p *Peer) start(skipHandshake bool) {
 			p.log.Debug().Err(err).Msg("failed to read handshake")
 			return
 		}
+
 		if h.InfoHash != p.d.info.Hash {
 			p.log.Trace().Msgf("addrPort info hash mismatch %x", h.InfoHash)
 			return
 		}
+		p.dhtEnabled = h.DhtEnabled
 		p.supportFastExtension = h.FastExtension
 		p.log = p.log.With().Str("peer_id", url.QueryEscape(string(h.PeerID[:]))).Logger()
 		p.log.Trace().Msg("connect to addrPort")
@@ -419,7 +422,8 @@ func (p *Peer) start(skipHandshake bool) {
 			}
 
 			if event.ExtensionID == p.extPexID.Load() {
-				r, err := parsePex(event.ExtPex)
+				var r []pexPeer
+				r, err = parsePex(event.ExtPex)
 				if err != nil {
 					return
 				}
@@ -449,6 +453,7 @@ func (p *Peer) start(skipHandshake bool) {
 
 		// TODO
 		case proto.Port:
+			p.log.Info().Msgf("port %d", event.Port)
 		case proto.Suggest:
 		// currently ignored and unsupported
 		case proto.BitCometExtension:

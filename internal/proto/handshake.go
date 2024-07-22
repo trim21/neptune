@@ -30,7 +30,13 @@ var fastExtensionEnabled = genReversedFlag(7, 0x04)
 // reserved_byte[5] & 0x10
 var exchangeExtensionEnabled = genReversedFlag(5, 0x10)
 
-var handshakeBytes = ro.B(binary.BigEndian.AppendUint64(nil, exchangeExtensionEnabled|fastExtensionEnabled))
+// https://www.bittorrent.org/beps/bep_0005.html
+// reserved_byte[7] & 0x01
+var dhtEnabled = genReversedFlag(7, 0x01)
+
+var privateHandshakeBytes = ro.B(binary.BigEndian.AppendUint64(nil, exchangeExtensionEnabled|fastExtensionEnabled))
+
+//var publicHandshakeBytes = ro.B(binary.BigEndian.AppendUint64(nil, exchangeExtensionEnabled|fastExtensionEnabled|dhtEnabled))
 
 // SendHandshake = <pStrlen><pStr><reserved><info_hash><peer_id>
 // - pStrlen = length of pStr (1 byte)
@@ -40,13 +46,20 @@ var handshakeBytes = ro.B(binary.BigEndian.AppendUint64(nil, exchangeExtensionEn
 // - peer_id = unique identifier of the Peer (20 bytes)
 //
 // Total length = payload length = 49 + len(pstr) = 68 bytes (for BitTorrent v1)
-func SendHandshake(conn io.Writer, infoHash, peerID [20]byte) error {
+func SendHandshake(conn io.Writer, infoHash, peerID [20]byte, private bool) error {
 	_, err := handshakePstrV1.WriteTo(conn)
 	if err != nil {
 		return err
 	}
 
-	_, err = handshakeBytes.WriteTo(conn)
+	// TODO: support dht
+
+	//if private {
+	_, err = privateHandshakeBytes.WriteTo(conn)
+	//} else {
+	//}
+	//_, err = publicHandshakeBytes.WriteTo(conn)
+
 	if err != nil {
 		return err
 	}
@@ -65,6 +78,7 @@ type Handshake struct {
 	PeerID             [20]byte
 	FastExtension      bool
 	ExchangeExtensions bool
+	DhtEnabled         bool
 }
 
 func (h Handshake) GoString() string {
@@ -86,12 +100,10 @@ func ReadHandshake(conn io.Reader) (Handshake, error) {
 		return Handshake{}, ErrHandshakeMismatch
 	}
 
-	n, err = io.ReadFull(conn, b[:8])
+	_, err = io.ReadFull(conn, b[:8])
 	if err != nil {
 		return Handshake{}, err
 	}
-
-	assert.Equal(8, n)
 
 	reversed := binary.BigEndian.Uint64(b)
 
@@ -103,6 +115,10 @@ func ReadHandshake(conn io.Reader) (Handshake, error) {
 
 	if reversed&exchangeExtensionEnabled != 0 {
 		h.ExchangeExtensions = true
+	}
+
+	if reversed&dhtEnabled != 0 {
+		h.DhtEnabled = true
 	}
 
 	n, err = io.ReadFull(conn, h.InfoHash[:])
