@@ -53,4 +53,11 @@ changed.
 
 ## License
 
-Licensed under GPL v3.
+This project is mixed licensed.
+
+Most code are licensed under GPL v3,
+but some code are copied from [anacrolix/torrent](https://github.com/anacrolix/torrent), these files are licensed under MPL-2.0.
+
+There are also some files in internal/web/jsonrpc are copied from <https://github.com/swaggest/jsonrpc>, these files are licensed under MIT.
+
+You will find license in each file header.
