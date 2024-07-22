@@ -4,7 +4,7 @@ A headless BitTorrent client focus on performance.
 
 ## Install
 
-**Only 64bit system are supported.**
+Only 64bit system are supported.
 
 ### Pre-build Binary
 
