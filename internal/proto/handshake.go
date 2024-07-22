@@ -9,9 +9,9 @@ import (
 	"fmt"
 	"io"
 
-	"tyr/internal/metainfo"
-	"tyr/internal/pkg/assert"
-	"tyr/internal/pkg/ro"
+	"neptune/internal/metainfo"
+	"neptune/internal/pkg/assert"
+	"neptune/internal/pkg/ro"
 )
 
 func genReversedFlag(index int, value byte) uint64 {

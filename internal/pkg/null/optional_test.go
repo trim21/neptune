@@ -8,7 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"tyr/internal/pkg/null"
+	"neptune/internal/pkg/null"
 )
 
 func TestNilUint8(t *testing.T) {

@@ -10,8 +10,8 @@ import (
 
 	"github.com/docker/go-units"
 
-	"tyr/internal/pkg/as"
-	"tyr/internal/pkg/gsync"
+	"neptune/internal/pkg/as"
+	"neptune/internal/pkg/gsync"
 )
 
 type ChunkResponse struct {

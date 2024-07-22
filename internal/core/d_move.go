@@ -10,7 +10,7 @@ import (
 
 	"github.com/karrick/godirwalk"
 
-	"tyr/internal/pkg/gfs"
+	"neptune/internal/pkg/gfs"
 )
 
 func (d *Download) Move(target string) error {

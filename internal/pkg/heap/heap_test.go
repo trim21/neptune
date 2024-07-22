@@ -8,7 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"tyr/internal/pkg/heap"
+	"neptune/internal/pkg/heap"
 )
 
 type Int int

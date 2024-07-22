@@ -4,7 +4,7 @@
 package bep40
 
 import (
-	"tyr/internal/pkg/crc32c"
+	"neptune/internal/pkg/crc32c"
 )
 
 func SimplePriority(key []byte, addr []byte) uint32 {

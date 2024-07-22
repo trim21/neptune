@@ -12,7 +12,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"golang.org/x/time/rate"
 
-	"tyr/internal/metainfo"
+	"neptune/internal/metainfo"
 )
 
 func StartServer() *Server {

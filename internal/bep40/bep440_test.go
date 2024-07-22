@@ -11,8 +11,8 @@ import (
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 
-	"tyr/internal/bep40"
-	"tyr/internal/pkg/crc32c"
+	"neptune/internal/bep40"
+	"neptune/internal/pkg/crc32c"
 )
 
 func TestBep40Priority4(t *testing.T) {

@@ -15,9 +15,9 @@ import (
 	"github.com/juju/ratelimit"
 	"github.com/trim21/errgo"
 
-	"tyr/internal/pkg/fallocate"
-	"tyr/internal/pkg/gfs"
-	"tyr/internal/pkg/global"
+	"neptune/internal/pkg/fallocate"
+	"neptune/internal/pkg/gfs"
+	"neptune/internal/pkg/global"
 )
 
 type existingFile struct {

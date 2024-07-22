@@ -18,13 +18,13 @@ import (
 	"github.com/trim21/go-bencode"
 	"go.uber.org/atomic"
 
-	"tyr/internal/meta"
-	"tyr/internal/metainfo"
-	"tyr/internal/pkg/bm"
-	"tyr/internal/pkg/flowrate"
-	"tyr/internal/pkg/gsync"
-	"tyr/internal/pkg/heap"
-	"tyr/internal/proto"
+	"neptune/internal/meta"
+	"neptune/internal/metainfo"
+	"neptune/internal/pkg/bm"
+	"neptune/internal/pkg/flowrate"
+	"neptune/internal/pkg/gsync"
+	"neptune/internal/pkg/heap"
+	"neptune/internal/proto"
 )
 
 var _ encoding.BinaryMarshaler = (*Download)(nil)

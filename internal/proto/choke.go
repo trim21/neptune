@@ -7,7 +7,7 @@ import (
 	"encoding/binary"
 	"io"
 
-	"tyr/internal/pkg/ro"
+	"neptune/internal/pkg/ro"
 )
 
 var chokeMessage = ro.B(append(binary.BigEndian.AppendUint32(nil, 1), byte(Choke)))

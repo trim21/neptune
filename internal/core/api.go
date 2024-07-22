@@ -22,12 +22,12 @@ import (
 	"github.com/samber/lo"
 	"go.uber.org/multierr"
 
-	"tyr/internal/meta"
-	"tyr/internal/metainfo"
-	"tyr/internal/pkg/as"
-	"tyr/internal/pkg/bm"
-	"tyr/internal/pkg/global/tasks"
-	"tyr/internal/pkg/gslice"
+	"neptune/internal/meta"
+	"neptune/internal/metainfo"
+	"neptune/internal/pkg/as"
+	"neptune/internal/pkg/bm"
+	"neptune/internal/pkg/global/tasks"
+	"neptune/internal/pkg/gslice"
 )
 
 type MainDataTorrent struct {

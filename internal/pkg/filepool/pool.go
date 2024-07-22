@@ -13,7 +13,7 @@ import (
 
 //func init() {
 //	prometheus.MustRegister(prometheus.NewGaugeFunc(prometheus.GaugeOpts{
-//		Name: "tyr_file_pool_size",
+//		Name: "neptune_file_pool_size",
 //	}, func() float64 {
 //		return float64(pool.Len())
 //	}))

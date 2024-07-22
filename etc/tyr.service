@@ -14,7 +14,7 @@ Type=simple
 KillMode=process
 KillSignal=SIGHUP
 
-ExecStart=/usr/bin/env tyr
+ExecStart=/usr/bin/env neptune
 
 LimitNOFILE=65536
 

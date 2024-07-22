@@ -16,7 +16,7 @@ import (
 	"github.com/swaggest/openapi-go"
 	"github.com/swaggest/usecase"
 
-	"tyr/internal/pkg/mempool"
+	"neptune/internal/pkg/mempool"
 )
 
 // ErrorCode is an JSON-RPC 2.0 error code.

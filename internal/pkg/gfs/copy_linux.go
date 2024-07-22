@@ -14,7 +14,7 @@ import (
 	"github.com/docker/go-units"
 	"golang.org/x/sys/unix"
 
-	"tyr/internal/pkg/flowrate"
+	"neptune/internal/pkg/flowrate"
 )
 
 func init() {

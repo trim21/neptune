@@ -7,7 +7,7 @@ import (
 	"bytes"
 	"net/netip"
 
-	"tyr/internal/pkg/crc32c"
+	"neptune/internal/pkg/crc32c"
 )
 
 func maskV6(s [16]byte, size int) [16]byte {

@@ -10,10 +10,10 @@ import (
 
 	"github.com/sourcegraph/conc"
 
-	"tyr/internal/pkg/empty"
-	"tyr/internal/pkg/heap"
-	"tyr/internal/pkg/mempool"
-	"tyr/internal/proto"
+	"neptune/internal/pkg/empty"
+	"neptune/internal/pkg/heap"
+	"neptune/internal/pkg/mempool"
+	"neptune/internal/proto"
 )
 
 func (d *Download) backgroundReqHandler() {

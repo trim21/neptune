@@ -8,7 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"tyr/internal/pkg/random"
+	"neptune/internal/pkg/random"
 )
 
 func TestSecureRandomString(t *testing.T) {

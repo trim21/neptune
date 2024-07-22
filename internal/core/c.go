@@ -19,14 +19,14 @@ import (
 	"go.uber.org/atomic"
 	"golang.org/x/sync/semaphore"
 
-	"tyr/internal/bep40"
-	"tyr/internal/config"
-	"tyr/internal/metainfo"
-	"tyr/internal/pkg/flowrate"
-	"tyr/internal/pkg/global"
-	"tyr/internal/pkg/random"
-	"tyr/internal/pkg/unsafe"
-	"tyr/internal/util"
+	"neptune/internal/bep40"
+	"neptune/internal/config"
+	"neptune/internal/metainfo"
+	"neptune/internal/pkg/flowrate"
+	"neptune/internal/pkg/global"
+	"neptune/internal/pkg/random"
+	"neptune/internal/pkg/unsafe"
+	"neptune/internal/util"
 )
 
 func New(cfg config.Config, sessionPath string, debug bool) *Client {
@@ -85,7 +85,7 @@ func New(cfg config.Config, sessionPath string, debug bool) *Client {
 
 func (c *Client) initMetrics() {
 	prometheus.MustRegister(prometheus.NewGaugeFunc(prometheus.GaugeOpts{
-		Name: "tyr_client_connections_count",
+		Name: "neptune_client_connections_count",
 		Help: "Current number connections tracked by client",
 	}, func() float64 {
 		return float64(c.connectionCount.Load())

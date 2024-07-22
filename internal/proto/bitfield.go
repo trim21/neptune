@@ -7,7 +7,7 @@ import (
 	"encoding/binary"
 	"io"
 
-	"tyr/internal/pkg/bm"
+	"neptune/internal/pkg/bm"
 )
 
 func SendBitfield(conn io.Writer, bm *bm.Bitmap) error {

@@ -10,8 +10,8 @@ import (
 	"github.com/samber/lo"
 	"github.com/trim21/go-bencode"
 
-	"tyr/internal/metainfo"
-	"tyr/internal/pkg/null"
+	"neptune/internal/metainfo"
+	"neptune/internal/pkg/null"
 )
 
 type scrapeResponse struct {

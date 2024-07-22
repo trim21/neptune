@@ -1,6 +1,8 @@
 // Copyright 2024 trim21 <trim21.me@gmail.com>
 // SPDX-License-Identifier: GPL-3.0-only
 
+//go:build (windows && (amd64 || arm64)) || (darwin && (amd64 || arm64)) || (linux && (amd64 || arm64))
+
 package main
 
 import (
@@ -19,6 +21,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/KimMachineGun/automemlimit/memlimit"
 	"github.com/gofrs/flock"
 	"github.com/pelletier/go-toml/v2"
 	"github.com/prometheus/client_golang/prometheus"
@@ -33,17 +36,16 @@ import (
 	"go.uber.org/automaxprocs/maxprocs"
 	"gopkg.in/natefinch/lumberjack.v2"
 
-	"tyr/internal/config"
-	"tyr/internal/core"
-	"tyr/internal/meta"
-	"tyr/internal/metainfo"
-	"tyr/internal/pkg/empty"
-	"tyr/internal/pkg/global"
-	"tyr/internal/pkg/random"
-	"tyr/internal/pkg/sys"
-	_ "tyr/internal/platform" // deny compile on unsupported platform
-	"tyr/internal/version"
-	"tyr/internal/web"
+	"neptune/internal/config"
+	"neptune/internal/core"
+	"neptune/internal/meta"
+	"neptune/internal/metainfo"
+	"neptune/internal/pkg/empty"
+	"neptune/internal/pkg/global"
+	"neptune/internal/pkg/random"
+	"neptune/internal/pkg/sys"
+	"neptune/internal/version"
+	"neptune/internal/web"
 )
 
 func main() {
@@ -81,13 +83,7 @@ func main() {
 		_, _ = fmt.Fprintf(os.Stderr, "web secret token is empty, generating new token: %s\n", webToken)
 	}
 
-	if sys.IsLinux {
-		if _, err := maxprocs.Set(); err != nil {
-			_, _ = fmt.Fprintln(os.Stderr, "Failed to set GOMAXPROCS automatically.")
-			_, _ = fmt.Fprintln(os.Stderr, "Consider to set env manually if you are running with cgroup.")
-			_, _ = fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		}
-	}
+	initResourceLimit()
 
 	var lc net.ListenConfig
 	listener, err := lc.Listen(context.Background(), "tcp", address)
@@ -206,7 +202,7 @@ func setupFlagsAndEnvParser() {
 		return
 	}
 
-	pflag.String("session-path", "", "client session path (default ~/.tyr/)")
+	pflag.String("session-path", "", "client session path (default ~/.neptune/)")
 	pflag.String("config-file", "", "path to config file (default {session-path}/config.toml)")
 
 	pflag.String("web", "127.0.0.1:8002", "web interface address")
@@ -232,7 +228,7 @@ func setupFlagsAndEnvParser() {
 
 	pflag.Parse()
 
-	viper.SetEnvPrefix("TYR")
+	viper.SetEnvPrefix("NEPTUNE")
 	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
 	viper.AutomaticEnv()
 
@@ -245,7 +241,7 @@ func defaultSessionPath() string {
 		errExit("failed to get home directory, please set session path with --session-path manually", err)
 	}
 
-	return filepath.Join(h, ".tyr")
+	return filepath.Join(h, ".neptune")
 }
 
 func errExit(msg ...any) {
@@ -294,7 +290,7 @@ func mustLockSessionDirectory(lockPath string) *flock.Flock {
 	}
 	if !locked {
 		_, _ = fmt.Fprintln(os.Stderr, "can't acquire lock, maybe another process is running")
-		_, _ = fmt.Fprintf(os.Stderr, "try remove %q if no other tyr instance is running\n", lockPath)
+		_, _ = fmt.Fprintf(os.Stderr, "try remove %q if no other neptune instance is running\n", lockPath)
 		os.Exit(1)
 		return nil
 	}
@@ -385,4 +381,20 @@ func mustParseConfig(sessionPath string) config.Config {
 	cfg.App.P2PPort = viper.GetUint16("p2p-port")
 
 	return cfg
+}
+
+func initResourceLimit() {
+	if sys.IsLinux {
+		if _, err := maxprocs.Set(); err != nil {
+			_, _ = fmt.Fprintln(os.Stderr, "Failed to set GOMAXPROCS automatically.")
+			_, _ = fmt.Fprintln(os.Stderr, "Consider to set env manually if you are running process with cgroup.")
+			_, _ = fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		}
+
+		if _, err := memlimit.SetGoMemLimitWithOpts(); err != nil {
+			_, _ = fmt.Fprintln(os.Stderr, "Failed to set GOMEMLIMIT automatically.")
+			_, _ = fmt.Fprintln(os.Stderr, "Consider to set env manually if you are running process with cgroup.")
+			_, _ = fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		}
+	}
 }

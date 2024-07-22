@@ -9,8 +9,8 @@ import (
 	"fmt"
 	"io"
 
-	"tyr/internal/pkg/gsync"
-	"tyr/internal/pkg/unsafe"
+	"neptune/internal/pkg/gsync"
+	"neptune/internal/pkg/unsafe"
 )
 
 var p = gsync.NewPool(func() *bufio.Reader {

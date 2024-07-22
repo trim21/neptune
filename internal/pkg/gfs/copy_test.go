@@ -18,8 +18,8 @@ import (
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 
-	"tyr/internal/pkg/flowrate"
-	"tyr/internal/pkg/gfs"
+	"neptune/internal/pkg/flowrate"
+	"neptune/internal/pkg/gfs"
 )
 
 func TestSmartCopy(t *testing.T) {

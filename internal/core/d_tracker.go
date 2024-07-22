@@ -19,10 +19,10 @@ import (
 	"github.com/trim21/go-bencode"
 	"github.com/valyala/bytebufferpool"
 
-	"tyr/internal/metainfo"
-	"tyr/internal/pkg/empty"
-	"tyr/internal/pkg/global"
-	"tyr/internal/pkg/null"
+	"neptune/internal/metainfo"
+	"neptune/internal/pkg/empty"
+	"neptune/internal/pkg/global"
+	"neptune/internal/pkg/null"
 )
 
 type AnnounceEvent string

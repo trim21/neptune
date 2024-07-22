@@ -1,13 +1,13 @@
 services:
-  tyr:
-    image: ghcr.io/trim21/tyr:master
+  neptune:
+    image: ghcr.io/trim21/neptune:master
     init: true
     environment:
-      TYR_DEBUG: true
-      TYR_LOG_LEVEL: debug
-      TYR_WEB_SECRET_TOKEN: a-secret-token
-      TYR_SESSION_PATH: '/var/lib/tyr'
-      TYR_CONFIG_FILE: '/var/lib/config/tyr.toml'
+      NEPTUNE_DEBUG: true
+      NEPTUNE_LOG_LEVEL: debug
+      NEPTUNE_WEB_SECRET_TOKEN: a-secret-token
+      NEPTUNE_SESSION_PATH: '/var/lib/neptune'
+      NEPTUNE_CONFIG_FILE: '/var/lib/config/neptune.toml'
     network_mode: host
     healthcheck:
       test: [ "CMD", "/usr/local/bin/wget", "--spider", "--no-verbose", "http://127.0.0.1:8002/healthz" ]
@@ -16,24 +16,24 @@ services:
       start_period: 10s
     volumes:
       # keep this in sync with flood container mount config
-      - ./data/tyr/:/var/lib/tyr/
+      - ./data/neptune/:/var/lib/neptune/
 
       # keep this in sync with flood container mount config
       - ./data/downloads/:/downloads/
 
-      - ./config.toml:/var/lib/config/tyr.toml:ro
+      - ./config.toml:/var/lib/config/neptune.toml:ro
 
   flood:
-    image: 'ghcr.io/trim21/flood:tyr'
+    image: 'ghcr.io/trim21/flood:neptune'
     network_mode: host
     command:
       - --port=4008 # flood web-ui port
       - --noauth
-      - --tyr-url=http://127.0.0.1:8002/json_rpc
-      - --tyr-token=a-secret-token
+      - --neptune-url=http://127.0.0.1:8002/json_rpc
+      - --neptune-token=a-secret-token
     volumes:
-      # keep this in sync with tyr container mount config
-      - ./data/tyr/:/var/lib/tyr/
+      # keep this in sync with neptune container mount config
+      - ./data/neptune/:/var/lib/neptune/
 
-      # keep this in sync with tyr container mount config
+      # keep this in sync with neptune container mount config
       - ./data/downloads/:/downloads/

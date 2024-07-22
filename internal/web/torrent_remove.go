@@ -10,9 +10,9 @@ import (
 
 	"github.com/swaggest/usecase"
 
-	"tyr/internal/core"
-	"tyr/internal/metainfo"
-	"tyr/internal/web/jsonrpc"
+	"neptune/internal/core"
+	"neptune/internal/metainfo"
+	"neptune/internal/web/jsonrpc"
 )
 
 type removeTorrentRequest struct {

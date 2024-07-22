@@ -14,8 +14,8 @@ import (
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 
-	"tyr/internal/metainfo"
-	"tyr/internal/mse"
+	"neptune/internal/metainfo"
+	"neptune/internal/mse"
 )
 
 func BenchmarkMSE(b *testing.B) {

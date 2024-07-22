@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swaggest/usecase"
 
-	"tyr/internal/web/jsonrpc"
+	"neptune/internal/web/jsonrpc"
 )
 
 func TestHandler_Add(t *testing.T) {

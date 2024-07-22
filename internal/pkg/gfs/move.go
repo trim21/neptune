@@ -11,8 +11,8 @@ import (
 
 	"github.com/docker/go-units"
 
-	"tyr/internal/pkg/flowrate"
-	"tyr/internal/pkg/mempool"
+	"neptune/internal/pkg/flowrate"
+	"neptune/internal/pkg/mempool"
 )
 
 const invalidCrossDevice = "invalid cross-device link"

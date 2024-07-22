@@ -8,7 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"tyr/internal/pkg/gslice"
+	"neptune/internal/pkg/gslice"
 )
 
 func TestRemove(t *testing.T) {

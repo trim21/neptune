@@ -4,8 +4,8 @@
 package core
 
 import (
-	"tyr/internal/meta"
-	"tyr/internal/pkg/assert"
+	"neptune/internal/meta"
+	"neptune/internal/pkg/assert"
 )
 
 func (d *Download) pieceLength(index uint32) int64 {

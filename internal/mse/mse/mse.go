@@ -21,8 +21,8 @@ import (
 	"github.com/go-faster/xor"
 	"golang.org/x/sync/errgroup"
 
-	"tyr/internal/pkg/gsync"
-	"tyr/internal/pkg/mempool"
+	"neptune/internal/pkg/gsync"
+	"neptune/internal/pkg/mempool"
 )
 
 type CryptoMethod uint32

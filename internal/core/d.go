@@ -18,17 +18,17 @@ import (
 	"github.com/rs/zerolog/log"
 	"go.uber.org/atomic"
 
-	"tyr/internal/meta"
-	"tyr/internal/metainfo"
-	"tyr/internal/pkg/as"
-	"tyr/internal/pkg/bm"
-	"tyr/internal/pkg/empty"
-	"tyr/internal/pkg/filepool"
-	"tyr/internal/pkg/flowrate"
-	"tyr/internal/pkg/gsync"
-	"tyr/internal/pkg/heap"
-	"tyr/internal/pkg/random"
-	"tyr/internal/proto"
+	"neptune/internal/meta"
+	"neptune/internal/metainfo"
+	"neptune/internal/pkg/as"
+	"neptune/internal/pkg/bm"
+	"neptune/internal/pkg/empty"
+	"neptune/internal/pkg/filepool"
+	"neptune/internal/pkg/flowrate"
+	"neptune/internal/pkg/gsync"
+	"neptune/internal/pkg/heap"
+	"neptune/internal/pkg/random"
+	"neptune/internal/proto"
 )
 
 type State uint8

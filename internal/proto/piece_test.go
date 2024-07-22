@@ -9,7 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"tyr/internal/proto"
+	"neptune/internal/proto"
 )
 
 func TestSendPiece(t *testing.T) {

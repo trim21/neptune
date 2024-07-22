@@ -7,7 +7,7 @@ import (
 	"context"
 	"io"
 
-	"tyr/internal/pkg/flowrate"
+	"neptune/internal/pkg/flowrate"
 )
 
 // Copy a file with ctx manager controlled

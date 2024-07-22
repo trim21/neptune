@@ -10,8 +10,8 @@ import (
 
 	"github.com/samber/lo"
 
-	"tyr/internal/metainfo"
-	"tyr/internal/pkg/null"
+	"neptune/internal/metainfo"
+	"neptune/internal/pkg/null"
 )
 
 type File struct {

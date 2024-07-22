@@ -8,7 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"tyr/internal/pkg/gsync"
+	"neptune/internal/pkg/gsync"
 )
 
 func TestPool(t *testing.T) {

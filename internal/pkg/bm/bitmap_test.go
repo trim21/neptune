@@ -10,7 +10,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"tyr/internal/pkg/bm"
+	"neptune/internal/pkg/bm"
 )
 
 func TestBitmap(t *testing.T) {

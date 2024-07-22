@@ -24,17 +24,17 @@ import (
 	"github.com/rs/zerolog"
 	"go.uber.org/atomic"
 
-	"tyr/internal/pkg/as"
-	"tyr/internal/pkg/bm"
-	"tyr/internal/pkg/empty"
-	"tyr/internal/pkg/flowrate"
-	"tyr/internal/pkg/gsync"
-	"tyr/internal/pkg/null"
-	"tyr/internal/pkg/random"
-	"tyr/internal/pkg/unsafe"
-	"tyr/internal/proto"
-	"tyr/internal/util"
-	"tyr/internal/version"
+	"neptune/internal/pkg/as"
+	"neptune/internal/pkg/bm"
+	"neptune/internal/pkg/empty"
+	"neptune/internal/pkg/flowrate"
+	"neptune/internal/pkg/gsync"
+	"neptune/internal/pkg/null"
+	"neptune/internal/pkg/random"
+	"neptune/internal/pkg/unsafe"
+	"neptune/internal/proto"
+	"neptune/internal/util"
+	"neptune/internal/version"
 )
 
 const outPexExtID proto.ExtensionMessage = 1

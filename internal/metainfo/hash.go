@@ -9,7 +9,7 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 
-	"tyr/internal/pkg/unsafe"
+	"neptune/internal/pkg/unsafe"
 )
 
 type Hash [sha1.Size]byte

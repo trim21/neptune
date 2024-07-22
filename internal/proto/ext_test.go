@@ -9,15 +9,15 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/trim21/go-bencode"
 
-	"tyr/internal/pkg/null"
-	"tyr/internal/proto"
+	"neptune/internal/pkg/null"
+	"neptune/internal/proto"
 )
 
 func TestEncodeExtHandshake(t *testing.T) {
 	t.Parallel()
 
 	raw, err := bencode.Marshal(proto.ExtHandshake{
-		V: null.NewString("tyr 0.0.1"),
+		V: null.NewString("neptune 0.0.1"),
 		Mapping: proto.ExtMapping{
 			Pex: null.Null[proto.ExtensionMessage]{
 				Value: 10,
@@ -28,5 +28,5 @@ func TestEncodeExtHandshake(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	require.Equal(t, `d1:md6:ut_pexi10ee4:reqqi20e1:v9:tyr 0.0.1e`, string(raw))
+	require.Equal(t, `d1:md6:ut_pexi10ee4:reqqi20e1:v9:neptune 0.0.1e`, string(raw))
 }

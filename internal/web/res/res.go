@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"tyr/internal/pkg/unsafe"
+	"neptune/internal/pkg/unsafe"
 )
 
 func JSON(w http.ResponseWriter, code int, value any) {

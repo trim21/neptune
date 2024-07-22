@@ -11,7 +11,7 @@ import (
 	"github.com/docker/go-units"
 	"github.com/dustin/go-humanize"
 
-	"tyr/internal/pkg/filepool"
+	"neptune/internal/pkg/filepool"
 )
 
 const defaultBlockSize = units.KiB * 16

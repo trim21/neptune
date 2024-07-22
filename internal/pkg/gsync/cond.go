@@ -6,7 +6,7 @@ package gsync
 import (
 	"sync"
 
-	"tyr/internal/pkg/empty"
+	"neptune/internal/pkg/empty"
 )
 
 // Cond is a chan based sync.Cond can be selected.

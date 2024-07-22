@@ -60,13 +60,13 @@ tasks:
         vars:
           GOOS: windows
           GOARCH: amd64
-          OUT_PATH: 'dist/tyr_windows_amd64.exe'
+          OUT_PATH: 'dist/neptune_windows_amd64.exe'
 
       - task: binary
         vars:
           GOOS: windows
           GOARCH: arm64
-          OUT_PATH: 'dist/tyr_windows_arm64.exe'
+          OUT_PATH: 'dist/neptune_windows_arm64.exe'
 
   release:darwin:
     internal: true
@@ -75,12 +75,12 @@ tasks:
         vars:
           GOOS: darwin
           GOARCH: amd64
-          OUT_PATH: 'dist/tyr_darwin_amd64'
+          OUT_PATH: 'dist/neptune_darwin_amd64'
       - task: binary
         vars:
           GOOS: darwin
           GOARCH: arm64
-          OUT_PATH: 'dist/tyr_darwin_arm64'
+          OUT_PATH: 'dist/neptune_darwin_arm64'
 
   release:linux:
     internal: true
@@ -89,12 +89,12 @@ tasks:
         vars:
           GOOS: linux
           GOARCH: amd64
-          OUT_PATH: 'dist/tyr_linux_amd64'
+          OUT_PATH: 'dist/neptune_linux_amd64'
       - task: binary
         vars:
           GOOS: linux
           GOARCH: arm64
-          OUT_PATH: 'dist/tyr_linux_arm64'
+          OUT_PATH: 'dist/neptune_linux_arm64'
 
   binary:
     internal: true
@@ -110,12 +110,12 @@ tasks:
         {{ if .GOARCH }}GOARCH={{ .GOARCH }}{{ end }}
         {{ if .GOOS }}GOOS={{ .GOOS }}{{ end }}
         go build
-        -ldflags="-X 'tyr/internal/version.Ref={{ .REF }}' -X 'tyr/internal/version.BuildDate={{ dateInZone "2006-01-02T15:04:05Z07:00" (now) "UTC" }}'" 
+        -ldflags="-X 'neptune/internal/version.Ref={{ .REF }}' -X 'neptune/internal/version.BuildDate={{ dateInZone "2006-01-02T15:04:05Z07:00" (now) "UTC" }}'" 
         -buildvcs=true {{ .EXTRA_FLAGS }} -trimpath -tags release -o {{ .OUT_PATH }}
 
   build:
     generates:
-      - dist/tyr.exe
+      - dist/neptune.exe
     sources:
       - go.mod
       - go.sum
@@ -124,7 +124,7 @@ tasks:
       - task: binary
         vars:
           TAG: release
-          OUT_PATH: dist/tyr.exe
+          OUT_PATH: dist/neptune.exe
 
   dev:
     generates:
@@ -139,22 +139,20 @@ tasks:
     dotenv:
       - .env
     cmds:
-#      - go build -trimpath -race -o dist/dev/tmp.exe
       - go build -trimpath -o dist/dev/tmp.exe
-      #
       - cmd: |
-          until rm dist/dev/server.exe -rf && cp dist/dev/tmp.exe dist/dev/tyr.exe
+          until rm dist/dev/server.exe -rf && cp dist/dev/tmp.exe dist/dev/neptune.exe
           do
             echo "can't copy, try again"
             sleep 1
           done
-      - dist/dev/tyr.exe --debug --config-file config.yaml
+      - dist/dev/neptune.exe --debug --config-file config.yaml
 
   dev:release:
     deps:
       - release:windows
     cmds:
-      - cp dist/tyr_windows_amd64.exe dist/dev/release.exe
+      - cp dist/neptune_windows_amd64.exe dist/dev/release.exe
       - dist/dev/release.exe --web 127.0.0.1:8002 --debug
 
   pprof:

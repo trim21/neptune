@@ -9,7 +9,7 @@ import (
 	"context"
 	"io"
 
-	"tyr/internal/pkg/flowrate"
+	"neptune/internal/pkg/flowrate"
 )
 
 func copyImpl(ctx context.Context, dest io.Writer, src io.Reader, buf []byte, monitor *flowrate.Monitor) error {

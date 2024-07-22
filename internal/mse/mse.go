@@ -7,8 +7,8 @@ import (
 	"io"
 	"net"
 
-	"tyr/internal/metainfo"
-	"tyr/internal/mse/mse"
+	"neptune/internal/metainfo"
+	"neptune/internal/mse/mse"
 )
 
 type CryptoMethod = mse.CryptoMethod

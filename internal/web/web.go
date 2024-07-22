@@ -20,10 +20,10 @@ import (
 	"github.com/swaggest/usecase"
 	"golang.org/x/net/trace"
 
-	"tyr/internal/core"
-	"tyr/internal/version"
-	"tyr/internal/web/jsonrpc"
-	"tyr/internal/web/res"
+	"neptune/internal/core"
+	"neptune/internal/version"
+	"neptune/internal/web/jsonrpc"
+	"neptune/internal/web/res"
 )
 
 //go:embed description.md
@@ -85,7 +85,7 @@ func New(c *core.Client, token string, enableDebug bool) http.Handler {
 			})
 		}
 
-		r.Mount("/debug/tyr", c.DebugHandlers())
+		r.Mount("/debug/neptune", c.DebugHandlers())
 		r.HandleFunc("/debug/events", trace.Events)
 
 		r.Mount("/debug", middleware.Profiler())

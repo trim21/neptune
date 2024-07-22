@@ -16,10 +16,10 @@ import (
 	"github.com/swaggest/usecase"
 	"github.com/trim21/errgo"
 
-	"tyr/internal/core"
-	"tyr/internal/meta"
-	"tyr/internal/metainfo"
-	"tyr/internal/web/jsonrpc"
+	"neptune/internal/core"
+	"neptune/internal/meta"
+	"neptune/internal/metainfo"
+	"neptune/internal/web/jsonrpc"
 )
 
 type AddTorrentRequest struct {

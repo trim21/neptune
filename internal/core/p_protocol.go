@@ -15,9 +15,9 @@ import (
 	"github.com/trim21/errgo"
 	"github.com/trim21/go-bencode"
 
-	"tyr/internal/pkg/assert"
-	"tyr/internal/pkg/bm"
-	"tyr/internal/proto"
+	"neptune/internal/pkg/assert"
+	"neptune/internal/pkg/bm"
+	"neptune/internal/proto"
 )
 
 func (p *Peer) keepAlive() {

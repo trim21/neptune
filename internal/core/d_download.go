@@ -14,14 +14,14 @@ import (
 	"github.com/kelindar/bitmap"
 	"github.com/trim21/errgo"
 
-	"tyr/internal/meta"
-	"tyr/internal/pkg/as"
-	"tyr/internal/pkg/bm"
-	"tyr/internal/pkg/global/tasks"
-	"tyr/internal/pkg/gslice"
-	"tyr/internal/pkg/heap"
-	"tyr/internal/pkg/mempool"
-	"tyr/internal/proto"
+	"neptune/internal/meta"
+	"neptune/internal/pkg/as"
+	"neptune/internal/pkg/bm"
+	"neptune/internal/pkg/global/tasks"
+	"neptune/internal/pkg/gslice"
+	"neptune/internal/pkg/heap"
+	"neptune/internal/pkg/mempool"
+	"neptune/internal/proto"
 )
 
 func (d *Download) backgroundReqScheduler() {

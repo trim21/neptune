@@ -11,9 +11,9 @@ import (
 	"syscall"
 	"time"
 
-	"tyr/internal/pkg/global"
-	"tyr/internal/pkg/global/tasks"
-	"tyr/internal/proto"
+	"neptune/internal/pkg/global"
+	"neptune/internal/pkg/global/tasks"
+	"neptune/internal/proto"
 )
 
 type connHistory struct {

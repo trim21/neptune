@@ -11,7 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"tyr/internal/pkg/as"
+	"neptune/internal/pkg/as"
 )
 
 func TestUint32(t *testing.T) {

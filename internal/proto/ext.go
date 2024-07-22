@@ -4,7 +4,7 @@
 package proto
 
 import (
-	"tyr/internal/pkg/null"
+	"neptune/internal/pkg/null"
 )
 
 type ExtHandshake struct {

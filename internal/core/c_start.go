@@ -14,10 +14,10 @@ import (
 	"github.com/trim21/conntrack"
 	"github.com/trim21/errgo"
 
-	"tyr/internal/pkg/global"
-	"tyr/internal/pkg/global/tasks"
-	"tyr/internal/proto"
-	"tyr/internal/util"
+	"neptune/internal/pkg/global"
+	"neptune/internal/pkg/global/tasks"
+	"neptune/internal/proto"
+	"neptune/internal/util"
 )
 
 func (c *Client) Start() error {

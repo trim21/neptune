@@ -1,4 +1,4 @@
-# TYR
+# Neptune
 
 A BitTorrent client
 
@@ -6,7 +6,7 @@ A BitTorrent client
 
 ## Docker
 
-Pre-built docker image [`ghcr.io/trim21/tyr`](https://github.com/trim21/tyr/pkgs/container/tyr)
+Pre-built docker image [`ghcr.io/trim21/neptune`](https://github.com/trim21/neptune/pkgs/container/neptune)
 
 Full docker compose example can be found at [./docker-compose.yaml](./etc/example/)
 

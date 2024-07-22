@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/trim21/go-bencode"
 
-	"tyr/internal/pkg/null"
+	"neptune/internal/pkg/null"
 )
 
 func TestNull_Ptr(t *testing.T) {
