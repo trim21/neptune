@@ -1,19 +1,23 @@
 # Neptune
 
-A BitTorrent client
+A Headless BitTorrent client focus on performance.
 
 ## Install
 
-## Docker
+### Docker
 
-Pre-built docker
-image [`ghcr.io/trim21/neptune`](https://github.com/trim21/neptune/pkgs/container/neptune). 
+use pre-build docker
+image [`ghcr.io/trim21/neptune`](https://github.com/trim21/neptune/pkgs/container/neptune).
 
 Platform `linux/amd64` and `linux/arm64` are supported.
 
 Full docker compose example can be found at [./docker-compose.yaml](./etc/example/)
 
-## Build
+### Pre-build Binary
+
+There will be pre-build binary in github release when first version released.
+
+### Build
 
 At first, you need to install go>=1.22 from <https://go.dev/> and go-task
 from https://taskfile.dev/
