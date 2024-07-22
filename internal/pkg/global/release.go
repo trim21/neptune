@@ -11,6 +11,6 @@ import (
 	"neptune/internal/version"
 )
 
-var UserAgent = fmt.Sprintf("Tyr/%d.%d.%d (https://github.com/trim21/neptune)", version.MAJOR, version.MINOR, version.PATCH)
+var UserAgent = fmt.Sprintf("Neptune/%d.%d.%d (https://github.com/trim21/neptune)", version.MAJOR, version.MINOR, version.PATCH)
 
 const Dev = false

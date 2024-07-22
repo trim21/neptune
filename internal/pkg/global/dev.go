@@ -5,7 +5,7 @@
 
 package global
 
-const UserAgent = "Tyr/development (https://github.com/trim21/neptune)"
+const UserAgent = "Neptune/development (https://github.com/trim21/neptune)"
 
 var Dev bool
 

@@ -51,9 +51,9 @@ func (i PeerID) Zero() bool {
 	return i == emptyPeerID
 }
 
-var peerIDPrefix = fmt.Sprintf("-TY%x%x%x0-", version.MAJOR, version.MINOR, version.PATCH)
+var peerIDPrefix = fmt.Sprintf("-NE%x%x%x0-", version.MAJOR, version.MINOR, version.PATCH)
 
-var handshakeAgent = fmt.Sprintf("Tyr %d.%d.%d", version.MAJOR, version.MINOR, version.PATCH)
+var handshakeAgent = fmt.Sprintf("Neptune %d.%d.%d", version.MAJOR, version.MINOR, version.PATCH)
 
 func NewPeerID() (peerID PeerID) {
 	copy(peerID[:], peerIDPrefix)

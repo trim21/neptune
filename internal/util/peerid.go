@@ -14,7 +14,7 @@ var azureusStyleMapping = map[[2]byte]string{
 	[2]byte{'T', 'R'}: "Transmission",
 	[2]byte{'L', 'T'}: "libtorrent",
 	[2]byte{'L', 't'}: "libTorrent",
-	[2]byte{'T', 'Y'}: "Tyr",
+	[2]byte{'N', 'E'}: "Neptune",
 	[2]byte{'K', 'T'}: "KTorrent",
 	[2]byte{'U', 'T'}: "µTorrent",
 }
