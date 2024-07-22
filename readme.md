@@ -20,7 +20,7 @@ MacOS: Catalina 10.15 or newer.
 
 ### Docker
 
-use pre-built docker
+pre-built docker
 image [`ghcr.io/trim21/neptune`](https://github.com/trim21/neptune/pkgs/container/neptune).
 
 Platform `linux/amd64` and `linux/arm64` are supported.
