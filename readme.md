@@ -14,11 +14,9 @@ Pre-built static binaries have zero system library dependency and does not requi
 
 But there are still some there are still minimal OS version requirements by golang toolchain.
 
-Linux: kernel >= v3.1, no glibc requirements.
-
-Windows: Windows 10 and higher or Windows Server 2016 and higher.
-
-MacOS: Catalina 10.15 or newer.
+- Linux: kernel >= v3.1.
+- Windows: Windows 10 and higher or Windows Server 2016 and higher.
+- MacOS: Catalina 10.15 or newer.
 
 ### Docker
 
