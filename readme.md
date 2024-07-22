@@ -4,6 +4,17 @@ A headless BitTorrent client focus on performance.
 
 ## Install
 
+### Pre-build Binary
+
+There will be pre-built static binary in GitHub release when first version released.
+
+Pre-built static binaries have zero system library dependency and does not require glibc.
+But there are still some there are still minimal OS version requirements by golang toolchain.
+
+Linux: kernel least v3.1, no glibc requirements.
+Windows: Windows 10 and higher or Windows Server 2016 and higher.
+MacOS: Catalina 10.15 or newer.
+
 ### Docker
 
 use pre-built docker
@@ -12,10 +23,6 @@ image [`ghcr.io/trim21/neptune`](https://github.com/trim21/neptune/pkgs/containe
 Platform `linux/amd64` and `linux/arm64` are supported.
 
 Full docker compose example can be found at [./docker-compose.yaml](./etc/example/)
-
-### Pre-build Binary
-
-There will be pre-built binary in github release when first version released.
 
 ### Build
 
@@ -56,8 +63,10 @@ changed.
 This project is mixed licensed.
 
 Most code are licensed under GPL v3,
-but some code are copied from [anacrolix/torrent](https://github.com/anacrolix/torrent), these files are licensed under MPL-2.0.
+but some code are copied from [anacrolix/torrent](https://github.com/anacrolix/torrent), these
+files are licensed under MPL-2.0.
 
-There are also some files in internal/web/jsonrpc are copied from <https://github.com/swaggest/jsonrpc>, these files are licensed under MIT.
+There are also some files in internal/web/jsonrpc are copied
+from <https://github.com/swaggest/jsonrpc>, these files are licensed under MIT.
 
 You will find license in each file header.
