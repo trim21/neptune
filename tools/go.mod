@@ -5,7 +5,7 @@ go 1.22
 toolchain go1.22.5
 
 require (
-	github.com/dkorunic/betteralign v0.4.4
+	github.com/dkorunic/betteralign v0.4.5
 	golang.org/x/tools v0.23.0
 	golang.org/x/vuln v1.1.3
 	gotest.tools/gotestsum v1.12.0
@@ -36,7 +36,7 @@ require (
 	github.com/stretchr/testify v1.9.0 // indirect
 	go.uber.org/automaxprocs v1.5.3 // indirect
 	go.uber.org/goleak v1.2.1 // indirect
-	golang.org/x/exp v0.0.0-20240613232115-7f521ea00fb8 // indirect
+	golang.org/x/exp v0.0.0-20240719175910-8a7402abbf56 // indirect
 	golang.org/x/mod v0.19.0 // indirect
 	golang.org/x/sync v0.7.0 // indirect
 	golang.org/x/sys v0.22.0 // indirect
