@@ -6,7 +6,7 @@ A headless BitTorrent client focus on performance.
 
 ### Docker
 
-use pre-build docker
+use pre-built docker
 image [`ghcr.io/trim21/neptune`](https://github.com/trim21/neptune/pkgs/container/neptune).
 
 Platform `linux/amd64` and `linux/arm64` are supported.
@@ -15,7 +15,7 @@ Full docker compose example can be found at [./docker-compose.yaml](./etc/exampl
 
 ### Pre-build Binary
 
-There will be pre-build binary in github release when first version released.
+There will be pre-built binary in github release when first version released.
 
 ### Build
 
