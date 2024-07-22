@@ -9,10 +9,13 @@ A headless BitTorrent client focus on performance.
 There will be pre-built static binary in GitHub release when first version released.
 
 Pre-built static binaries have zero system library dependency and does not require glibc.
+
 But there are still some there are still minimal OS version requirements by golang toolchain.
 
 Linux: kernel least v3.1, no glibc requirements.
+
 Windows: Windows 10 and higher or Windows Server 2016 and higher.
+
 MacOS: Catalina 10.15 or newer.
 
 ### Docker
