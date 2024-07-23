@@ -9,8 +9,8 @@ import (
 )
 
 func SendSuggest(conn io.Writer, index uint32) error {
-	buf := pool.Get()
-	defer pool.Put(buf)
+	buf := smallBufPool.Get()
+	defer smallBufPool.Put(buf)
 
 	buf.B = binary.BigEndian.AppendUint32(buf.B, 5)
 	buf.B = append(buf.B, byte(Suggest))

@@ -7,4 +7,4 @@ import (
 	"github.com/valyala/bytebufferpool"
 )
 
-var pool bytebufferpool.Pool
+var smallBufPool bytebufferpool.Pool

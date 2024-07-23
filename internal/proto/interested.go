@@ -5,14 +5,20 @@ package proto
 
 import (
 	"io"
+
+	"neptune/internal/pkg/ro"
 )
 
+var interested = ro.B([]byte{0, 0, 0, 1, byte(Interested)})
+
 func SendInterested(w io.Writer) error {
-	_, err := w.Write([]byte{0, 0, 0, 1, byte(Interested)})
+	_, err := interested.WriteTo(w)
 	return err
 }
 
+var notInterested = ro.B([]byte{0, 0, 0, 1, byte(NotInterested)})
+
 func SendNotInterested(w io.Writer) error {
-	_, err := w.Write([]byte{0, 0, 0, 1, byte(NotInterested)})
+	_, err := notInterested.WriteTo(w)
 	return err
 }

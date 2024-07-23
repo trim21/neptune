@@ -38,8 +38,8 @@ func (c ChunkResponse) Request() ChunkRequest {
 }
 
 func SendPiece(conn io.Writer, r *ChunkResponse) error {
-	buf := pool.Get()
-	defer pool.Put(buf)
+	buf := smallBufPool.Get()
+	defer smallBufPool.Put(buf)
 
 	buf.B = binary.BigEndian.AppendUint32(buf.B, uint32(len(r.Data)+sizeByte+sizeUint32*2))
 	buf.B = append(buf.B, byte(Piece))
