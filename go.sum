@@ -162,8 +162,8 @@ github.com/trim21/conntrack v0.0.2 h1:w3yZKwXTdGVwUCIIebWK43hWthzhbsAGcFnfjmjXSF
 github.com/trim21/conntrack v0.0.2/go.mod h1:+WnKAYkUv87gZMdJcRjN6xEK281cuZ4QM0JRJltqvgs=
 github.com/trim21/errgo v0.0.3 h1:q0cUPTs+4c5NxByA4f0HUGRvlNyBlUtdxFiTKQdTE68=
 github.com/trim21/errgo v0.0.3/go.mod h1:AH1KzogdvSkSPXbZq9QAuqSt1L1Eu5W8eYK32zPYv9s=
-github.com/trim21/go-bencode v0.0.5 h1:j+sF6OjSQPK8MFYJDDt2J48jmsOMAUPasq0GkUi377g=
-github.com/trim21/go-bencode v0.0.5/go.mod h1:qE+DPKJVxiP6Tjkroh1gEoeCmrYvScXD6XGO5t9eSSg=
+github.com/trim21/go-bencode v0.0.6 h1:unmUfyZLOb+j4Ef2zGlPDjEYAbEksioabK8N7QYFTdc=
+github.com/trim21/go-bencode v0.0.6/go.mod h1:qE+DPKJVxiP6Tjkroh1gEoeCmrYvScXD6XGO5t9eSSg=
 github.com/valyala/bytebufferpool v1.0.0 h1:GqA5TC/0021Y/b9FG4Oi9Mr3q7XYx6KllzawFIhcdPw=
 github.com/valyala/bytebufferpool v1.0.0/go.mod h1:6bBcMArwyJ5K/AmCkWv1jt77kVWyCJ6HpOuEn7z0Csc=
 github.com/yudai/gojsondiff v1.0.0 h1:27cbfqXLVEJ1o8I6v3y9lg8Ydm53EKqHXAOMxEGlCOA=
