@@ -102,7 +102,7 @@ func (d *Download) buildPieceToCheck(efs map[int]*existingFile) []uint32 {
 
 	var r = make([]uint32, 0, d.info.NumPieces)
 
-	for i := uint32(0); i < d.info.NumPieces; i++ {
+	for i := range d.info.NumPieces {
 		p := d.pieceInfo[i]
 		shouldCheck := true
 		for _, c := range p.fileChunks {

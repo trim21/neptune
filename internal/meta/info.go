@@ -54,7 +54,7 @@ func FromTorrent(m metainfo.MetaInfo) (Info, error) {
 	}
 
 	var pieces = make([]metainfo.Hash, info.NumPieces())
-	for i := 0; i < info.NumPieces(); i++ {
+	for i := range info.NumPieces() {
 		pieces[i] = metainfo.Hash(info.Pieces[i*sha1.Size : (i+1)*sha1.Size])
 	}
 

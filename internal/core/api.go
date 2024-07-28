@@ -272,7 +272,12 @@ func (c *Client) RemoveTorrent(h metainfo.Hash, removeData bool) error {
 
 	d.cancel()
 
-	d.filePool.Cache.Purge()
+	d.peers.Range(func(key netip.AddrPort, p *Peer) bool {
+		p.close()
+		return true
+	})
+
+	//d.filePool.Cache.Purge()
 
 	var err error
 	if removeData {
@@ -354,7 +359,8 @@ func debugPrintTrackers(w io.Writer, d *Download) {
 
 	t := table.NewWriter()
 
-	t.AppendHeader(table.Row{"tier", "url", "seeders", "leechers", "last announce", "next announce", "pendingPeers", "msg", "error"})
+	t.AppendHeader(table.Row{"tier", "url", "seeders", "leechers", "last announce", "next announce",
+		"pendingPeers", "msg", "error"})
 
 	t.SortBy([]table.SortBy{{Name: "tier"}, {Name: "url"}})
 
@@ -381,22 +387,25 @@ func debugPrintTrackers(w io.Writer, d *Download) {
 func debugPrintPeers(w io.Writer, d *Download) {
 	t := table.NewWriter()
 
-	t.AppendHeader(table.Row{"address", "download rate", "pending requests", "pending pieces", "client", "progress",
-		"peer choke", "peer interested", "our choke", "our interest", "allow fast"})
+	t.AppendHeader(table.Row{"address", "down rate", "up rate", "our req",
+		"queue piece", "client", "progress",
+		"peer choke", "peer interest", "our choke", "our interest", "fast", "peer req"})
 
 	d.peers.Range(func(addr netip.AddrPort, p *Peer) bool {
 		t.AppendRow(table.Row{
-			addr,
+			lo.Elipse(addr.String(), 20),
 			humanize.IBytes(uint64(p.ioIn.Status().CurRate)) + "/s",
+			humanize.IBytes(uint64(p.ioOut.Status().CurRate)) + "/s",
 			p.myRequests.Size(),
 			len(p.ourPieceRequests),
 			*p.UserAgent.Load(),
-			fmt.Sprintf("%6.2f %%", float64(p.Bitmap.Count())/float64(d.info.NumPieces)*100),
+			fmt.Sprintf("%6.1f %%", float64(p.Bitmap.Count())/float64(d.info.NumPieces)*100),
 			p.peerChoking.Load(),
 			p.peerInterested.Load(),
-			p.amChoking.Load(),
-			p.amInterested.Load(),
+			p.ourChoking.Load(),
+			p.ourInterested.Load(),
 			p.allowFast.ToArray(),
+			p.peerRequests.Size(),
 		})
 		return true
 	})

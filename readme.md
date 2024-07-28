@@ -61,6 +61,28 @@ changed.
 
 `task release` build a client in release mode.
 
+## Usage
+
+Neptune doesn't provide a way to update config after process started, you need to use arguments and
+config file to set config.
+
+run `./neptune --help` to show all supported flags.
+
+## Config File
+
+Config use [TOML v1.0.0](https://toml.io/en/)
+
+```toml
+[application]
+crypto = "force"
+p2p-port = 54482
+fallocate = true
+```
+
+All config key-value pair are optional
+
+you can use
+
 ## License
 
 This project is mixed licensed.

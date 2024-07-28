@@ -13,7 +13,7 @@ import (
 
 func TestSecureRandomString(t *testing.T) {
 	t.Parallel()
-	for i := 0; i < 300; i++ {
+	for range 300 {
 		s := random.UrlSafeStr(64)
 		require.Equal(t, 64, len(s))
 	}
@@ -21,15 +21,15 @@ func TestSecureRandomString(t *testing.T) {
 
 func TestBias(t *testing.T) {
 	t.Parallel()
-	const slen = 33
+	const sLen = 33
 	const loop = 100000
 
 	counts := make(map[rune]int)
 	var count int64
 
-	for i := 0; i < loop; i++ {
-		s := random.UrlSafeStr(slen)
-		require.Equal(t, slen, len(s))
+	for range loop {
+		s := random.UrlSafeStr(sLen)
+		require.Equal(t, sLen, len(s))
 		for _, b := range s {
 			counts[b]++
 			count++

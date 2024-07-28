@@ -23,7 +23,6 @@ import (
 	"neptune/internal/pkg/as"
 	"neptune/internal/pkg/bm"
 	"neptune/internal/pkg/empty"
-	"neptune/internal/pkg/filepool"
 	"neptune/internal/pkg/flowrate"
 	"neptune/internal/pkg/gsync"
 	"neptune/internal/pkg/heap"
@@ -51,8 +50,6 @@ type Download struct {
 	ctx context.Context
 	err error
 
-	filePool *filepool.FilePool
-
 	cancel            context.CancelFunc
 	c                 *Client
 	ioDown            *flowrate.Monitor // io rate for network data and disk moving/checking data
@@ -71,12 +68,11 @@ type Download struct {
 
 	// signal to schedule request to pendingPeers
 	// should be fired when pendingPeers finish pieces requests
-	scheduleRequestSignal chan empty.Empty
-	scheduleResponse      chan empty.Empty
-	pendingPeersSignal    chan empty.Empty
+	scheduleRequestSignal  chan empty.Empty
+	scheduleResponseSignal chan empty.Empty
+	pendingPeersSignal     chan empty.Empty
 
-	reqPieceCount map[uint32]uint32
-	stateCond     *gsync.Cond
+	stateCond *gsync.Cond
 
 	basePath    string
 	downloadDir string
@@ -187,7 +183,6 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 		tags:     tags,
 		basePath: basePath,
 
-		filePool:       filepool.New(),
 		normalChunkLen: as.Uint32((info.PieceLength + defaultBlockSize - 1) / defaultBlockSize),
 
 		seq: *atomic.NewBool(true),
@@ -214,13 +209,12 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 
 		bm: bm.New(info.NumPieces),
 
-		reqPieceCount: make(map[uint32]uint32, info.NumPieces),
-
 		bitfieldSize: (info.NumPieces + 7) / 8,
 
-		scheduleRequestSignal: make(chan empty.Empty, 1),
-		pendingPeersSignal:    make(chan empty.Empty),
-		buildNetworkPieces:    make(chan empty.Empty, 1),
+		scheduleRequestSignal:  make(chan empty.Empty, 1),
+		scheduleResponseSignal: make(chan empty.Empty, 1),
+		pendingPeersSignal:     make(chan empty.Empty),
+		buildNetworkPieces:     make(chan empty.Empty, 1),
 
 		downloadDir: basePath,
 

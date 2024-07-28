@@ -11,7 +11,6 @@ import (
 
 	"github.com/docker/go-units"
 	"github.com/fatih/color"
-	"github.com/samber/lo"
 	"github.com/trim21/errgo"
 	"github.com/trim21/go-bencode"
 
@@ -19,31 +18,6 @@ import (
 	"neptune/internal/pkg/bm"
 	"neptune/internal/proto"
 )
-
-func (p *Peer) keepAlive() {
-	timer := time.NewTicker(time.Second * 90) // 1.5 min
-	defer timer.Stop()
-
-	defer p.cancel()
-
-	for {
-		select {
-		case <-p.ctx.Done():
-			p.log.Trace().Msg("ctx done, stop keep alive")
-			return
-		case <-timer.C:
-			t := p.lastSend.Load()
-			// lastSend not set, doing handshake
-			if t == nil || t.Before(time.Now().Add(-time.Second*1)) {
-				err := p.sendEvent(Event{keepAlive: true})
-				if err != nil {
-					p.log.Trace().Err(err).Msg("failed to send keep alive message, stop keep alive")
-					return
-				}
-			}
-		}
-	}
-}
 
 type Event struct {
 	Bitmap       *bm.Bitmap
@@ -60,7 +34,11 @@ type Event struct {
 }
 
 func (p *Peer) DecodeEvents() (Event, error) {
-	_ = p.Conn.SetReadDeadline(time.Now().Add(time.Minute * 3))
+	err := p.Conn.SetReadDeadline(time.Now().Add(time.Minute * 3))
+	if err != nil {
+		return Event{}, err
+	}
+
 	n, err := io.ReadFull(p.r, p.readBuf[:])
 	if err != nil {
 		return Event{}, err
@@ -80,7 +58,6 @@ func (p *Peer) DecodeEvents() (Event, error) {
 		return Event{keepAlive: true}, nil
 	}
 
-	//p.log.Trace().Msgf("try to decode message with length %d", size)
 	n, err = io.ReadFull(p.r, p.readBuf[:1])
 	if err != nil {
 		return Event{}, err
@@ -235,7 +212,7 @@ func (p *Peer) decodePiece(size uint32) (Event, error) {
 func (p *Peer) write(e Event) error {
 	_ = p.Conn.SetWriteDeadline(time.Now().Add(time.Minute * 3))
 
-	p.lastSend.Store(lo.ToPtr(time.Now()))
+	p.lastSend.Store(time.Now())
 
 	if e.keepAlive {
 		p.log.Trace().Msg("send keepalive")
@@ -276,12 +253,24 @@ func (p *Peer) write(e Event) error {
 		return proto.SendReject(p.w, e.Req)
 	case proto.Extended:
 		if e.ExtensionID == proto.ExtensionHandshake {
-			err := p.w.WriteByte(byte(e.ExtensionID))
+			raw, err := bencode.Marshal(e.ExtHandshake)
 			if err != nil {
 				return err
 			}
 
-			raw, err := bencode.Marshal(e.ExtHandshake)
+			binary.BigEndian.PutUint32(p.writeBuf[:], uint32(len(raw))+2)
+
+			_, err = p.w.Write(p.writeBuf[:])
+			if err != nil {
+				return err
+			}
+
+			err = p.w.WriteByte(byte(proto.Extended))
+			if err != nil {
+				return err
+			}
+
+			err = p.w.WriteByte(byte(e.ExtensionID))
 			if err != nil {
 				return err
 			}

@@ -19,6 +19,7 @@ import (
 	"neptune/internal/pkg/bm"
 	"neptune/internal/pkg/global/tasks"
 	"neptune/internal/pkg/gslice"
+	"neptune/internal/pkg/gsync"
 	"neptune/internal/pkg/heap"
 	"neptune/internal/pkg/mempool"
 	"neptune/internal/proto"
@@ -33,28 +34,14 @@ func (d *Download) backgroundReqScheduler() {
 		case <-d.ctx.Done():
 			return
 		case <-d.scheduleRequestSignal:
-			if d.GetState() != Downloading {
-				select {
-				case <-d.ctx.Done():
-					return
-				case <-d.stateCond.C:
-					if d.GetState() != Downloading {
-						continue
-					}
-				}
+			if !d.wait(Downloading) {
+				continue
 			}
 
 			d.scheduleSeq()
 		case <-timer.C:
-			if d.GetState() != Downloading {
-				select {
-				case <-d.ctx.Done():
-					return
-				case <-d.stateCond.C:
-					if d.GetState() != Downloading {
-						continue
-					}
-				}
+			if !d.wait(Downloading) {
+				continue
 			}
 
 			d.scheduleSeq()
@@ -98,7 +85,11 @@ func (d *Download) backgroundResHandler() {
 
 const defaultChunkHeapSizeLimit = 1000
 
-var pieceChunksPool = mempool.New()
+var pieceChunksPool = gsync.NewPool(func() *mempool.Buffer {
+	return &mempool.Buffer{
+		B: make([]byte, defaultBlockSize*10),
+	}
+})
 
 func (d *Download) handleRes(res *proto.ChunkResponse) {
 	d.log.Trace().
@@ -147,6 +138,7 @@ func (d *Download) handleRes(res *proto.ChunkResponse) {
 
 	mergedChunk := pieceChunksPool.Get()
 	defer pieceChunksPool.Put(mergedChunk)
+	mergedChunk.Reset()
 
 	d.chunkMap.Set(headPi)
 
@@ -163,6 +155,10 @@ func (d *Download) handleRes(res *proto.ChunkResponse) {
 	for d.chunkHeap.Len() != 0 {
 		peak := d.chunkHeap.Peek()
 		if tailPi+1 != peak.pi {
+			break
+		}
+
+		if tailPi-headPi >= 10 {
 			break
 		}
 
@@ -501,8 +497,6 @@ func (d *Download) scheduleSeqEndGame() {
 		for _, u := range s {
 			if p.Bitmap.Contains(u) {
 				select {
-				case <-d.ctx.Done():
-					return true
 				case <-p.ctx.Done():
 					return true
 				case p.ourPieceRequests <- u:

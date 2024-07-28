@@ -9,7 +9,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/netip"
 	"net/url"
@@ -28,6 +27,7 @@ import (
 	"neptune/internal/pkg/bm"
 	"neptune/internal/pkg/empty"
 	"neptune/internal/pkg/flowrate"
+	"neptune/internal/pkg/global"
 	"neptune/internal/pkg/gsync"
 	"neptune/internal/pkg/null"
 	"neptune/internal/pkg/random"
@@ -37,9 +37,11 @@ import (
 	"neptune/internal/version"
 )
 
-const outPexExtID proto.ExtensionMessage = 1
+const outPexExtID proto.ExtensionMessage = 2
 
 type PeerID [20]byte
+
+var handshakeAgent = fmt.Sprintf("Neptune %d.%d.%d", version.MAJOR, version.MINOR, version.PATCH)
 
 func (i PeerID) AsString() string {
 	return unsafe.Str(i[:])
@@ -51,22 +53,18 @@ func (i PeerID) Zero() bool {
 	return i == emptyPeerID
 }
 
-var peerIDPrefix = fmt.Sprintf("-NE%x%x%x0-", version.MAJOR, version.MINOR, version.PATCH)
-
-var handshakeAgent = fmt.Sprintf("Neptune %d.%d.%d", version.MAJOR, version.MINOR, version.PATCH)
-
 func NewPeerID() (peerID PeerID) {
-	copy(peerID[:], peerIDPrefix)
+	copy(peerID[:], global.PeerIDPrefix)
 	copy(peerID[8:], random.PrintableBytes(12))
 	return
 }
 
 func NewOutgoingPeer(conn net.Conn, d *Download, addr netip.AddrPort) *Peer {
-	return newPeer(conn, d, addr, emptyPeerID, false, false)
+	return newPeer(conn, d, addr, emptyPeerID, false, proto.Handshake{})
 }
 
 func NewIncomingPeer(conn net.Conn, d *Download, addr netip.AddrPort, h proto.Handshake) *Peer {
-	return newPeer(conn, d, addr, h.PeerID, true, h.FastExtension)
+	return newPeer(conn, d, addr, h.PeerID, true, h)
 }
 
 func newPeer(
@@ -74,8 +72,8 @@ func newPeer(
 	d *Download,
 	addr netip.AddrPort,
 	peerID PeerID,
-	skipHandshake bool,
-	fast bool,
+	skipReadHandshake bool,
+	h proto.Handshake,
 ) *Peer {
 	ctx, cancel := context.WithCancel(d.ctx)
 	l := d.log.With().Stringer("addr", addr)
@@ -86,23 +84,27 @@ func newPeer(
 	}
 
 	p := &Peer{
-		ctx:                  ctx,
-		log:                  l.Logger(),
-		supportFastExtension: fast,
-		Conn:                 conn,
-		d:                    d,
-		Bitmap:               bm.New(d.info.NumPieces),
-		ioOut:                flowrate.New(time.Second, time.Second),
-		ioIn:                 flowrate.New(time.Second, time.Second),
-		Address:              addr,
-		QueueLimit:           *atomic.NewUint32(200),
-		Incoming:             skipHandshake,
-		amChoking:            *atomic.NewBool(true),
-		amInterested:         *atomic.NewBool(fast),
-		peerChoking:          *atomic.NewBool(true),
-		peerInterested:       *atomic.NewBool(fast),
+		ctx:    ctx,
+		cancel: cancel,
+
+		log:        l.Logger(),
+		Conn:       conn,
+		d:          d,
+		Bitmap:     bm.New(d.info.NumPieces),
+		ioOut:      flowrate.New(time.Second, time.Second),
+		ioIn:       flowrate.New(time.Second, time.Second),
+		Address:    addr,
+		QueueLimit: *atomic.NewUint32(200),
+		Incoming:   skipReadHandshake,
+
+		ourChoking:     *atomic.NewBool(true),
+		ourInterested:  *atomic.NewBool(false),
+		peerChoking:    *atomic.NewBool(true),
+		peerInterested: *atomic.NewBool(false),
 
 		ourPieceRequests: make(chan uint32, 1),
+
+		UserAgent: *atomic.NewPointer[string](&ua),
 
 		Requested: make(bitmap.Bitmap, d.bitfieldSize),
 
@@ -122,19 +124,15 @@ func newPeer(
 		allowFast: bm.New(d.info.NumPieces),
 		//Requested: bm.New(d.info.NumPieces),
 
+		dhtEnabled:    h.DhtEnabled,
+		subExtensions: h.ExchangeExtensions,
+		fastExtension: h.FastExtension,
+
 		rttAverage: sizedSlice[time.Duration]{limit: 2000},
+		lastSend:   *atomic.NewTime(time.Now()),
 	}
 
-	p.cancel = func() {
-		p.log.Trace().Caller(1).Msg("cancel context")
-		cancel()
-	}
-
-	if ua != "" {
-		p.UserAgent.Store(&ua)
-	}
-
-	go p.start(skipHandshake)
+	go p.start(skipReadHandshake)
 	return p
 }
 
@@ -147,7 +145,7 @@ type Peer struct {
 	r        *bufio.Reader
 	w        *bufio.Writer
 	d        *Download
-	lastSend atomic.Pointer[time.Time]
+	lastSend atomic.Time
 	cancel   context.CancelFunc
 	Bitmap   *bm.Bitmap
 
@@ -173,22 +171,24 @@ type Peer struct {
 
 	peerChoking    atomic.Bool // peer is choking us
 	peerInterested atomic.Bool
-	amChoking      atomic.Bool
-	amInterested   atomic.Bool
+	ourChoking     atomic.Bool
+	ourInterested  atomic.Bool
 	QueueLimit     atomic.Uint32
 	closed         atomic.Bool
 
-	rttMutex sync.RWMutex
 	wm       sync.Mutex
+	rttMutex sync.RWMutex
 
 	extDontHaveID gsync.AtomicUint[proto.ExtensionMessage]
 	extPexID      gsync.AtomicUint[proto.ExtensionMessage]
 
-	readBuf                   [4]byte // buffer for reading message size and event id
-	Incoming                  bool
-	supportFastExtension      bool
-	dhtEnabled                bool
-	supportExtensionHandshake bool
+	writeBuf [4]byte // buffer for reading message size and event id
+	readBuf  [4]byte // buffer for reading message size and event id
+	Incoming bool
+
+	fastExtension bool
+	dhtEnabled    bool
+	subExtensions bool
 }
 
 func (p *Peer) Response(res *proto.ChunkResponse) {
@@ -197,14 +197,10 @@ func (p *Peer) Response(res *proto.ChunkResponse) {
 		panic("send response without request")
 	}
 	p.ioOut.Update(len(res.Data))
-	err := p.sendEvent(Event{
+	p.sendEventX(Event{
 		Event: proto.Piece,
 		Res:   res,
 	})
-
-	if err != nil {
-		p.close()
-	}
 }
 
 func (p *Peer) Request(req proto.ChunkRequest) {
@@ -214,28 +210,26 @@ func (p *Peer) Request(req proto.ChunkRequest) {
 		return
 	}
 
-	err := p.sendEvent(Event{
+	p.sendEventX(Event{
 		Event: proto.Request,
 		Req:   req,
 	})
-	if err != nil {
-		p.close()
-	}
 }
 
 func (p *Peer) Have(index uint32) {
-	err := p.sendEvent(Event{
+	p.sendEventX(Event{
 		Index: index,
 		Event: proto.Have,
 	})
-	if err != nil {
-		p.close()
-	}
+}
+
+func (p *Peer) Unchoke() {
+	p.sendEventX(Event{Event: proto.Unchoke})
 }
 
 func (p *Peer) close() {
-	p.log.Trace().Caller(1).Msg("close")
 	if p.closed.CompareAndSwap(false, true) {
+		p.log.Trace().Caller(1).Msg("close")
 		p.d.peers.Delete(p.Address)
 		p.d.c.sem.Release(1)
 		p.d.c.connectionCount.Sub(1)
@@ -252,7 +246,7 @@ func (p *Peer) ourRequestHandle() {
 			return
 		case index := <-p.ourPieceRequests:
 			chunkLen := int(pieceChunksCount(p.d.info, index))
-			for i := 0; i < chunkLen; i++ {
+			for i := range chunkLen {
 				if p.closed.Load() {
 					return
 				}
@@ -266,7 +260,9 @@ func (p *Peer) ourRequestHandle() {
 					}
 				}
 
-				p.Request(pieceChunk(p.d.info, index, i))
+				if !p.peerChoking.Load() {
+					p.Request(pieceChunk(p.d.info, index, i))
+				}
 			}
 
 			p.d.scheduleRequestSignal <- empty.Empty{}
@@ -278,13 +274,15 @@ func (p *Peer) start(skipHandshake bool) {
 	p.log.Trace().Msg("start")
 	defer p.close()
 
+	_ = p.Conn.SetWriteDeadline(time.Now().Add(time.Second * 30))
 	if err := proto.SendHandshake(p.Conn, p.d.info.Hash, NewPeerID(), p.d.private); err != nil {
 		p.log.Trace().Err(err).Msg("failed to send handshake to addrPort")
 		return
 	}
 
 	if !skipHandshake {
-		h, err := proto.ReadHandshake(p.Conn)
+		_ = p.Conn.SetReadDeadline(time.Now().Add(time.Second * 30))
+		h, err := proto.ReadHandshake(p.r)
 		if err != nil {
 			p.log.Debug().Err(err).Msg("failed to read handshake")
 			return
@@ -294,27 +292,51 @@ func (p *Peer) start(skipHandshake bool) {
 			p.log.Trace().Msgf("addrPort info hash mismatch %x", h.InfoHash)
 			return
 		}
+
 		p.dhtEnabled = h.DhtEnabled
-		p.supportFastExtension = h.FastExtension
+		p.fastExtension = h.FastExtension
+		p.subExtensions = h.ExchangeExtensions
+
 		p.log = p.log.With().Str("peer_id", url.QueryEscape(string(h.PeerID[:]))).Logger()
 		p.log.Trace().Msg("connect to addrPort")
 		ua := util.ParsePeerId(h.PeerID)
 		p.UserAgent.Store(&ua)
 	}
 
-	if p.supportFastExtension {
-		p.log.Trace().Msg("allow fast ExtensionHandshake")
+	if p.fastExtension {
+		p.log.Trace().Msg("support fast extension")
+	}
+	if p.subExtensions {
+		p.log.Trace().Msg("support sub extension")
+	}
+	if p.dhtEnabled {
+		p.log.Trace().Msg("support DHT")
 	}
 
 	// sync point, after both side send handshake and starting send peer messages
 
 	go func() {
-		err := p.sendInitPayload()
-		if err != nil {
-			p.close()
+		p.sendInitPayload()
+
+		if p.closed.Load() {
 			return
 		}
-		p.keepAlive()
+
+		timer := time.NewTicker(time.Second * 30)
+		defer timer.Stop()
+
+		defer p.close()
+
+		for {
+			select {
+			case <-p.ctx.Done():
+				return
+			case <-timer.C:
+				if time.Since(p.lastSend.Load()) >= time.Minute {
+					p.sendEventX(Event{keepAlive: true})
+				}
+			}
+		}
 	}()
 
 	// make it visible to download
@@ -332,9 +354,7 @@ func (p *Peer) start(skipHandshake bool) {
 
 		event, err := p.DecodeEvents()
 		if err != nil {
-			if !errors.Is(err, io.EOF) {
-				p.log.Trace().Err(err).Msg("failed to decode event")
-			}
+			p.log.Trace().Err(err).Msg("failed to decode event")
 			return
 		}
 
@@ -347,21 +367,6 @@ func (p *Peer) start(skipHandshake bool) {
 		switch event.Event {
 		case proto.Bitfield:
 			p.Bitmap.OR(event.Bitmap)
-			if p.Bitmap.WithAndNot(p.d.bm).Count() != 0 {
-				if p.amInterested.CompareAndSwap(false, true) {
-					err = p.sendEvent(Event{Event: proto.Interested})
-					if err != nil {
-						return
-					}
-				}
-			} else {
-				if p.amInterested.CompareAndSwap(true, false) {
-					err = p.sendEvent(Event{Event: proto.NotInterested})
-					if err != nil {
-						return
-					}
-				}
-			}
 		case proto.Have:
 			if event.Index >= p.d.info.NumPieces {
 				p.log.Debug().Uint32("index", event.Index).Msg("peer send 'Have' message with invalid index")
@@ -371,6 +376,7 @@ func (p *Peer) start(skipHandshake bool) {
 			p.Bitmap.Set(event.Index)
 		case proto.Interested:
 			p.peerInterested.Store(true)
+			p.d.scheduleResponseSignal <- empty.Empty{}
 		case proto.NotInterested:
 			p.peerInterested.Store(false)
 		case proto.Choke:
@@ -390,14 +396,16 @@ func (p *Peer) start(skipHandshake bool) {
 			p.d.ResChan <- event.Res
 		case proto.Request:
 			if !p.validateRequest(event.Req) {
-				p.log.Warn().Msg("failed to validate request, maybe malicious pendingPeers")
-				return
+				if p.fastExtension {
+					go p.sendEventX(Event{Req: event.Req, Event: proto.Reject})
+				}
 			}
 
 			p.peerRequests.Store(event.Req, empty.Empty{})
+			p.d.scheduleResponseSignal <- empty.Empty{}
 		case proto.Extended:
 			if event.ExtensionID == proto.ExtensionHandshake {
-				p.log.Trace().Any("ext", event.ExtHandshake).Msg("receive handshake")
+				p.log.Trace().Any("ext", event.ExtHandshake).Msg("receive extension handshake")
 
 				if event.ExtHandshake.V.Set {
 					p.UserAgent.Store(&event.ExtHandshake.V.Value)
@@ -440,7 +448,7 @@ func (p *Peer) start(skipHandshake bool) {
 		case proto.Cancel:
 			p.peerRequests.Delete(event.Req)
 		case proto.Reject:
-			p.log.Debug().Msgf("reject %+v", event.Req)
+			p.log.Trace().Msgf("reject %+v", event.Req)
 			p.Rejected.Store(event.Req, empty.Empty{})
 			p.myRequests.Delete(event.Req)
 		case proto.AllowedFast:
@@ -461,50 +469,55 @@ func (p *Peer) start(skipHandshake bool) {
 
 		switch event.Event {
 		case proto.Have, proto.HaveAll, proto.Bitfield:
-			p.d.scheduleRequestSignal <- empty.Empty{}
+			select {
+			case p.d.scheduleRequestSignal <- empty.Empty{}:
+			default:
+			}
 
-			go func() {
-				if p.Bitmap.WithAndNot(p.d.bm).Count() != 0 {
-					err = p.sendEvent(Event{Event: proto.Interested})
-					if err != nil {
-						return
-					}
+			if p.Bitmap.WithAndNot(p.d.bm).Count() != 0 {
+				if p.ourInterested.CompareAndSwap(false, true) {
+					go p.sendEventX(Event{Event: proto.Interested})
 				}
-
-				// peer and us are both seeding, disconnect
-				if p.Bitmap.Count() == p.d.info.NumPieces && p.d.GetState() == Seeding {
-					p.cancel()
-				}
-			}()
+			}
 		}
 	}
 }
 
-func (p *Peer) sendInitPayload() error {
+func (p *Peer) sendInitPayload() {
 	var err error
-	if p.supportFastExtension && p.d.bm.Count() == 0 {
+	switch {
+	case p.fastExtension && p.d.bm.Count() == 0:
 		err = p.sendEvent(Event{Event: proto.HaveNone})
-	} else if p.supportFastExtension && p.d.bm.Count() == p.d.info.NumPieces {
+	case p.fastExtension && p.d.bm.Count() == p.d.info.NumPieces:
 		err = p.sendEvent(Event{Event: proto.HaveAll})
-	} else {
+	case p.d.bm.Count() != 0:
 		err = p.sendEvent(Event{Event: proto.Bitfield, Bitmap: p.d.bm})
 	}
 
 	if err != nil {
-		return err
+		p.close()
+		return
 	}
 
-	if p.supportExtensionHandshake {
-		return p.sendEvent(Event{Event: proto.Extended, ExtHandshake: proto.ExtHandshake{
-			V: null.NewString(handshakeAgent),
-			Mapping: proto.ExtMapping{
-				Pex: null.Null[proto.ExtensionMessage]{Value: outPexExtID, Set: !p.d.info.Private},
+	if p.subExtensions {
+		p.sendEventX(Event{
+			Event:       proto.Extended,
+			ExtensionID: proto.ExtensionHandshake,
+			ExtHandshake: proto.ExtHandshake{
+				V: null.NewString(global.UserAgent),
+				Mapping: proto.ExtMapping{
+					Pex: null.Null[proto.ExtensionMessage]{Value: outPexExtID, Set: !p.d.info.Private},
+				},
+				QueueLength: null.NewUint32(500),
 			},
-			QueueLength: null.NewUint32(1000),
-		}})
+		})
 	}
+}
 
-	return nil
+func (p *Peer) sendEventX(e Event) {
+	if p.sendEvent(e) != nil {
+		p.close()
+	}
 }
 
 func (p *Peer) sendEvent(e Event) error {
@@ -516,15 +529,24 @@ func (p *Peer) sendEvent(e Event) error {
 		return err
 	}
 
-	if e.Event != proto.Have {
-		return p.w.Flush()
+	if e.Event == proto.Have || e.Event == proto.Reject {
+		return nil
 	}
 
-	return nil
+	return p.w.Flush()
 }
 
 func (p *Peer) validateRequest(req proto.ChunkRequest) bool {
 	if req.PieceIndex >= p.d.info.NumPieces {
+		return false
+	}
+
+	if req.Length%defaultBlockSize != 0 {
+		return false
+	}
+
+	// allow 16kib and 32 kib piece
+	if req.Length/defaultBlockSize > 2 {
 		return false
 	}
 
@@ -551,15 +573,6 @@ func (p *Peer) resIsValid(res *proto.ChunkResponse) bool {
 	p.rttMutex.Unlock()
 
 	return ok
-}
-
-func (p *Peer) Unchoke() {
-	err := p.sendEvent(Event{
-		Event: proto.Unchoke,
-	})
-	if err != nil {
-		p.close()
-	}
 }
 
 type pexPeer struct {
@@ -598,9 +611,7 @@ func parsePex(msg proto.ExtPex) ([]pexPeer, error) {
 
 	var r = make([]pexPeer, 0, len(msg.AddedFlag)+len(msg.Added6Flag))
 
-	for i := 0; i < len(msg.AddedFlag); i++ {
-		flag := msg.AddedFlag[i]
-
+	for i, flag := range msg.AddedFlag {
 		r = append(r, pexPeer{
 			addrPort:         netip.AddrPortFrom(netip.AddrFrom4([4]byte(msg.Added[i*6:i*6+4])), binary.BigEndian.Uint16(msg.Added[i*6+4:i*6+6])),
 			preferEnc:        flag&proto.PexFlagPreferEnc != 0,
@@ -611,9 +622,7 @@ func parsePex(msg proto.ExtPex) ([]pexPeer, error) {
 		})
 	}
 
-	for i := 0; i < len(msg.Added6Flag); i++ {
-		flag := msg.Added6Flag[i]
-
+	for i, flag := range msg.Added6Flag {
 		r = append(r, pexPeer{
 			addrPort:         netip.AddrPortFrom(netip.AddrFrom16([16]byte(msg.Added[i*18:i*18+16])), binary.BigEndian.Uint16(msg.Added[i*18+16:i*18+18])),
 			preferEnc:        flag&proto.PexFlagPreferEnc != 0,

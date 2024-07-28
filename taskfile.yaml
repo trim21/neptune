@@ -123,7 +123,7 @@ tasks:
         {{ if .GOARCH }}GOARCH={{ .GOARCH }}{{ end }}
         {{ if .GOOS }}GOOS={{ .GOOS }}{{ end }}
         go build
-        -ldflags="-X 'neptune/internal/version.Ref={{ .REF }}' -X 'neptune/internal/version.BuildDate={{ dateInZone "2006-01-02T15:04:05Z07:00" (now) "UTC" }}'" 
+        -ldflags="-s -X 'neptune/internal/version.Ref={{ .REF }}' -X 'neptune/internal/version.BuildDate={{ dateInZone "2006-01-02T15:04:05Z07:00" (now) "UTC" }}'" 
         -buildvcs=true {{ .EXTRA_FLAGS }} -trimpath -tags release -o {{ .OUT_PATH }}
 
   build:

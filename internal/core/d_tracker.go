@@ -22,7 +22,6 @@ import (
 	"neptune/internal/metainfo"
 	"neptune/internal/pkg/empty"
 	"neptune/internal/pkg/global"
-	"neptune/internal/pkg/null"
 )
 
 type AnnounceEvent string
@@ -38,7 +37,11 @@ func (d *Download) setAnnounceList(trackers metainfo.AnnounceList) {
 		go func() {
 			for {
 				d.peersMutex.Lock()
-				for i, s := range []string{"192.168.1.3:50025", "192.168.1.3:6885", "127.0.0.1:51343"} {
+				for i, s := range []string{
+					//"192.168.1.3:50025",
+					"192.168.1.3:6885",
+					//"127.0.0.1:51343",
+				} {
 					d.pendingPeers.Push(peerWithPriority{
 						addrPort: netip.MustParseAddrPort(s),
 						priority: uint32(i),
@@ -105,6 +108,7 @@ func (d *Download) announce(event AnnounceEvent) {
 				})
 			}
 			d.peersMutex.Unlock()
+			d.pendingPeersSignal <- empty.Empty{}
 		}
 		return
 	}
@@ -115,7 +119,7 @@ type TrackerTier struct {
 }
 
 func (tier TrackerTier) Announce(d *Download, event AnnounceEvent) (AnnounceResult, bool, error) {
-	if event == EventStarted {
+	if event == EventStopped {
 		tier.announceStop(d)
 		return AnnounceResult{}, false, nil
 	}
@@ -126,7 +130,7 @@ func (tier TrackerTier) Announce(d *Download, event AnnounceEvent) (AnnounceResu
 			return AnnounceResult{}, false, nil
 		}
 
-		r, err := t.announce(d, event)
+		r := t.announce(d, event)
 		if r.Interval == 0 {
 			r.Interval = defaultTrackerInterval
 		}
@@ -134,8 +138,8 @@ func (tier TrackerTier) Announce(d *Download, event AnnounceEvent) (AnnounceResu
 		t.lastAnnounceTime = now
 		t.nextAnnounce = now.Add(r.Interval)
 
-		if err != nil {
-			t.err = err
+		if r.Err != nil {
+			t.err = r.Err
 			continue
 		}
 
@@ -181,18 +185,19 @@ func parseNonCompatResponse(data []byte) []netip.AddrPort {
 }
 
 type AnnounceResult struct {
-	FailedReason null.String
+	Err          error
+	FailedReason string
 	Peers        []netip.AddrPort
 	Interval     time.Duration
 }
 
 type trackerAnnounceResponse struct {
-	FailureReason null.Null[string]           `bencode:"failure reason"`
-	Peers         null.Null[bencode.RawBytes] `bencode:"pendingPeers"`
-	Peers6        null.Null[bencode.RawBytes] `bencode:"peers6"`
-	Interval      null.Null[int64]            `bencode:"interval"`
-	Complete      null.Null[int]              `bencode:"complete"`
-	Incomplete    null.Null[int]              `bencode:"incomplete"`
+	FailureReason string           `bencode:"failure reason"`
+	Peers         bencode.RawBytes `bencode:"peers"`
+	Peers6        bencode.RawBytes `bencode:"peers6"`
+	Interval      int64            `bencode:"interval"`
+	Complete      int              `bencode:"complete"`
+	Incomplete    int              `bencode:"incomplete"`
 }
 
 type Tracker struct {
@@ -230,7 +235,7 @@ func (t *Tracker) req(d *Download) *resty.Request {
 
 const defaultTrackerInterval = time.Minute * 30
 
-func (t *Tracker) announce(d *Download, event AnnounceEvent) (AnnounceResult, error) {
+func (t *Tracker) announce(d *Download, event AnnounceEvent) AnnounceResult {
 	d.log.Trace().Str("url", t.url).Msg("announce to tracker")
 
 	req := t.req(d)
@@ -241,45 +246,43 @@ func (t *Tracker) announce(d *Download, event AnnounceEvent) (AnnounceResult, er
 
 	res, err := req.Get(t.url)
 	if err != nil {
-		return AnnounceResult{}, errgo.Wrap(err, "failed to connect to tracker")
+		return AnnounceResult{Err: errgo.Wrap(err, "failed to connect to tracker")}
 	}
 
 	var r trackerAnnounceResponse
 	err = bencode.Unmarshal(res.Body(), &r)
 	if err != nil {
 		log.Debug().Err(err).Str("res", res.String()).Msg("failed to decode tracker response")
-		return AnnounceResult{}, errgo.Wrap(err, "failed to parse torrent announce response")
-	}
-
-	if r.FailureReason.Set {
-		t.failureMessage = r.FailureReason.Value
-		return AnnounceResult{FailedReason: r.FailureReason}, nil
+		return AnnounceResult{Err: errgo.Wrap(err, "failed to parse torrent announce response")}
 	}
 
 	var result = AnnounceResult{
-		Interval: defaultTrackerInterval,
+		Interval:     defaultTrackerInterval,
+		FailedReason: r.FailureReason,
 	}
 
-	if r.Interval.Set {
-		result.Interval = time.Second * time.Duration(r.Interval.Value)
+	if r.Interval != 0 {
+		result.Interval = time.Second * time.Duration(r.Interval)
 	}
 
 	// BEP says we must support both format
-	if r.Peers.Set {
-		if r.Peers.Value[0] == 'l' && r.Peers.Value[len(r.Peers.Value)-1] == 'e' {
-			result.Peers = parseNonCompatResponse(r.Peers.Value)
+	if len(r.Peers) != 0 {
+		if r.Peers[0] == 'l' && r.Peers[len(r.Peers)-1] == 'e' {
+			result.Peers = parseNonCompatResponse(r.Peers)
 			// non compact response
 		} else {
 			// compact response
 			var b = bytebufferpool.Get()
 			defer bytebufferpool.Put(b)
-			err = bencode.Unmarshal(r.Peers.Value, &b.B)
+			err = bencode.Unmarshal(r.Peers, &b.B)
 			if err != nil {
-				return result, errgo.Wrap(err, "failed to parse binary format 'pendingPeers'")
+				result.Err = errgo.Wrap(err, "failed to parse binary format 'peers'")
+				return result
 			}
 
 			if b.Len()%6 != 0 {
-				return result, fmt.Errorf("invalid binary peers6 length %d", b.Len())
+				result.Err = fmt.Errorf("invalid binary peers6 length %d", b.Len())
+				return result
 			}
 
 			result.Peers = make([]netip.AddrPort, 0, len(b.B)/6)
@@ -295,22 +298,24 @@ func (t *Tracker) announce(d *Download, event AnnounceEvent) (AnnounceResult, er
 		})
 	}
 
-	if r.Peers6.Set {
-		if r.Peers6.Value[0] == 'l' && r.Peers6.Value[len(r.Peers6.Value)-1] == 'e' {
+	if len(r.Peers6) != 0 {
+		if r.Peers6[0] == 'l' && r.Peers6[len(r.Peers6)-1] == 'e' {
 			// non compact response
-			result.Peers = append(result.Peers, parseNonCompatResponse(r.Peers6.Value)...)
+			result.Peers = append(result.Peers, parseNonCompatResponse(r.Peers6)...)
 		} else {
 			// compact response
 			var b = bytebufferpool.Get()
 			defer bytebufferpool.Put(b)
 
-			err = bencode.Unmarshal(r.Peers6.Value, &b.B)
+			err = bencode.Unmarshal(r.Peers6, &b.B)
 			if err != nil {
-				return result, errgo.Wrap(err, "failed to parse binary format 'peers6'")
+				result.Err = errgo.Wrap(err, "failed to parse binary format 'peers6'")
+				return result
 			}
 
 			if b.Len()%18 != 0 {
-				return result, fmt.Errorf("invalid binary peers6 length %d", b.Len())
+				result.Err = fmt.Errorf("invalid binary peers6 length %d", b.Len())
+				return result
 			}
 
 			for i := 0; i < b.Len(); i += 18 {
@@ -323,7 +328,7 @@ func (t *Tracker) announce(d *Download, event AnnounceEvent) (AnnounceResult, er
 
 	result.Peers = lo.Uniq(result.Peers)
 
-	return result, nil
+	return result
 }
 
 func (t *Tracker) announceStop(d *Download) error {

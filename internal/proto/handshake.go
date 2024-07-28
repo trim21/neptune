@@ -22,6 +22,10 @@ func genReversedFlag(index int, value byte) uint64 {
 
 var handshakePstrV1 = ro.S("\x13BitTorrent protocol")
 
+// https://www.bittorrent.org/beps/bep_0005.html
+// reserved_byte[7] & 0x01
+var dhtEnabled = genReversedFlag(7, 0x01)
+
 // https://www.bittorrent.org/beps/bep_0006.html
 // reserved_byte[7] & 0x04
 var fastExtensionEnabled = genReversedFlag(7, 0x04)
@@ -29,10 +33,6 @@ var fastExtensionEnabled = genReversedFlag(7, 0x04)
 // https://www.bittorrent.org/beps/bep_0010.html
 // reserved_byte[5] & 0x10
 var exchangeExtensionEnabled = genReversedFlag(5, 0x10)
-
-// https://www.bittorrent.org/beps/bep_0005.html
-// reserved_byte[7] & 0x01
-var dhtEnabled = genReversedFlag(7, 0x01)
 
 var privateHandshakeBytes = ro.B(binary.BigEndian.AppendUint64(nil, exchangeExtensionEnabled|fastExtensionEnabled))
 

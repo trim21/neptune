@@ -22,6 +22,7 @@ import (
 	"neptune/internal/bep40"
 	"neptune/internal/config"
 	"neptune/internal/metainfo"
+	"neptune/internal/pkg/filepool"
 	"neptune/internal/pkg/flowrate"
 	"neptune/internal/pkg/global"
 	"neptune/internal/pkg/random"
@@ -44,7 +45,8 @@ func New(cfg config.Config, sessionPath string, debug bool) *Client {
 	//case "", "disable":
 	//	mseDisabled = true
 	//default:
-	//	panic(fmt.Sprintf("invalid `application.crypto` config %q, only 'prefer'(default) 'prefer-not', 'disable' or 'force' are allowed", cfg.App.Crypto))
+	//	panic(fmt.Sprintf("invalid `application.crypto` config %q,
+	//	only 'prefer'(default) 'prefer-not', 'disable' or 'force' are allowed", cfg.App.Crypto))
 	//}
 
 	v4, v6, _ := util.GetIpAddress()
@@ -57,6 +59,8 @@ func New(cfg config.Config, sessionPath string, debug bool) *Client {
 		checkQueue:  make([]metainfo.Hash, 0, 3),
 		downloadMap: make(map[metainfo.Hash]*Download),
 		connChan:    make(chan incomingConn, 1),
+
+		filePool: filepool.New(),
 
 		ioUp:   flowrate.New(time.Second, time.Second),
 		ioDown: flowrate.New(time.Second, time.Second),
@@ -108,6 +112,8 @@ type Client struct {
 
 	ioDown *flowrate.Monitor
 	ioUp   *flowrate.Monitor
+
+	filePool *filepool.FilePool
 
 	ipv4 atomic.Pointer[netip.Addr]
 	ipv6 atomic.Pointer[netip.Addr]

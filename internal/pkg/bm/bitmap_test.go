@@ -25,7 +25,7 @@ func TestBitmap(t *testing.T) {
 		b := bm.New(1600)
 		b.Fill()
 
-		for i := uint32(0); i < 1600; i++ {
+		for i := range uint32(1600) {
 			require.True(t, b.Contains(i))
 		}
 

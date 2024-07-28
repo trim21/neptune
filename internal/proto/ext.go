@@ -11,6 +11,7 @@ type ExtHandshake struct {
 	V           null.String `bencode:"v,omitempty"`
 	Mapping     ExtMapping  `bencode:"m,omitempty"` // mapping from supported name to extension id
 	QueueLength null.Uint32 `bencode:"reqq,omitempty"`
+	UploadOnly  null.Bool   `bencode:"upload_only,omitempty"`
 }
 
 type ExtMapping struct {

@@ -79,5 +79,5 @@ func Test_UnmarshalBencode(t *testing.T) {
 	}
 	require.NoError(t, bencode.Unmarshal([]byte("d1:ni10ee"), &s3))
 	require.True(t, s3.N.Set)
-	require.EqualValues(t, bencode.RawBytes("i10e"), s3.N.Value)
+	require.Equal(t, bencode.RawBytes("i10e"), s3.N.Value)
 }

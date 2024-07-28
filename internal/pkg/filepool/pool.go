@@ -25,7 +25,7 @@ type FilePool struct {
 
 func New() *FilePool {
 	return &FilePool{
-		Cache: *expirable.NewLRU[cacheKey, *File](128, onEvict, time.Minute*5),
+		Cache: *expirable.NewLRU[cacheKey, *File](5000, onEvict, time.Minute*5),
 	}
 }
 

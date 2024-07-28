@@ -5,11 +5,16 @@ package global
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"time"
 
 	"github.com/trim21/conntrack"
+
+	"neptune/internal/version"
 )
+
+var PeerIDPrefix = fmt.Sprintf("-NE%x%x%x0-", version.MAJOR, version.MINOR, version.PATCH)
 
 const ConnTimeout = time.Minute
 

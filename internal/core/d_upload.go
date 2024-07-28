@@ -4,56 +4,85 @@
 package core
 
 import (
+	"encoding/binary"
+	"hash/maphash"
 	"io"
 	"net/netip"
-	"time"
 
+	"github.com/cespare/xxhash/v2"
+	"github.com/dgraph-io/ristretto"
+	"github.com/samber/lo"
 	"github.com/sourcegraph/conc"
 
+	"neptune/internal/metainfo"
 	"neptune/internal/pkg/empty"
 	"neptune/internal/pkg/heap"
 	"neptune/internal/pkg/mempool"
 	"neptune/internal/proto"
 )
 
+type cacheKey struct {
+	hash  metainfo.Hash
+	index uint32
+}
+
+var seed = maphash.MakeSeed()
+
+var cache = lo.Must(ristretto.NewCache(&ristretto.Config{
+	NumCounters: 1e7,     // number of keys to track frequency of (10M).
+	MaxCost:     1 << 30, // maximum cost of cache (1GB).
+	BufferItems: 64,      // number of keys per Get buffer.
+	KeyToHash: func(key any) (uint64, uint64) {
+		k := key.(cacheKey)
+		var h maphash.Hash
+		h.SetSeed(seed)
+		_, _ = h.Write(k.hash[:])
+		_ = binary.Write(&h, binary.BigEndian, k.index)
+		return h.Sum64(), xxhash.Sum64(k.hash[:])
+	},
+}))
+
 func (d *Download) backgroundReqHandler() {
+	var reqPieceCount = make(map[uint32]uint32, d.info.NumPieces)
+
+	var peers []*Peer
+
 	for {
 		select {
 		case <-d.ctx.Done():
 			return
-		case <-d.scheduleResponse:
-			if d.GetState()|Downloading|Seeding == 0 {
+		case <-d.scheduleResponseSignal:
+			if !d.wait(Downloading | Seeding) {
 				continue
 			}
 
-			clear(d.reqPieceCount)
+			clear(reqPieceCount)
+			clear(peers)
+			peers = peers[:0]
 
 			d.peers.Range(func(addr netip.AddrPort, p *Peer) bool {
-				if p.peerChoking.CompareAndSwap(true, false) {
-					p.Unchoke()
-				} else {
-					return true
+				if p.peerInterested.Load() {
+					if p.ourChoking.CompareAndSwap(true, false) {
+						p.Unchoke()
+					}
 				}
 
-				if p.Bitmap.Count() == d.info.NumPieces {
-					return true
+				if p.peerRequests.Size() != 0 {
+					peers = append(peers, p)
 				}
-
-				if !p.peerInterested.Load() {
-					return true
-				}
-
-				p.peerRequests.Range(func(key proto.ChunkRequest, _ empty.Empty) bool {
-					d.reqPieceCount[key.PieceIndex]++
-					return true
-				})
-
 				return true
 			})
 
-			var s = make([]pieceRare, 0, len(d.reqPieceCount))
+			var s = make([]pieceRare, 0, len(reqPieceCount))
 
-			for index, rare := range d.reqPieceCount {
+			for _, peer := range peers {
+				peer.peerRequests.Range(func(key proto.ChunkRequest, _ empty.Empty) bool {
+					reqPieceCount[key.PieceIndex]++
+					return true
+				})
+			}
+
+			for index, rare := range reqPieceCount {
 				s = append(s, pieceRare{
 					index: index,
 					rare:  rare,
@@ -68,24 +97,31 @@ func (d *Download) backgroundReqHandler() {
 
 			pieceReq := h.Pop()
 
-			buf := mempool.GetWithCap(int(d.pieceLength(pieceReq.index)))
-			//piece := make([]byte, d.pieceLength(pieceIndex))
-			err := d.readPiece(pieceReq.index, buf.B)
-			if err != nil {
-				mempool.Put(buf)
-				d.setError(err)
-				continue
+			key := cacheKey{
+				hash:  d.info.Hash,
+				index: pieceReq.index,
+			}
+
+			var buf *mempool.Buffer
+			value, ok := cache.Get(key)
+			if ok {
+				buf = value.(*mempool.Buffer)
+			} else {
+				buf = mempool.GetWithCap(int(d.pieceLength(pieceReq.index)))
+
+				err := d.readPiece(pieceReq.index, buf.B)
+				if err != nil {
+					mempool.Put(buf)
+					d.setError(err)
+					continue
+				}
+
+				cache.Set(key, buf, int64(buf.Len()))
 			}
 
 			var g conc.WaitGroup
 
-			d.log.Debug().Msgf("upload piece %d", pieceReq.index)
-
-			d.peers.Range(func(addr netip.AddrPort, p *Peer) bool {
-				if !p.peerInterested.Load() {
-					return true
-				}
-
+			for _, p := range peers {
 				p.peerRequests.Range(func(key proto.ChunkRequest, _ empty.Empty) bool {
 					if key.PieceIndex == pieceReq.index {
 						d.ioUp.Update(int(key.Length))
@@ -101,13 +137,9 @@ func (d *Download) backgroundReqHandler() {
 					}
 					return true
 				})
-				return true
-			})
+			}
 
 			g.Wait()
-			mempool.Put(buf)
-
-			time.Sleep(time.Second)
 		}
 	}
 }

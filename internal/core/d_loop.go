@@ -88,6 +88,21 @@ func (d *Download) Init() {
 	}()
 }
 
+func (d *Download) wait(state State) bool {
+	if d.GetState()|state == 0 {
+		select {
+		case <-d.ctx.Done():
+			return false
+		case <-d.stateCond.C:
+			if d.GetState()|state == 0 {
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
 func (d *Download) handleConnectionChange() {
 	for {
 		select {
@@ -118,7 +133,7 @@ func (d *Download) startBackground() {
 			case <-d.ctx.Done():
 				return
 			case <-d.pendingPeersSignal:
-				if d.GetState()|Seeding|Downloading == 0 {
+				if !d.wait(Seeding | Downloading) {
 					continue
 				}
 
@@ -162,7 +177,7 @@ func (p *PriorityQueue) Pop() Priority {
 func (d *Download) openFile(fileIndex int) (*filepool.File, error) {
 	p := filepath.Join(d.basePath, d.info.Files[fileIndex].Path)
 
-	file, err := d.filePool.Open(p, os.O_RDWR|os.O_CREATE, os.ModePerm, time.Hour)
+	file, err := d.c.filePool.Open(p, os.O_RDWR|os.O_CREATE, os.ModePerm, time.Hour)
 	if err == nil {
 		return file, nil
 	}
@@ -175,5 +190,5 @@ func (d *Download) openFile(fileIndex int) (*filepool.File, error) {
 		}
 	}
 
-	return d.filePool.Open(p, os.O_RDWR|os.O_CREATE, os.ModePerm, time.Hour)
+	return d.c.filePool.Open(p, os.O_RDWR|os.O_CREATE, os.ModePerm, time.Hour)
 }

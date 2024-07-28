@@ -28,7 +28,7 @@ func FromBitfields(bitfield []byte, size uint32) *Bitmap {
 
 	copy(nn, bitfield)
 
-	for i := uint32(0); i < (size+63)/64; i++ {
+	for i := range (size + 63) / 64 {
 		// github.com/kelindar/bitmap impl bitmap as little endian in all platform.
 		// for example, []uint64{0x00000001} is a bitmap [true, false, ...].
 		// so we need to reverse its bits here.

@@ -23,7 +23,7 @@ type pieceFileChunks struct {
 func buildPieceInfos(info meta.Info) []pieceFileChunks {
 	p := make([]pieceFileChunks, info.NumPieces)
 
-	for i := uint32(0); i < info.NumPieces; i++ {
+	for i := range info.NumPieces {
 		p[i] = getPieceInfo(i, info)
 	}
 
