@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/docker/go-units"
-	"github.com/fatih/color"
 	"github.com/kelindar/bitmap"
 	"github.com/puzpuzpuz/xsync/v3"
 	"github.com/rs/zerolog"
@@ -362,7 +361,7 @@ func (p *Peer) start(skipHandshake bool) {
 			continue
 		}
 
-		p.log.Trace().Msgf("receive %s", color.GreenString(event.Event.String()))
+		p.log.Trace().Stringer("event", event.Event).Msg("receive event")
 
 		switch event.Event {
 		case proto.Bitfield:

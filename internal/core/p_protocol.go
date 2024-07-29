@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/docker/go-units"
-	"github.com/fatih/color"
 	"github.com/trim21/errgo"
 	"github.com/trim21/go-bencode"
 
@@ -219,7 +218,7 @@ func (p *Peer) write(e Event) error {
 		return proto.SendKeepAlive(p.w)
 	}
 
-	p.log.Trace().Msgf("send %s", color.BlueString(e.Event.String()))
+	p.log.Trace().Stringer("event", e.Event).Msg("send")
 
 	switch e.Event {
 	case proto.Choke:
