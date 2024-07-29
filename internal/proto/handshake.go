@@ -35,8 +35,7 @@ var fastExtensionEnabled = genReversedFlag(7, 0x04)
 var exchangeExtensionEnabled = genReversedFlag(5, 0x10)
 
 var privateHandshakeBytes = ro.B(binary.BigEndian.AppendUint64(nil, exchangeExtensionEnabled|fastExtensionEnabled))
-
-//var publicHandshakeBytes = ro.B(binary.BigEndian.AppendUint64(nil, exchangeExtensionEnabled|fastExtensionEnabled|dhtEnabled))
+var publicHandshakeBytes = ro.B(binary.BigEndian.AppendUint64(nil, exchangeExtensionEnabled|fastExtensionEnabled|dhtEnabled))
 
 // SendHandshake = <pStrlen><pStr><reserved><info_hash><peer_id>
 // - pStrlen = length of pStr (1 byte)
@@ -52,13 +51,11 @@ func SendHandshake(conn io.Writer, infoHash, peerID [20]byte, private bool) erro
 		return err
 	}
 
-	// TODO: support dht
-
-	//if private {
-	_, err = privateHandshakeBytes.WriteTo(conn)
-	//} else {
-	//}
-	//_, err = publicHandshakeBytes.WriteTo(conn)
+	if private {
+		_, err = privateHandshakeBytes.WriteTo(conn)
+	} else {
+		_, err = publicHandshakeBytes.WriteTo(conn)
+	}
 
 	if err != nil {
 		return err

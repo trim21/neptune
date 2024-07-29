@@ -45,11 +45,9 @@ const (
 // Download manage a download task
 // ctx should be canceled when torrent is removed, not stopped.
 type Download struct {
-	log zerolog.Logger
-
-	ctx context.Context
-	err error
-
+	log               zerolog.Logger
+	ctx               context.Context
+	err               error
 	cancel            context.CancelFunc
 	c                 *Client
 	ioDown            *flowrate.Monitor // io rate for network data and disk moving/checking data
@@ -68,55 +66,44 @@ type Download struct {
 
 	// signal to schedule request to pendingPeers
 	// should be fired when pendingPeers finish pieces requests
-	scheduleRequestSignal  chan empty.Empty
+	scheduleRequestSignal chan empty.Empty
+
 	scheduleResponseSignal chan empty.Empty
 	pendingPeersSignal     chan empty.Empty
-
-	stateCond *gsync.Cond
-
-	basePath    string
-	downloadDir string
-	trackerKey  string
-
-	chunkHeap heap.Heap[responseChunk]
-
-	tags      []string
-	pieceInfo []pieceFileChunks
-
-	trackers []TrackerTier
-
-	pieceRare        []uint32 // mapping from piece index to rare
-	chunkMap         bitmap.Bitmap
-	pendingChunksMap bitmap.Bitmap
-	info             meta.Info
-
-	completed atomic.Int64
-
-	endGameMode atomic.Bool
-
-	AddAt           int64
-	CompletedAt     atomic.Int64
-	downloaded      atomic.Int64
-	corrupted       atomic.Int64
-	uploaded        atomic.Int64
-	uploadAtStart   int64
-	downloadAtStart int64
-
-	seq             atomic.Bool
-	announcePending atomic.Bool
-
-	trackerMutex sync.RWMutex
-	m            sync.RWMutex
-
-	ratePieceMutex sync.Mutex
-	peersMutex     sync.Mutex
-
-	normalChunkLen uint32
-
-	bitfieldSize uint32
-	peerID       PeerID
-	state        State
-	private      bool
+	stateCond              *gsync.Cond
+	pexAdd                 chan []pexPeer
+	pexDrop                chan []netip.AddrPort
+	basePath               string
+	downloadDir            string
+	trackerKey             string
+	chunkHeap              heap.Heap[responseChunk]
+	tags                   []string
+	pieceInfo              []pieceFileChunks
+	trackers               []TrackerTier
+	pieceRare              []uint32 // mapping from piece index to rare
+	chunkMap               bitmap.Bitmap
+	pendingChunksMap       bitmap.Bitmap
+	info                   meta.Info
+	completed              atomic.Int64
+	endGameMode            atomic.Bool
+	AddAt                  int64
+	CompletedAt            atomic.Int64
+	downloaded             atomic.Int64
+	corrupted              atomic.Int64
+	uploaded               atomic.Int64
+	uploadAtStart          int64
+	downloadAtStart        int64
+	seq                    atomic.Bool
+	announcePending        atomic.Bool
+	trackerMutex           sync.RWMutex
+	m                      sync.RWMutex
+	ratePieceMutex         sync.Mutex
+	pendingPeersMutex      sync.Mutex
+	normalChunkLen         uint32
+	bitfieldSize           uint32
+	peerID                 PeerID
+	state                  State
+	private                bool
 }
 
 type pieceRare struct {
@@ -215,6 +202,9 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 		scheduleResponseSignal: make(chan empty.Empty, 1),
 		pendingPeersSignal:     make(chan empty.Empty),
 		buildNetworkPieces:     make(chan empty.Empty, 1),
+
+		pexAdd:  make(chan []pexPeer, 1),
+		pexDrop: make(chan []netip.AddrPort, 1),
 
 		downloadDir: basePath,
 

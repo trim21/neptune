@@ -417,8 +417,8 @@ func debugPrintPeers(w io.Writer, d *Download) {
 }
 
 func debugPrintPendingPeers(w io.Writer, d *Download) {
-	d.peersMutex.Lock()
-	defer d.peersMutex.Unlock()
+	d.pendingPeersMutex.Lock()
+	defer d.pendingPeersMutex.Unlock()
 
 	t := table.NewWriter()
 	t.AppendHeader(table.Row{"address"})

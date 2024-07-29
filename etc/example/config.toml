@@ -1,0 +1,3 @@
+[application]
+p2p-port = 54482
+fallocate = true

@@ -11,6 +11,7 @@ import (
 	"github.com/docker/go-units"
 	"github.com/dustin/go-humanize"
 
+	"neptune/internal/pkg/empty"
 	"neptune/internal/pkg/filepool"
 )
 
@@ -138,6 +139,38 @@ func (d *Download) startBackground() {
 				}
 
 				d.connectToPeers()
+			}
+		}
+	}()
+
+	go func() {
+		for {
+			select {
+			case <-d.ctx.Done():
+				return
+			case peers := <-d.pexAdd:
+				state := d.GetState()
+
+				d.pendingPeersMutex.Lock()
+
+				for _, peer := range peers {
+					if !peer.outGoing {
+						continue
+					}
+
+					if state == Seeding && peer.seedOnly {
+						continue
+					}
+
+					d.pendingPeers.Push(peerWithPriority{
+						addrPort: peer.addrPort,
+						priority: d.c.PeerPriority(peer.addrPort),
+					})
+				}
+
+				d.pendingPeersMutex.Unlock()
+
+				d.pendingPeersSignal <- empty.Empty{}
 			}
 		}
 	}()

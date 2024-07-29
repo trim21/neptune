@@ -36,7 +36,7 @@ func (d *Download) setAnnounceList(trackers metainfo.AnnounceList) {
 	if global.Dev {
 		go func() {
 			for {
-				d.peersMutex.Lock()
+				d.pendingPeersMutex.Lock()
 				for i, s := range []string{
 					//"192.168.1.3:50025",
 					"192.168.1.3:6885",
@@ -47,7 +47,7 @@ func (d *Download) setAnnounceList(trackers metainfo.AnnounceList) {
 						priority: uint32(i),
 					})
 				}
-				d.peersMutex.Unlock()
+				d.pendingPeersMutex.Unlock()
 				d.pendingPeersSignal <- empty.Empty{}
 				time.Sleep(60 * time.Second)
 			}
@@ -100,14 +100,14 @@ func (d *Download) announce(event AnnounceEvent) {
 		}
 
 		if len(r.Peers) != 0 {
-			d.peersMutex.Lock()
+			d.pendingPeersMutex.Lock()
 			for _, peer := range r.Peers {
 				d.pendingPeers.Push(peerWithPriority{
 					addrPort: peer,
 					priority: d.c.PeerPriority(peer),
 				})
 			}
-			d.peersMutex.Unlock()
+			d.pendingPeersMutex.Unlock()
 			d.pendingPeersSignal <- empty.Empty{}
 		}
 		return
@@ -287,9 +287,7 @@ func (t *Tracker) announce(d *Download, event AnnounceEvent) AnnounceResult {
 
 			result.Peers = make([]netip.AddrPort, 0, len(b.B)/6)
 			for i := 0; i < len(b.B); i += 6 {
-				addr := netip.AddrFrom4([4]byte(b.B[i : i+4]))
-				port := binary.BigEndian.Uint16(b.B[i+4:])
-				result.Peers = append(result.Peers, netip.AddrPortFrom(addr, port))
+				result.Peers = append(result.Peers, parseCompact4(b.B[i:i+6]))
 			}
 		}
 
@@ -319,9 +317,7 @@ func (t *Tracker) announce(d *Download, event AnnounceEvent) AnnounceResult {
 			}
 
 			for i := 0; i < b.Len(); i += 18 {
-				addr := netip.AddrFrom16([16]byte(b.B[i : i+16]))
-				port := binary.BigEndian.Uint16(b.B[i+16:])
-				result.Peers = append(result.Peers, netip.AddrPortFrom(addr, port))
+				result.Peers = append(result.Peers, parseCompact6(b.B[i:i+18]))
 			}
 		}
 	}
@@ -365,4 +361,12 @@ type peerWithPriority struct {
 func (p peerWithPriority) Less(o peerWithPriority) bool {
 	// reversed order, so higher priority get handled first
 	return p.priority > o.priority
+}
+
+func parseCompact4(b []byte) netip.AddrPort {
+	return netip.AddrPortFrom(netip.AddrFrom4([4]byte(b[:4])), binary.BigEndian.Uint16(b[4:6]))
+}
+
+func parseCompact6(b []byte) netip.AddrPort {
+	return netip.AddrPortFrom(netip.AddrFrom16([16]byte(b[:16])), binary.BigEndian.Uint16(b[16:18]))
 }

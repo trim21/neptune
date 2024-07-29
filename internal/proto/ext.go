@@ -28,10 +28,16 @@ const PexFlagSupportHolePunchP = 0x08
 const PexFlagOutgoing = 0x10
 
 type ExtPex struct {
-	Added      []byte `json:"added,omitempty"`
-	AddedFlag  []byte `json:"added.f,omitempty"`
-	Added6     []byte `json:"added6,omitempty"`
-	Added6Flag []byte `json:"added6.f,omitempty"`
-	Dropped    []byte `json:"dropped,omitempty"`
-	Dropped6   []byte `json:"dropped6,omitempty"`
+	// compact ipv4 addr port
+	Added []byte `bencode:"added,omitempty"`
+	// flag for [Added]
+	AddedFlag []byte `bencode:"added.f,omitempty"`
+	// compact ipv6 addr port
+	Added6 []byte `bencode:"added6,omitempty"`
+	// flag for [Added6]
+	Added6Flag []byte `bencode:"added6.f,omitempty"`
+	// compact ipv4 addr port
+	Dropped []byte `bencode:"dropped,omitempty"`
+	// compact ipv6 addr port
+	Dropped6 []byte `bencode:"dropped6,omitempty"`
 }

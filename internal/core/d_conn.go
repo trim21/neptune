@@ -32,8 +32,8 @@ func (d *Download) AddConn(addr netip.AddrPort, conn net.Conn, h proto.Handshake
 }
 
 func (d *Download) connectToPeers() {
-	d.peersMutex.Lock()
-	defer d.peersMutex.Unlock()
+	d.pendingPeersMutex.Lock()
+	defer d.pendingPeersMutex.Unlock()
 
 	for d.pendingPeers.Len() > 0 {
 		// try connecting first
@@ -64,11 +64,10 @@ func (d *Download) connectToPeers() {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 			defer cancel()
 
-			d.log.Debug().Msgf("try to connect to peer %s", pp.addrPort)
+			d.log.Trace().Msgf("try to connect to peer %s", pp.addrPort)
 
 			conn, err := global.Dial(ctx, "tcp", pp.addrPort.String())
 			if err != nil {
-				d.log.Debug().Err(err).Msgf("failed to connect to peer %s", pp.addrPort)
 				if errors.Is(err, context.DeadlineExceeded) {
 					ch.timeout = true
 				} else if errors.Is(err, syscall.ECONNREFUSED) {

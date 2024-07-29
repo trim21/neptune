@@ -12,7 +12,6 @@ import (
 	"net"
 	"net/netip"
 	"net/url"
-	"runtime"
 	"sync"
 	"time"
 
@@ -33,14 +32,11 @@ import (
 	"neptune/internal/pkg/unsafe"
 	"neptune/internal/proto"
 	"neptune/internal/util"
-	"neptune/internal/version"
 )
 
-const outPexExtID proto.ExtensionMessage = 2
+const ourPexExtID proto.ExtensionMessage = 22
 
 type PeerID [20]byte
-
-var handshakeAgent = fmt.Sprintf("Neptune %d.%d.%d", version.MAJOR, version.MINOR, version.PATCH)
 
 func (i PeerID) AsString() string {
 	return unsafe.Str(i[:])
@@ -283,7 +279,7 @@ func (p *Peer) start(skipHandshake bool) {
 		_ = p.Conn.SetReadDeadline(time.Now().Add(time.Second * 30))
 		h, err := proto.ReadHandshake(p.r)
 		if err != nil {
-			p.log.Debug().Err(err).Msg("failed to read handshake")
+			p.log.Trace().Err(err).Msg("failed to read handshake")
 			return
 		}
 
@@ -417,25 +413,27 @@ func (p *Peer) start(skipHandshake bool) {
 					p.extDontHaveID.Store(event.ExtHandshake.Mapping.DontHave.Value)
 				}
 
-				if event.ExtHandshake.Mapping.Pex.Set {
-					p.extPexID.Store(event.ExtHandshake.Mapping.Pex.Value)
+				if !p.d.private {
+					if event.ExtHandshake.Mapping.Pex.Set {
+						p.extPexID.Store(event.ExtHandshake.Mapping.Pex.Value)
+					}
 				}
+
+				continue
+			}
+
+			if event.ExtensionID == ourPexExtID {
+				added, dropped, err := parsePex(event.ExtPex)
+				if err != nil {
+					return
+				}
+				p.d.pexAdd <- added
+				p.d.pexDrop <- dropped
 				continue
 			}
 
 			if event.ExtensionID == p.extDontHaveID.Load() {
 				p.Bitmap.Unset(event.Index)
-				continue
-			}
-
-			if event.ExtensionID == p.extPexID.Load() {
-				var r []pexPeer
-				r, err = parsePex(event.ExtPex)
-				if err != nil {
-					return
-				}
-
-				runtime.KeepAlive(r)
 				continue
 			}
 
@@ -457,10 +455,11 @@ func (p *Peer) start(skipHandshake bool) {
 			}
 
 			p.allowFast.Set(event.Index)
-
-		// TODO
 		case proto.Port:
-			p.log.Info().Msgf("port %d", event.Port)
+			if p.d.private { // client should not enable dht on private torrent
+				return
+			}
+			p.d.c.dht.AddPeer(netip.AddrPortFrom(p.Address.Addr(), event.Port))
 		case proto.Suggest:
 		// currently ignored and unsupported
 		case proto.BitCometExtension:
@@ -483,13 +482,15 @@ func (p *Peer) start(skipHandshake bool) {
 }
 
 func (p *Peer) sendInitPayload() {
+	bitmapCount := p.d.bm.Count()
+
 	var err error
 	switch {
-	case p.fastExtension && p.d.bm.Count() == 0:
+	case p.fastExtension && bitmapCount == 0:
 		err = p.sendEvent(Event{Event: proto.HaveNone})
-	case p.fastExtension && p.d.bm.Count() == p.d.info.NumPieces:
+	case p.fastExtension && bitmapCount == p.d.info.NumPieces:
 		err = p.sendEvent(Event{Event: proto.HaveAll})
-	case p.d.bm.Count() != 0:
+	case bitmapCount != 0:
 		err = p.sendEvent(Event{Event: proto.Bitfield, Bitmap: p.d.bm})
 	}
 
@@ -505,7 +506,7 @@ func (p *Peer) sendInitPayload() {
 			ExtHandshake: proto.ExtHandshake{
 				V: null.NewString(global.UserAgent),
 				Mapping: proto.ExtMapping{
-					Pex: null.Null[proto.ExtensionMessage]{Value: outPexExtID, Set: !p.d.info.Private},
+					Pex: null.Null[proto.ExtensionMessage]{Value: ourPexExtID, Set: !p.d.info.Private},
 				},
 				QueueLength: null.NewUint32(500),
 			},
@@ -583,36 +584,36 @@ type pexPeer struct {
 	outGoing         bool
 }
 
-func parsePex(msg proto.ExtPex) ([]pexPeer, error) {
-	if len(msg.Added)&6 != 0 {
-		return nil, fmt.Errorf("invalid added address")
+func parsePex(msg proto.ExtPex) ([]pexPeer, []netip.AddrPort, error) {
+	if len(msg.Added)%6 != 0 {
+		return nil, nil, fmt.Errorf("invalid length of 'added': %d %d", len(msg.Added), len(msg.Added)%6)
 	}
 
 	if len(msg.Added)/6 != len(msg.AddedFlag) {
-		return nil, fmt.Errorf("added and added.f size mismatch")
+		return nil, nil, fmt.Errorf("added and added.f size mismatch, len(added) = %d bug len(added.f) = %d", len(msg.Added), len(msg.AddedFlag))
 	}
 
-	if len(msg.Added6)&18 != 0 {
-		return nil, fmt.Errorf("invalid added6 address")
+	if len(msg.Dropped)%6 != 0 {
+		return nil, nil, fmt.Errorf("invalid dropped address")
 	}
 
-	if len(msg.Added6)/6 != len(msg.Added6Flag) {
-		return nil, fmt.Errorf("added6 and added6.f size mismatch")
+	if len(msg.Added6)%18 != 0 {
+		return nil, nil, fmt.Errorf("invalid length of 'added6': %d %d", len(msg.Added6), len(msg.Added6)%18)
 	}
 
-	if len(msg.Dropped)&6 != 0 {
-		return nil, fmt.Errorf("invalid added6 address")
+	if len(msg.Added6)/18 != len(msg.Added6Flag) {
+		return nil, nil, fmt.Errorf("added6 and added6.f size mismatch, len(added6) = %d bug len(added6.f) = %d", len(msg.Added6), len(msg.Added6Flag))
 	}
 
-	if len(msg.Dropped6)&18 != 0 {
-		return nil, fmt.Errorf("invalid added6 address")
+	if len(msg.Dropped6)%18 != 0 {
+		return nil, nil, fmt.Errorf("invalid dropped6 address")
 	}
 
 	var r = make([]pexPeer, 0, len(msg.AddedFlag)+len(msg.Added6Flag))
 
 	for i, flag := range msg.AddedFlag {
 		r = append(r, pexPeer{
-			addrPort:         netip.AddrPortFrom(netip.AddrFrom4([4]byte(msg.Added[i*6:i*6+4])), binary.BigEndian.Uint16(msg.Added[i*6+4:i*6+6])),
+			addrPort:         parseCompact4(msg.Added[i*6 : i*6+6]),
 			preferEnc:        flag&proto.PexFlagPreferEnc != 0,
 			seedOnly:         flag&proto.PexFlagSeedOnly != 0,
 			supportUTP:       flag&proto.PexFlagSupportUTP != 0,
@@ -623,7 +624,7 @@ func parsePex(msg proto.ExtPex) ([]pexPeer, error) {
 
 	for i, flag := range msg.Added6Flag {
 		r = append(r, pexPeer{
-			addrPort:         netip.AddrPortFrom(netip.AddrFrom16([16]byte(msg.Added[i*18:i*18+16])), binary.BigEndian.Uint16(msg.Added[i*18+16:i*18+18])),
+			addrPort:         parseCompact6(msg.Added6[i*18 : i*18+18]),
 			preferEnc:        flag&proto.PexFlagPreferEnc != 0,
 			seedOnly:         flag&proto.PexFlagSeedOnly != 0,
 			supportUTP:       flag&proto.PexFlagSupportUTP != 0,
@@ -632,7 +633,17 @@ func parsePex(msg proto.ExtPex) ([]pexPeer, error) {
 		})
 	}
 
-	return r, nil
+	var dropped = make([]netip.AddrPort, 0, len(msg.Dropped)/6+len(msg.Dropped6)/18)
+
+	for i := 0; i < len(msg.Dropped); i += 6 {
+		dropped = append(dropped, netip.AddrPortFrom(netip.AddrFrom4([4]byte(msg.Dropped[i*6:i*6+4])), binary.BigEndian.Uint16(msg.Dropped[i*6+4:i*6+6])))
+	}
+
+	for i := 0; i < len(msg.Dropped6); i += 18 {
+		dropped = append(dropped, netip.AddrPortFrom(netip.AddrFrom16([16]byte(msg.Dropped6[i*18:i*18+16])), binary.BigEndian.Uint16(msg.Dropped6[i*18+16:i*18+18])))
+	}
+
+	return r, dropped, nil
 }
 
 type sizedSlice[T interface{ ~int | ~int64 }] struct {

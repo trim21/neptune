@@ -100,9 +100,9 @@ func (p *Peer) DecodeEvents() (Event, error) {
 			return event, err
 		}
 
-		extMsgID := proto.ExtensionMessage(b)
+		event.ExtensionID = proto.ExtensionMessage(b)
 
-		if extMsgID == proto.ExtensionHandshake {
+		if event.ExtensionID == proto.ExtensionHandshake {
 			var raw = make([]byte, size-2)
 			_, err = io.ReadFull(p.r, raw)
 			if err != nil {
@@ -113,19 +113,19 @@ func (p *Peer) DecodeEvents() (Event, error) {
 			return event, err
 		}
 
-		if extMsgID == p.extDontHaveID.Load() {
-			assert.Equal(size, 6)
+		//if extMsgID == p.extDontHaveID.Load() {
+		//	assert.Equal(size, 6)
+		//
+		//	_, err = io.ReadFull(p.r, p.readBuf[:])
+		//	if err != nil {
+		//		return event, err
+		//	}
+		//
+		//	event.Index = binary.BigEndian.Uint32(p.readBuf[:])
+		//	return event, err
+		//}
 
-			_, err = io.ReadFull(p.r, p.readBuf[:])
-			if err != nil {
-				return event, err
-			}
-
-			event.Index = binary.BigEndian.Uint32(p.readBuf[:])
-			return event, err
-		}
-
-		if extMsgID == p.extPexID.Load() {
+		if event.ExtensionID == ourPexExtID {
 			var raw = make([]byte, size-2)
 
 			_, err = io.ReadFull(p.r, raw)
@@ -139,13 +139,13 @@ func (p *Peer) DecodeEvents() (Event, error) {
 
 		// unknown events
 		event.Ignored = true
-		_, err = io.CopyN(io.Discard, p.r, int64(size-2))
+		_, err = p.r.Discard(int(size - 2))
 		return event, err
 	case proto.BitCometExtension:
 	}
 
 	// unknown events
-	_, err = io.CopyN(io.Discard, p.r, int64(size-1))
+	_, err = p.r.Discard(int(size - 1))
 	return event, err
 }
 

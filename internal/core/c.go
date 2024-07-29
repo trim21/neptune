@@ -15,12 +15,14 @@ import (
 
 	"github.com/go-resty/resty/v2"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/rs/zerolog/log"
 	"github.com/trim21/conntrack"
 	"go.uber.org/atomic"
 	"golang.org/x/sync/semaphore"
 
 	"neptune/internal/bep40"
 	"neptune/internal/config"
+	"neptune/internal/dht"
 	"neptune/internal/metainfo"
 	"neptune/internal/pkg/filepool"
 	"neptune/internal/pkg/flowrate"
@@ -49,6 +51,13 @@ func New(cfg config.Config, sessionPath string, debug bool) *Client {
 	//	only 'prefer'(default) 'prefer-not', 'disable' or 'force' are allowed", cfg.App.Crypto))
 	//}
 
+	conn, err := net.ListenPacket("udp", fmt.Sprintf(":%d", cfg.App.P2PPort))
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to listen on dht")
+	}
+
+	d := dht.Start(conn, cfg.App.P2PPort)
+
 	v4, v6, _ := util.GetIpAddress()
 
 	c := &Client{
@@ -59,6 +68,8 @@ func New(cfg config.Config, sessionPath string, debug bool) *Client {
 		checkQueue:  make([]metainfo.Hash, 0, 3),
 		downloadMap: make(map[metainfo.Hash]*Download),
 		connChan:    make(chan incomingConn, 1),
+
+		dht: d,
 
 		filePool: filepool.New(),
 
@@ -117,6 +128,8 @@ type Client struct {
 
 	ipv4 atomic.Pointer[netip.Addr]
 	ipv6 atomic.Pointer[netip.Addr]
+
+	dht *dht.DHT
 
 	sessionPath string
 	infoHashes  []metainfo.Hash
