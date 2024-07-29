@@ -334,9 +334,10 @@ func (p *Peer) start(skipHandshake bool) {
 	}()
 
 	// make it visible to download
-	_, loaded := p.d.peers.LoadAndStore(p.Address, p)
+	_, loaded := p.d.peers.LoadOrStore(p.Address, p)
 	if loaded {
-		panic("unexpected connected peer")
+		// connected peers, just ignore
+		return
 	}
 
 	go p.ourRequestHandle()
