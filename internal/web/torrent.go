@@ -65,7 +65,7 @@ func addTorrent(h *jsonrpc.Handler, c *core.Client) {
 			if req.Tags == nil {
 				req.Tags = []string{}
 			}
-			err = c.AddTorrent(m, info, downloadDir, req.Tags)
+			err = c.AddTorrent(req.TorrentFile, m, info, downloadDir, req.Tags)
 			if err != nil {
 				return CodeError(5, errgo.Wrap(err, "failed to add torrent to download"))
 			}

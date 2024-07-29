@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/netip"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -86,11 +87,14 @@ func New(cfg config.Config, sessionPath string, debug bool) *Client {
 		//mseDisabled: mseDisabled,
 		//mseSelector: mseSelector,
 		sessionPath: sessionPath,
-		fh:          make(map[string]*os.File),
-		randKey:     random.Bytes(32),
-		ipv4:        *atomic.NewPointer(v4),
-		ipv6:        *atomic.NewPointer(v6),
-		debug:       debug,
+		resumePath:  filepath.Join(sessionPath, "resume"),
+		torrentPath: filepath.Join(sessionPath, "torrents"),
+
+		fh:      make(map[string]*os.File),
+		randKey: random.Bytes(32),
+		ipv4:    *atomic.NewPointer(v4),
+		ipv6:    *atomic.NewPointer(v6),
+		debug:   debug,
 	}
 
 	c.initMetrics()
@@ -131,10 +135,12 @@ type Client struct {
 
 	dht *dht.DHT
 
-	sessionPath string
-	infoHashes  []metainfo.Hash
-	downloads   []*Download
-	checkQueue  []metainfo.Hash
+	resumePath  string
+	torrentPath string
+
+	infoHashes []metainfo.Hash
+	downloads  []*Download
+	checkQueue []metainfo.Hash
 
 	randKey []byte
 
@@ -142,6 +148,7 @@ type Client struct {
 	connectionCount atomic.Uint32
 	m               sync.RWMutex
 	debug           bool
+	sessionPath     string
 }
 
 type DownloadInfo struct {

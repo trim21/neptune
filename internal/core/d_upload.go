@@ -44,7 +44,6 @@ var cache = lo.Must(ristretto.NewCache(&ristretto.Config{
 
 func (d *Download) backgroundReqHandler() {
 	var reqPieceCount = make(map[uint32]uint32, d.info.NumPieces)
-
 	var peers []*Peer
 
 	for {

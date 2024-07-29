@@ -5,8 +5,12 @@ package core
 
 import (
 	"fmt"
+	"io/fs"
 	"net"
 	"net/netip"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -77,7 +81,22 @@ func (c *Client) Start() error {
 		}
 	}()
 
-	return nil
+	return filepath.Walk(c.resumePath, func(path string, info fs.FileInfo, err error) error {
+		if info.IsDir() {
+			return nil
+		}
+
+		if !strings.HasSuffix(path, ".resume") {
+			return nil
+		}
+
+		resumeData, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+
+		return c.UnmarshalResume(resumeData)
+	})
 }
 
 func (c *Client) startListen() error {

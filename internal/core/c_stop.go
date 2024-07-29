@@ -38,9 +38,6 @@ func (c *Client) saveSession() *panics.Recovered {
 		w.Go(func() {
 			defer sem.Release(1)
 
-			d.m.Lock()
-			defer d.m.Unlock()
-
 			b, err := d.MarshalBinary()
 			if err != nil {
 				log.Err(err).Msg("failed to save download")
@@ -49,7 +46,7 @@ func (c *Client) saveSession() *panics.Recovered {
 
 			name := fmt.Sprintf("%x.resume", d.info.Hash)
 
-			dirPath := filepath.Join(c.sessionPath, "resume", name[0:2])
+			dirPath := filepath.Join(c.resumePath, name[:2])
 
 			err = os.MkdirAll(dirPath, os.ModePerm)
 			if err != nil {

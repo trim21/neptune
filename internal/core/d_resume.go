@@ -4,27 +4,18 @@
 package core
 
 import (
-	"context"
 	"encoding"
-	"net/netip"
+	"fmt"
+	"os"
 	"path/filepath"
-	"time"
 
-	"github.com/hashicorp/golang-lru/v2/expirable"
-	"github.com/puzpuzpuz/xsync/v3"
-	"github.com/rs/zerolog/log"
 	"github.com/samber/lo"
 	"github.com/trim21/errgo"
 	"github.com/trim21/go-bencode"
-	"go.uber.org/atomic"
 
 	"neptune/internal/meta"
 	"neptune/internal/metainfo"
-	"neptune/internal/pkg/bm"
-	"neptune/internal/pkg/flowrate"
-	"neptune/internal/pkg/gsync"
-	"neptune/internal/pkg/heap"
-	"neptune/internal/proto"
+	"neptune/internal/pkg/global/tasks"
 )
 
 var _ encoding.BinaryMarshaler = (*Download)(nil)
@@ -39,6 +30,7 @@ type resume struct {
 	Downloaded  int64
 	Uploaded    int64
 	State       State
+	InfoHash    string
 }
 
 func (d *Download) MarshalBinary() (data []byte, err error) {
@@ -47,7 +39,8 @@ func (d *Download) MarshalBinary() (data []byte, err error) {
 		Downloaded:  d.downloaded.Load(),
 		Uploaded:    d.uploaded.Load(),
 		Tags:        d.tags,
-		State:       d.state,
+		State:       d.GetState(),
+		InfoHash:    d.info.Hash.Hex(),
 		AddAt:       d.AddAt,
 		CompletedAt: d.CompletedAt.Load(),
 		Trackers: lo.Map(d.trackers, func(tier TrackerTier, index int) []string {
@@ -58,65 +51,47 @@ func (d *Download) MarshalBinary() (data []byte, err error) {
 	})
 }
 
-func (c *Client) UnmarshalResume(data []byte, torrentDirectory string) (*Download, error) {
+func (c *Client) UnmarshalResume(data []byte) error {
 	var r resume
 	if err := bencode.Unmarshal(data, &r); err != nil {
-		return nil, errgo.Wrap(err, "failed to decode resume data")
+		return errgo.Wrap(err, "failed to decode resume data")
 	}
 
-	var m, err = metainfo.LoadFromFile(filepath.Join(torrentDirectory, ""))
+	tPath := filepath.Join(c.torrentPath, r.InfoHash[:2], r.InfoHash[2:4], r.InfoHash+".torrent")
+	var m, err = metainfo.LoadFromFile(tPath)
 	if err != nil {
-		return nil, errgo.Wrap(err, "failed to decode torrent data")
+		if os.IsNotExist(err) {
+			return errgo.Wrap(err, fmt.Sprintf("torrent %s missing at %s", r.InfoHash, tPath))
+		}
+
+		return errgo.Wrap(err, fmt.Sprintf("failed to decode torrent file %s", tPath))
 	}
 
 	info, err := meta.FromTorrent(*m)
 	if err != nil {
-		return nil, errgo.Wrap(err, "failed to decode torrent data")
+		return errgo.Wrap(err, "failed to decode torrent data")
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	d := c.NewDownload(m, info, r.BasePath, r.Tags)
 
-	d := &Download{
-		CompletedAt: *atomic.NewInt64(r.CompletedAt),
+	d.state = r.State
+	d.AddAt = r.AddAt
+	d.CompletedAt.Store(d.CompletedAt.Load())
 
-		ctx:      ctx,
-		info:     info,
-		cancel:   cancel,
-		c:        c,
-		log:      log.With().Stringer("info_hash", info.Hash).Logger(),
-		state:    Checking,
-		peerID:   NewPeerID(),
-		tags:     r.Tags,
-		basePath: r.BasePath,
+	d.downloaded.Store(r.Downloaded)
+	d.downloadAtStart = r.Downloaded
 
-		AddAt: time.Now().Unix(),
+	d.uploaded.Store(r.Uploaded)
+	d.uploadAtStart = r.Uploaded
 
-		ResChan: make(chan *proto.ChunkResponse, 1),
+	c.m.Lock()
+	defer c.m.Unlock()
 
-		ioDown:  flowrate.New(time.Second, time.Second),
-		netDown: flowrate.New(time.Second, time.Second),
-		ioUp:    flowrate.New(time.Second, time.Second),
+	c.downloads = append(c.downloads, d)
+	c.downloadMap[info.Hash] = d
+	c.infoHashes = lo.Keys(c.downloadMap)
 
-		peers:             xsync.NewMapOf[netip.AddrPort, *Peer](),
-		connectionHistory: expirable.NewLRU[netip.AddrPort, connHistory](1024, nil, time.Minute*10),
+	tasks.Submit(d.Init)
 
-		pendingPeers: heap.New[peerWithPriority](),
-
-		// will use about 1mb per torrent, can be optimized later
-		pieceInfo: buildPieceInfos(info),
-
-		private: info.Private,
-
-		bm: bm.New(info.NumPieces),
-
-		downloadDir: r.BasePath,
-	}
-
-	d.stateCond = gsync.NewCond(&d.m)
-
-	d.setAnnounceList(r.Trackers)
-
-	d.log.Info().Msg("download created")
-
-	return d, nil
+	return nil
 }

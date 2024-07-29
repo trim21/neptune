@@ -20,6 +20,7 @@ import (
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/rs/zerolog/log"
 	"github.com/samber/lo"
+	"github.com/trim21/errgo"
 	"go.uber.org/multierr"
 
 	"neptune/internal/meta"
@@ -113,7 +114,7 @@ func (c *Client) GetTransferSummary() TransferSummary {
 	}
 }
 
-func (c *Client) AddTorrent(m *metainfo.MetaInfo, info meta.Info, downloadPath string, tags []string) error {
+func (c *Client) AddTorrent(raw []byte, m *metainfo.MetaInfo, info meta.Info, downloadPath string, tags []string) error {
 	log.Info().Msgf("try add torrent %s", info.Hash)
 
 	c.m.RLock()
@@ -122,6 +123,19 @@ func (c *Client) AddTorrent(m *metainfo.MetaInfo, info meta.Info, downloadPath s
 		return fmt.Errorf("torrent %s exists", info.Hash)
 	}
 	c.m.RUnlock()
+
+	h := info.Hash.Hex()
+
+	dir := filepath.Join(c.torrentPath, h[:2], h[2:4])
+	err := os.MkdirAll(dir, os.ModePerm)
+	if err != nil {
+		return errgo.Wrap(err, fmt.Sprintf("failed to create director %q", dir))
+	}
+
+	err = os.WriteFile(filepath.Join(dir, h+".torrent"), raw, 0644)
+	if err != nil {
+		return errgo.Wrap(err, "failed to save torrent to disk")
+	}
 
 	c.m.Lock()
 	defer c.m.Unlock()

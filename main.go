@@ -38,8 +38,6 @@ import (
 
 	"neptune/internal/config"
 	"neptune/internal/core"
-	"neptune/internal/meta"
-	"neptune/internal/metainfo"
 	"neptune/internal/pkg/empty"
 	"neptune/internal/pkg/global"
 	"neptune/internal/pkg/random"
@@ -132,27 +130,30 @@ func main() {
 	}()
 
 	if global.Dev {
-		log.Debug().Msg("add debug torrent")
-		if sys.IsWindows {
-			//{
-			//	lo.Must0(os.RemoveAll("D:\\downloads\\2"))
-			//	m := lo.Must(metainfo.LoadFromFile(`C:\Users\Trim21\Downloads\2.torrent`))
-			//	lo.Must0(app.AddTorrent(m, lo.Must(meta.FromTorrent(*m)), "D:\\Downloads\\2", []string{}))
-			//}
-
-			{
-				//lo.Must0(os.RemoveAll("D:\\downloads\\ubuntu"))
-				m := lo.Must(metainfo.LoadFromFile(`C:\Users\Trim21\Downloads\ubuntu-24.04-desktop-amd64.iso.torrent.patched`))
-				lo.Must0(app.AddTorrent(m, lo.Must(meta.FromTorrent(*m)), "D:\\Downloads\\ubuntu", []string{}))
-			}
-		}
-
+		//log.Debug().Msg("add debug torrent")
+		//if sys.IsWindows {
+		//	//{
+		//	//	lo.Must0(os.RemoveAll("D:\\downloads\\2"))
+		//	//	m := lo.Must(metainfo.LoadFromFile(`C:\Users\Trim21\Downloads\2.torrent`))
+		//	//	lo.Must0(app.AddTorrent(m, lo.Must(meta.FromTorrent(*m)), "D:\\Downloads\\2", []string{}))
+		//	//}
+		//
+		//	{
+		//		raw := lo.Must(os.ReadFile(`C:\Users\Trim21\Downloads\ubuntu-24.04-desktop-amd64.iso.torrent.patched`))
+		//		m := lo.Must(metainfo.LoadFromFile(`C:\Users\Trim21\Downloads\ubuntu-24.04-desktop-amd64.iso.torrent.patched`))
+		//		lo.Must0(app.AddTorrent(raw, m, lo.Must(meta.FromTorrent(*m)), "D:\\Downloads\\ubuntu", []string{}))
+		//	}
+		//}
+		//
 		//if sys.IsLinux {
 		//	lo.Must0(os.RemoveAll("/export/ssd-2t/try/2"))
 		//	m := lo.Must(metainfo.LoadFromFile(`/export/ssd-2t/2.torrent`))
-		//	lo.Must0(app.addTorrent(m, lo.Must(meta.FromTorrent(*m)), "/export/ssd-2t/try/2", nil))
+		//	lo.Must0(app.AddTorrent(lo.Must(os.ReadFile(`/export/ssd-2t/2.torrent`)), m, lo.Must(meta.FromTorrent(*m)), "/export/ssd-2t/try/2", nil))
 		//}
 	}
+
+	//app.Shutdown()
+	//return
 
 	<-done
 	fmt.Println("shutting down...")
