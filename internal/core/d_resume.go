@@ -34,6 +34,14 @@ type resume struct {
 	State       State
 }
 
+func (d *Download) resumeFilePath() (dir, file string) {
+	name := fmt.Sprintf("%x.resume", d.info.Hash)
+
+	dir = filepath.Join(d.c.resumePath, name[:2])
+
+	return dir, filepath.Join(dir, name)
+}
+
 func (d *Download) saveResume() {
 	b, err := d.MarshalBinary()
 	if err != nil {
@@ -41,17 +49,15 @@ func (d *Download) saveResume() {
 		return
 	}
 
-	name := fmt.Sprintf("%x.resume", d.info.Hash)
+	dir, file := d.resumeFilePath()
 
-	dirPath := filepath.Join(d.c.resumePath, name[:2])
-
-	err = os.MkdirAll(dirPath, os.ModePerm)
+	err = os.MkdirAll(dir, os.ModePerm)
 	if err != nil {
 		log.Err(err).Msg("failed to save download")
 		return
 	}
 
-	err = os.WriteFile(filepath.Join(dirPath, name), b, os.ModePerm)
+	err = os.WriteFile(file, b, os.ModePerm)
 	if err != nil {
 		log.Err(err).Msg("failed to save download")
 	}

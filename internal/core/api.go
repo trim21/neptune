@@ -271,17 +271,19 @@ func (c *Client) GetTorrentTrackers(h metainfo.Hash) []ApiTrackers {
 
 func (c *Client) RemoveTorrent(h metainfo.Hash, removeData bool) error {
 	c.m.Lock()
-	defer c.m.Unlock()
 
 	d, ok := c.downloadMap[h]
 	if !ok {
+		c.m.Unlock()
 		return fmt.Errorf("torrent %s not exists", h)
 	}
 
-	d.log.Info().Msg("torrent removed")
-
 	delete(c.downloadMap, h)
 	c.downloads = gslice.Remove(c.downloads, d)
+	c.m.Unlock()
+
+	d.log.Info().Msgf("torrent %s removed", h)
+	d.saveResume()
 
 	d.cancel()
 
@@ -290,9 +292,10 @@ func (c *Client) RemoveTorrent(h metainfo.Hash, removeData bool) error {
 		return true
 	})
 
-	//d.filePool.Cache.Purge()
+	dir, file := d.resumeFilePath()
 
-	var err error
+	err := os.Remove(file)
+	err = multierr.Append(err, pruneEmptyDirectories(dir))
 	if removeData {
 		for _, f := range d.info.Files {
 			e := os.Remove(filepath.Join(d.basePath, f.Path))
