@@ -6,7 +6,6 @@ package core
 import (
 	"bufio"
 	"context"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"net"
@@ -636,11 +635,11 @@ func parsePex(msg proto.ExtPex) ([]pexPeer, []netip.AddrPort, error) {
 	var dropped = make([]netip.AddrPort, 0, len(msg.Dropped)/6+len(msg.Dropped6)/18)
 
 	for i := 0; i < len(msg.Dropped); i += 6 {
-		dropped = append(dropped, netip.AddrPortFrom(netip.AddrFrom4([4]byte(msg.Dropped[i*6:i*6+4])), binary.BigEndian.Uint16(msg.Dropped[i*6+4:i*6+6])))
+		dropped = append(dropped, parseCompact4(msg.Dropped[i*6:i*6+6]))
 	}
 
 	for i := 0; i < len(msg.Dropped6); i += 18 {
-		dropped = append(dropped, netip.AddrPortFrom(netip.AddrFrom16([16]byte(msg.Dropped6[i*18:i*18+16])), binary.BigEndian.Uint16(msg.Dropped6[i*18+16:i*18+18])))
+		dropped = append(dropped, parseCompact6(msg.Dropped6[i*18:i*18+18]))
 	}
 
 	return r, dropped, nil

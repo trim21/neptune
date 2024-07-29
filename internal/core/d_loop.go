@@ -148,6 +148,7 @@ func (d *Download) startBackground() {
 			select {
 			case <-d.ctx.Done():
 				return
+			case <-d.pexDrop:
 			case peers := <-d.pexAdd:
 				state := d.GetState()
 
