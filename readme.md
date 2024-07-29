@@ -1,6 +1,6 @@
 # Neptune
 
-A headless BitTorrent client focus on performance.
+A headless BitTorrent client.
 
 ## Install
 
