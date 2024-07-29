@@ -49,30 +49,31 @@ func (d *Download) Check() {
 }
 
 // Init check existing files
-func (d *Download) Init() {
-	d.log.Debug().Msg("initializing download")
+func (d *Download) Init(resumed bool) {
+	if !resumed {
+		d.log.Debug().Msg("initializing download")
 
-	d.m.Lock()
-	d.state = Checking
-	d.m.Unlock()
+		d.m.Lock()
+		d.state = Checking
+		d.m.Unlock()
 
-	err := d.initCheck()
-	if err != nil {
-		d.setError(err)
-		d.log.Err(err).Msg("failed to initCheck torrent data")
+		err := d.initCheck()
+		if err != nil {
+			d.setError(err)
+			d.log.Err(err).Msg("failed to initCheck torrent data")
+		}
+		d.ioDown.Reset()
+
+		d.log.Debug().Msgf("done size %s", humanize.IBytes(uint64(d.bm.Count())*uint64(d.info.PieceLength)))
+
+		d.m.Lock()
+		if d.bm.Count() == d.info.NumPieces {
+			d.state = Seeding
+		} else {
+			d.state = Downloading
+		}
+		d.m.Unlock()
 	}
-
-	d.ioDown.Reset()
-
-	d.log.Debug().Msgf("done size %s", humanize.IBytes(uint64(d.bm.Count())*uint64(d.info.PieceLength)))
-
-	d.m.Lock()
-	if d.bm.Count() == d.info.NumPieces {
-		d.state = Seeding
-	} else {
-		d.state = Downloading
-	}
-	d.m.Unlock()
 
 	go d.startBackground()
 

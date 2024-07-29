@@ -27,7 +27,6 @@ import (
 	"neptune/internal/metainfo"
 	"neptune/internal/pkg/as"
 	"neptune/internal/pkg/bm"
-	"neptune/internal/pkg/global/tasks"
 	"neptune/internal/pkg/gslice"
 )
 
@@ -151,7 +150,7 @@ func (c *Client) AddTorrent(raw []byte, m *metainfo.MetaInfo, info meta.Info, do
 	c.downloadMap[info.Hash] = d
 	c.infoHashes = lo.Keys(c.downloadMap)
 
-	tasks.Submit(d.Init)
+	go d.Init(false)
 
 	return nil
 }

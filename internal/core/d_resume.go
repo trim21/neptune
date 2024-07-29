@@ -17,7 +17,6 @@ import (
 	"neptune/internal/meta"
 	"neptune/internal/metainfo"
 	"neptune/internal/pkg/bm"
-	"neptune/internal/pkg/global/tasks"
 )
 
 var _ encoding.BinaryMarshaler = (*Download)(nil)
@@ -124,7 +123,7 @@ func (c *Client) UnmarshalResume(data []byte) error {
 	c.downloadMap[info.Hash] = d
 	c.infoHashes = lo.Keys(c.downloadMap)
 
-	tasks.Submit(d.Init)
+	d.Init(true)
 
 	return nil
 }

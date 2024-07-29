@@ -84,9 +84,6 @@ func New(cfg config.Config, sessionPath string, debug bool) *Client {
 			DialContext:        conntrack.NewDialContextFunc(conntrack.DialWithName("http")),
 		}}).SetHeader("User-Agent", global.UserAgent).SetRedirectPolicy(resty.NoRedirectPolicy()),
 
-		//mseDisabled: mseDisabled,
-		//mseSelector: mseSelector,
-		sessionPath: sessionPath,
 		resumePath:  filepath.Join(sessionPath, "resume"),
 		torrentPath: filepath.Join(sessionPath, "torrents"),
 
@@ -137,8 +134,6 @@ type Client struct {
 
 	resumePath  string
 	torrentPath string
-
-	sessionPath string
 
 	infoHashes []metainfo.Hash
 	downloads  []*Download
