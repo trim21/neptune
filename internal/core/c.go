@@ -138,6 +138,8 @@ type Client struct {
 	resumePath  string
 	torrentPath string
 
+	sessionPath string
+
 	infoHashes []metainfo.Hash
 	downloads  []*Download
 	checkQueue []metainfo.Hash
@@ -148,7 +150,6 @@ type Client struct {
 	connectionCount atomic.Uint32
 	m               sync.RWMutex
 	debug           bool
-	sessionPath     string
 }
 
 type DownloadInfo struct {

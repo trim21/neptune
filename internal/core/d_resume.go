@@ -16,6 +16,7 @@ import (
 
 	"neptune/internal/meta"
 	"neptune/internal/metainfo"
+	"neptune/internal/pkg/bm"
 	"neptune/internal/pkg/global/tasks"
 )
 
@@ -23,7 +24,8 @@ var _ encoding.BinaryMarshaler = (*Download)(nil)
 
 type resume struct {
 	BasePath    string
-	Bitmap      []byte
+	InfoHash    string
+	Bitfield    []byte
 	Tags        []string
 	Trackers    [][]string
 	AddAt       int64
@@ -31,7 +33,6 @@ type resume struct {
 	Downloaded  int64
 	Uploaded    int64
 	State       State
-	InfoHash    string
 }
 
 func (d *Download) saveResume() {
@@ -65,6 +66,7 @@ func (d *Download) MarshalBinary() (data []byte, err error) {
 		Tags:        d.tags,
 		State:       d.GetState(),
 		InfoHash:    d.info.Hash.Hex(),
+		Bitfield:    d.bm.Bitfield(),
 		AddAt:       d.AddAt,
 		CompletedAt: d.CompletedAt.Load(),
 		Trackers: lo.Map(d.trackers, func(tier TrackerTier, index int) []string {
@@ -97,6 +99,13 @@ func (c *Client) UnmarshalResume(data []byte) error {
 	}
 
 	d := c.NewDownload(m, info, r.BasePath, r.Tags)
+
+	d.bm = bm.FromBitfields(r.Bitfield, d.info.NumPieces)
+	done := int64(d.bm.Count()) * d.info.PieceLength
+	if d.bm.Contains(d.info.NumPieces - 1) {
+		done = done - d.info.PieceLength + d.info.LastPieceSize
+	}
+	d.completed.Store(done)
 
 	d.state = r.State
 	d.AddAt = r.AddAt
