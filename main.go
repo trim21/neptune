@@ -152,9 +152,6 @@ func main() {
 		//}
 	}
 
-	//app.Shutdown()
-	//return
-
 	<-done
 	fmt.Println("shutting down...")
 	app.Shutdown()

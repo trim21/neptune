@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/rs/zerolog/log"
 	"github.com/samber/lo"
 	"github.com/trim21/errgo"
 	"github.com/trim21/go-bencode"
@@ -31,6 +32,29 @@ type resume struct {
 	Uploaded    int64
 	State       State
 	InfoHash    string
+}
+
+func (d *Download) saveResume() {
+	b, err := d.MarshalBinary()
+	if err != nil {
+		d.log.Err(err).Msg("failed to save download")
+		return
+	}
+
+	name := fmt.Sprintf("%x.resume", d.info.Hash)
+
+	dirPath := filepath.Join(d.c.resumePath, name[:2])
+
+	err = os.MkdirAll(dirPath, os.ModePerm)
+	if err != nil {
+		log.Err(err).Msg("failed to save download")
+		return
+	}
+
+	err = os.WriteFile(filepath.Join(dirPath, name), b, os.ModePerm)
+	if err != nil {
+		log.Err(err).Msg("failed to save download")
+	}
 }
 
 func (d *Download) MarshalBinary() (data []byte, err error) {

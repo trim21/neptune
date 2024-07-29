@@ -87,6 +87,8 @@ func (d *Download) Init() {
 			d.TryAnnounce()
 		}
 	}()
+
+	d.saveResume()
 }
 
 func (d *Download) wait(state State) bool {
