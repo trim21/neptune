@@ -33,7 +33,7 @@ require (
 	github.com/swaggest/usecase v1.3.1
 	github.com/trim21/conntrack v0.0.2
 	github.com/trim21/errgo v0.0.3
-	github.com/trim21/go-bencode v0.0.7
+	github.com/trim21/go-bencode v0.0.12
 	github.com/valyala/bytebufferpool v1.0.0
 	go.uber.org/atomic v1.11.0
 	go.uber.org/automaxprocs v1.5.3
