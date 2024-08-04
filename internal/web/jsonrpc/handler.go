@@ -15,7 +15,6 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/swaggest/openapi-go"
 	"github.com/swaggest/usecase"
-	"go.uber.org/multierr"
 
 	"neptune/internal/pkg/mempool"
 )
@@ -294,7 +293,7 @@ func (h *Handler) errResp(resp *Response, msg string, code ErrorCode, err error)
 		return
 	}
 
-	resp.Error.Data = multierr.Errors(err)
+	resp.Error.Data = err.Error()
 }
 
 func (h *Handler) fail(w http.ResponseWriter, err error, code ErrorCode) {
