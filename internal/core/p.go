@@ -31,6 +31,7 @@ import (
 	"neptune/internal/pkg/unsafe"
 	"neptune/internal/proto"
 	"neptune/internal/util"
+	"neptune/internal/version"
 )
 
 const ourPexExtID proto.ExtensionMessage = 22
@@ -47,8 +48,10 @@ func (i PeerID) Zero() bool {
 	return i == emptyPeerID
 }
 
+var peerIDPrefix = fmt.Sprintf("-NE%x%x%x0-", version.MAJOR, version.MINOR, version.PATCH)
+
 func NewPeerID() (peerID PeerID) {
-	copy(peerID[:], global.PeerIDPrefix)
+	copy(peerID[:], peerIDPrefix)
 	copy(peerID[8:], random.PrintableBytes(12))
 	return
 }
