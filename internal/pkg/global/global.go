@@ -20,11 +20,11 @@ const ConnTimeout = time.Minute
 
 var dialTracked = conntrack.NewDialContextFunc(
 	conntrack.DialWithTracing(),
-	conntrack.DialWithName("p2p"),
+	conntrack.DialWithName("bt"),
 	conntrack.DialWithDialer(&net.Dialer{Timeout: time.Minute}),
 )
 
-// Dial will try to establish a connection.
+// Dial will try to establish a connection, should be used as peer 2 peer connections.
 func Dial(ctx context.Context, network, address string) (net.Conn, error) {
 	return dialTracked(ctx, network, address)
 }

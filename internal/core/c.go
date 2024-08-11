@@ -77,12 +77,17 @@ func New(cfg config.Config, sessionPath string, debug bool) *Client {
 		ioUp:   flowrate.New(time.Second, time.Second),
 		ioDown: flowrate.New(time.Second, time.Second),
 
-		http: resty.NewWithClient(&http.Client{Transport: &http.Transport{
-			MaxIdleConns:       cfg.App.MaxHTTPParallel,
-			IdleConnTimeout:    30 * time.Second,
-			DisableCompression: true, // normally gzipped bencode is larger than original content
-			DialContext:        conntrack.NewDialContextFunc(conntrack.DialWithName("http"), conntrack.DialWithTracing()),
-		}}).SetHeader("User-Agent", global.UserAgent).SetRedirectPolicy(resty.NoRedirectPolicy()),
+		http: resty.NewWithClient(&http.Client{
+			Transport: &http.Transport{
+				DialContext:           conntrack.NewDialContextFunc(conntrack.DialWithName("announce"), conntrack.DialWithTracing()),
+				DisableCompression:    true, // normally gzipped bencode is larger than original content
+				MaxIdleConns:          cfg.App.MaxHTTPParallel,
+				MaxIdleConnsPerHost:   2,
+				IdleConnTimeout:       time.Minute,
+				ResponseHeaderTimeout: time.Second * 30,
+			},
+			Timeout: time.Minute * 5,
+		}).SetHeader("User-Agent", global.UserAgent).SetRedirectPolicy(resty.NoRedirectPolicy()),
 
 		resumePath:  filepath.Join(sessionPath, "resume"),
 		torrentPath: filepath.Join(sessionPath, "torrents"),
