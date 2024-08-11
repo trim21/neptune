@@ -5,8 +5,8 @@
 
 package version
 
-var MAJOR = 0
-var MINOR = 0
-var PATCH = 1
+const MAJOR byte = 0
+const MINOR byte = 0
+const PATCH byte = 1
 
 const dev = false

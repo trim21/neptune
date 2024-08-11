@@ -48,7 +48,10 @@ func (i PeerID) Zero() bool {
 	return i == emptyPeerID
 }
 
-var peerIDPrefix = fmt.Sprintf("-NE%x%x%x0-", version.MAJOR, version.MINOR, version.PATCH)
+const peerIDPrefix = "-NE" +
+	string(version.MAJOR+'0') +
+	string(version.MINOR+'0') +
+	string(version.PATCH+'0') + "0-"
 
 func NewPeerID() (peerID PeerID) {
 	copy(peerID[:], peerIDPrefix)
