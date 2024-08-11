@@ -39,7 +39,6 @@ import (
 	"neptune/internal/config"
 	"neptune/internal/core"
 	"neptune/internal/pkg/empty"
-	"neptune/internal/pkg/global"
 	"neptune/internal/pkg/random"
 	"neptune/internal/pkg/sys"
 	"neptune/internal/version"
@@ -60,8 +59,6 @@ func main() {
 	sessionPath := mustGetSessionPath()
 
 	createSessionDirectory(sessionPath)
-
-	global.Init(debug)
 
 	fileLock := mustLockSessionDirectory(filepath.Join(sessionPath, ".lock"))
 	// We do not actually need to unlock it, when process dead, OS will unlock it automatically.

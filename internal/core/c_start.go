@@ -115,11 +115,7 @@ func (c *Client) startListen() error {
 	}
 
 	// add x/net/trace only in debug mode
-	if c.debug {
-		l = conntrack.NewListener(l, conntrack.TrackWithTracing(), conntrack.TrackWithName("p2p"))
-	} else {
-		l = conntrack.NewListener(l, conntrack.TrackWithName("p2p"))
-	}
+	l = conntrack.NewListener(l, conntrack.TrackWithTracing(), conntrack.TrackWithName("p2p"))
 
 	go c.handleConn()
 

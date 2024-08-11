@@ -80,8 +80,8 @@ func New(cfg config.Config, sessionPath string, debug bool) *Client {
 		http: resty.NewWithClient(&http.Client{Transport: &http.Transport{
 			MaxIdleConns:       cfg.App.MaxHTTPParallel,
 			IdleConnTimeout:    30 * time.Second,
-			DisableCompression: true,
-			DialContext:        conntrack.NewDialContextFunc(conntrack.DialWithName("http")),
+			DisableCompression: true, // normally gzipped bencode is larger than original content
+			DialContext:        conntrack.NewDialContextFunc(conntrack.DialWithName("http"), conntrack.DialWithTracing()),
 		}}).SetHeader("User-Agent", global.UserAgent).SetRedirectPolicy(resty.NoRedirectPolicy()),
 
 		resumePath:  filepath.Join(sessionPath, "resume"),
