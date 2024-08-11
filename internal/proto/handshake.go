@@ -72,7 +72,7 @@ func SendHandshake(conn io.Writer, infoHash, peerID [20]byte, private bool) erro
 
 type Handshake struct {
 	InfoHash           metainfo.Hash
-	PeerID             [20]byte
+	PeerID             PeerID
 	FastExtension      bool
 	ExchangeExtensions bool
 	DhtEnabled         bool

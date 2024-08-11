@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -405,7 +406,7 @@ func debugPrintPeers(w io.Writer, d *Download) {
 
 	t.AppendHeader(table.Row{"address", "down rate", "up rate", "our req",
 		"queue piece", "client", "progress",
-		"peer choke", "peer interest", "our choke", "our interest", "fast", "peer req"})
+		"peer choke", "peer interest", "our choke", "our interest", "fast", "peer req", "peer id"})
 
 	d.peers.Range(func(addr netip.AddrPort, p *Peer) bool {
 		t.AppendRow(table.Row{
@@ -422,7 +423,9 @@ func debugPrintPeers(w io.Writer, d *Download) {
 			p.ourInterested.Load(),
 			p.allowFast.ToArray(),
 			p.peerRequests.Size(),
+			url.QueryEscape(p.peerID.Load().AsString()),
 		})
+
 		return true
 	})
 

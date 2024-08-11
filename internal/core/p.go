@@ -28,7 +28,6 @@ import (
 	"neptune/internal/pkg/gsync"
 	"neptune/internal/pkg/null"
 	"neptune/internal/pkg/random"
-	"neptune/internal/pkg/unsafe"
 	"neptune/internal/proto"
 	"neptune/internal/util"
 	"neptune/internal/version"
@@ -36,31 +35,19 @@ import (
 
 const ourPexExtID proto.ExtensionMessage = 22
 
-type PeerID [20]byte
-
-func (i PeerID) AsString() string {
-	return unsafe.Str(i[:])
-}
-
-var emptyPeerID PeerID
-
-func (i PeerID) Zero() bool {
-	return i == emptyPeerID
-}
-
 const peerIDPrefix = "-NE" +
 	string(version.MAJOR+'0') +
 	string(version.MINOR+'0') +
 	string(version.PATCH+'0') + "0-"
 
-func NewPeerID() (peerID PeerID) {
+func NewPeerID() (peerID proto.PeerID) {
 	copy(peerID[:], peerIDPrefix)
 	copy(peerID[8:], random.PrintableBytes(12))
 	return
 }
 
 func NewOutgoingPeer(conn net.Conn, d *Download, addr netip.AddrPort) *Peer {
-	return newPeer(conn, d, addr, emptyPeerID, false, proto.Handshake{})
+	return newPeer(conn, d, addr, proto.PeerID{}, false, proto.Handshake{})
 }
 
 func NewIncomingPeer(conn net.Conn, d *Download, addr netip.AddrPort, h proto.Handshake) *Peer {
@@ -71,7 +58,7 @@ func newPeer(
 	conn net.Conn,
 	d *Download,
 	addr netip.AddrPort,
-	peerID PeerID,
+	peerID proto.PeerID,
 	skipReadHandshake bool,
 	h proto.Handshake,
 ) *Peer {
@@ -123,6 +110,8 @@ func newPeer(
 
 		allowFast: bm.New(d.info.NumPieces),
 		//Requested: bm.New(d.info.NumPieces),
+
+		peerID: *atomic.NewPointer(&proto.PeerID{}),
 
 		dhtEnabled:    h.DhtEnabled,
 		subExtensions: h.ExchangeExtensions,
@@ -189,6 +178,7 @@ type Peer struct {
 	fastExtension bool
 	dhtEnabled    bool
 	subExtensions bool
+	peerID        atomic.Pointer[proto.PeerID]
 }
 
 func (p *Peer) Response(res *proto.ChunkResponse) {
@@ -296,6 +286,8 @@ func (p *Peer) start(skipHandshake bool) {
 		p.dhtEnabled = h.DhtEnabled
 		p.fastExtension = h.FastExtension
 		p.subExtensions = h.ExchangeExtensions
+
+		p.peerID.Store(&h.PeerID)
 
 		p.log = p.log.With().Str("peer_id", url.QueryEscape(string(h.PeerID[:]))).Logger()
 		p.log.Trace().Msg("connect to addrPort")

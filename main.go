@@ -99,11 +99,7 @@ func main() {
 		server := web.New(app, webToken, debug)
 		fmt.Println("start", "http://"+address)
 
-		if debug {
-			listener = conntrack.NewListener(listener, conntrack.TrackWithTracing(), conntrack.TrackWithName("rpc"))
-		} else {
-			listener = conntrack.NewListener(listener, conntrack.TrackWithName("rpc"))
-		}
+		listener = conntrack.NewListener(listener, conntrack.TrackWithTracing(), conntrack.TrackWithName("rpc"))
 
 		if err := http.Serve(listener, server); err != nil {
 			_, _ = fmt.Fprintln(os.Stderr, err)

@@ -101,7 +101,7 @@ type Download struct {
 	pendingPeersMutex      sync.Mutex
 	normalChunkLen         uint32
 	bitfieldSize           uint32
-	peerID                 PeerID
+	peerID                 proto.PeerID
 	state                  State
 	private                bool
 }
