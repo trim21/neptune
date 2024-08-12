@@ -67,7 +67,7 @@ func New(c *core.Client, token string, enableDebug bool) http.Handler {
 		res.Text(w, http.StatusOK, ".")
 	})
 
-	if enableDebug {
+	{
 		info, ok := debug.ReadBuildInfo()
 		if ok {
 			s := []byte(version.FormatBuildInfo(info))
@@ -84,10 +84,12 @@ func New(c *core.Client, token string, enableDebug bool) http.Handler {
 				_, _ = fmt.Fprintln(w, version.Print())
 			})
 		}
+	}
 
-		r.Mount("/debug/neptune", c.DebugHandlers())
-		r.HandleFunc("/debug/events", trace.Events)
+	r.Mount("/debug/neptune", c.DebugHandlers())
+	r.HandleFunc("/debug/events", trace.Events)
 
+	if enableDebug {
 		r.Mount("/debug", middleware.Profiler())
 	}
 
