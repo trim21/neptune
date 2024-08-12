@@ -47,27 +47,26 @@ func NewPeerID() (peerID proto.PeerID) {
 }
 
 func NewOutgoingPeer(conn net.Conn, d *Download, addr netip.AddrPort) *Peer {
-	return newPeer(conn, d, addr, proto.PeerID{}, false, proto.Handshake{})
+	return newPeer(conn, d, addr, false, nil)
 }
 
 func NewIncomingPeer(conn net.Conn, d *Download, addr netip.AddrPort, h proto.Handshake) *Peer {
-	return newPeer(conn, d, addr, h.PeerID, true, h)
+	return newPeer(conn, d, addr, true, &h)
 }
 
 func newPeer(
 	conn net.Conn,
 	d *Download,
 	addr netip.AddrPort,
-	peerID proto.PeerID,
 	skipReadHandshake bool,
-	h proto.Handshake,
+	h *proto.Handshake,
 ) *Peer {
 	ctx, cancel := context.WithCancel(d.ctx)
 	l := d.log.With().Stringer("addr", addr)
 	var ua string
-	if !peerID.Zero() {
-		ua = util.ParsePeerId(peerID)
-		l = l.Str("peer_id", url.QueryEscape(peerID.AsString()))
+	if h != nil {
+		ua = util.ParsePeerId(h.PeerID)
+		l = l.Str("peer_id", url.QueryEscape(h.PeerID.AsString()))
 	}
 
 	p := &Peer{
@@ -113,12 +112,14 @@ func newPeer(
 
 		peerID: *atomic.NewPointer(&proto.PeerID{}),
 
-		dhtEnabled:    h.DhtEnabled,
-		subExtensions: h.ExchangeExtensions,
-		fastExtension: h.FastExtension,
-
 		rttAverage: sizedSlice[time.Duration]{limit: 2000},
 		lastSend:   *atomic.NewTime(time.Now()),
+	}
+
+	if h != nil {
+		p.dhtEnabled = h.DhtEnabled
+		p.subExtensions = h.ExchangeExtensions
+		p.fastExtension = h.FastExtension
 	}
 
 	go p.start(skipReadHandshake)
@@ -131,10 +132,10 @@ type Peer struct {
 	log      zerolog.Logger
 	ctx      context.Context
 	Conn     net.Conn
+	lastSend atomic.Time
 	r        *bufio.Reader
 	w        *bufio.Writer
 	d        *Download
-	lastSend atomic.Time
 	cancel   context.CancelFunc
 	Bitmap   *bm.Bitmap
 
@@ -152,6 +153,7 @@ type Peer struct {
 	ourPieceRequests chan uint32 // our requests for peer chan
 
 	responseCond *gsync.Cond
+	peerID       atomic.Pointer[proto.PeerID]
 	Address      netip.AddrPort
 
 	Requested bitmap.Bitmap
@@ -165,8 +167,9 @@ type Peer struct {
 	QueueLimit     atomic.Uint32
 	closed         atomic.Bool
 
-	wm       sync.Mutex
 	rttMutex sync.RWMutex
+
+	wm sync.Mutex
 
 	extDontHaveID gsync.AtomicUint[proto.ExtensionMessage]
 	extPexID      gsync.AtomicUint[proto.ExtensionMessage]
@@ -178,7 +181,6 @@ type Peer struct {
 	fastExtension bool
 	dhtEnabled    bool
 	subExtensions bool
-	peerID        atomic.Pointer[proto.PeerID]
 }
 
 func (p *Peer) Response(res *proto.ChunkResponse) {
