@@ -66,7 +66,7 @@ func (p *Peer) DecodeEvents() (Event, error) {
 
 	var event Event
 	event.Event = proto.Message(p.readBuf[0])
-	//p.log.Trace().Msgf("try to decode message event %s", color.BlueString(event.Event.String()))
+	// p.log.Trace().Msgf("try to decode message event %s", color.BlueString(event.Event.String()))
 	switch event.Event {
 	case proto.Choke, proto.Unchoke,
 		proto.Interested, proto.NotInterested,
@@ -113,7 +113,7 @@ func (p *Peer) DecodeEvents() (Event, error) {
 			return event, err
 		}
 
-		//if extMsgID == p.extDontHaveID.Load() {
+		// if extMsgID == p.extDontHaveID.Load() {
 		//	assert.Equal(size, 6)
 		//
 		//	_, err = io.ReadFull(p.r, p.readBuf[:])

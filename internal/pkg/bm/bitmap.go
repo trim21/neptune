@@ -41,7 +41,7 @@ func FromBitfields(bitfield []byte, size uint32) *Bitmap {
 	}
 }
 
-// Bitmap is thread-safe bitmap wrapper
+// Bitmap is thread-safe bitmap wrapper.
 type Bitmap struct {
 	bm   bitmap.Bitmap
 	m    sync.RWMutex
@@ -54,7 +54,7 @@ func (b *Bitmap) Clear() {
 	b.m.Unlock()
 }
 
-// Fill bitmap [0, b.size)
+// Fill bitmap [0, b.size).
 func (b *Bitmap) Fill() {
 	b.m.Lock()
 
@@ -123,7 +123,7 @@ func (b *Bitmap) Range(fn func(uint32)) {
 	b.bm.Range(fn)
 }
 
-// Bitfield return bytes as bittorrent protocol
+// Bitfield return bytes as bittorrent protocol.
 func (b *Bitmap) Bitfield() []byte {
 	b.m.RLock()
 	defer b.m.RUnlock()

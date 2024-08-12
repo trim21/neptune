@@ -23,15 +23,15 @@ func genReversedFlag(index int, value byte) uint64 {
 var handshakePstrV1 = ro.S("\x13BitTorrent protocol")
 
 // https://www.bittorrent.org/beps/bep_0005.html
-// reserved_byte[7] & 0x01
+// reserved_byte[7] & 0x01.
 var dhtEnabled = genReversedFlag(7, 0x01)
 
 // https://www.bittorrent.org/beps/bep_0006.html
-// reserved_byte[7] & 0x04
+// reserved_byte[7] & 0x04.
 var fastExtensionEnabled = genReversedFlag(7, 0x04)
 
 // https://www.bittorrent.org/beps/bep_0010.html
-// reserved_byte[5] & 0x10
+// reserved_byte[5] & 0x10.
 var exchangeExtensionEnabled = genReversedFlag(5, 0x10)
 
 var privateHandshakeBytes = ro.B(binary.BigEndian.AppendUint64(nil, exchangeExtensionEnabled|fastExtensionEnabled))
@@ -44,7 +44,7 @@ var publicHandshakeBytes = ro.B(binary.BigEndian.AppendUint64(nil, exchangeExten
 // - info_hash = hash of the value of the 'info' key of the torrent file (20 bytes)
 // - peer_id = unique identifier of the Peer (20 bytes)
 //
-// Total length = payload length = 49 + len(pstr) = 68 bytes (for BitTorrent v1)
+// Total length = payload length = 49 + len(pstr) = 68 bytes (for BitTorrent v1).
 func SendHandshake(conn io.Writer, infoHash, peerID [20]byte, private bool) error {
 	_, err := handshakePstrV1.WriteTo(conn)
 	if err != nil {

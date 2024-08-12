@@ -74,17 +74,63 @@ linters-settings:
 
 linters:
   # See the dedicated "linters" documentation section.
-  enable:
-    - gci
-    - govet
-#    - exhaustive
-    - depguard
-    - staticcheck
+  enable-all: true
+#  enable:
+#    - gci
+#    - govet
+##    - exhaustive
+#    - depguard
+#    - staticcheck
+#    - canonicalheader
 
   disable:
     - errcheck
     - unused
     - gochecknoglobals
+    - containedctx
+    - gomnd
+    - gomnd
+    - goimports
+    - execinquery
+    - wsl
+    - gofumpt
+    - varnamelen
+    - wrapcheck
+    - zerologlint
+    - thelper
+    - testpackage
+    - tagliatelle
+    - reassign
+    - paralleltest
+    - nonamedreturns
+    - nlreturn
+    - mnd
+    - lll
+    - forcetypeassert
+    - maintidx
+    - stylecheck
+    - gocyclo
+    - nestif
+    - godox
+    - revive
+    - ireturn
+    - contextcheck
+    - dupword
+    - gocognit
+    - nilnil
+    - exhaustruct
+    - errname
+    - errorlint
+    - gosec
+    - funlen
+    - durationcheck
+    - exhaustive
+    - errchkjson
+    - gochecknoinits
+    - gocritic
+    - err113
+    - cyclop
+
 #  fast: true
 
 issues:
@@ -92,3 +138,6 @@ issues:
     - path: internal/web/jsonrpc/
       linters:
         - govet
+    - path: main.go
+      linters:
+        - forbidigo

@@ -23,14 +23,14 @@ import (
 )
 
 type AddTorrentRequest struct {
-	TorrentFile []byte   `json:"torrent_file" required:"true" description:"base64 encoded torrent file content" validate:"required"`
-	DownloadDir string   `json:"download_dir" description:"base download dir"`
+	TorrentFile []byte   `description:"base64 encoded torrent file content"                   json:"torrent_file" required:"true" validate:"required"`
+	DownloadDir string   `description:"base download dir"                                     json:"download_dir"`
 	Tags        []string `json:"tags"`
-	IsBaseDir   bool     `json:"is_base_dir" description:"if true, will not append torrent name to download_dir"`
+	IsBaseDir   bool     `description:"if true, will not append torrent name to download_dir" json:"is_base_dir"`
 }
 
 type AddTorrentResponse struct {
-	InfoHash string `json:"info_hash" description:"torrent file hash" required:"true"`
+	InfoHash string `description:"torrent file hash" json:"info_hash" required:"true"`
 }
 
 func addTorrent(h *jsonrpc.Handler, c *core.Client) {
@@ -80,7 +80,7 @@ func addTorrent(h *jsonrpc.Handler, c *core.Client) {
 }
 
 type GetTorrentRequest struct {
-	InfoHash string `json:"info_hash" description:"torrent file hash" required:"true"`
+	InfoHash string `description:"torrent file hash" json:"info_hash" required:"true"`
 }
 
 type GetTorrentResponse struct {
@@ -119,8 +119,8 @@ func getTorrent(h *jsonrpc.Handler, c *core.Client) {
 }
 
 type MoveTorrentRequest struct {
-	InfoHash       string `json:"info_hash" description:"torrent file hash" required:"true"`
-	TargetBasePath string `json:"target_base_path" required:"true"`
+	InfoHash       string `description:"torrent file hash" json:"info_hash" required:"true"`
+	TargetBasePath string `json:"target_base_path"         required:"true"`
 }
 
 type MoveTorrentResponse struct {
@@ -186,7 +186,7 @@ func getTransferSummary(h *jsonrpc.Handler, c *core.Client) {
 var errInvalidInfoHash = errors.New("invalid info hash")
 
 type listTorrentFilesRequest struct {
-	InfoHash string `json:"info_hash" description:"torrent file hash" required:"true"`
+	InfoHash string `description:"torrent file hash" json:"info_hash" required:"true"`
 }
 
 type listTorrentFilesResponse struct {
@@ -215,7 +215,7 @@ func listTorrentFiles(h *jsonrpc.Handler, c *core.Client) {
 }
 
 type listTorrentPeersRequest struct {
-	InfoHash string `json:"info_hash" description:"torrent file hash" required:"true"`
+	InfoHash string `description:"torrent file hash" json:"info_hash" required:"true"`
 }
 
 type listTorrentPeersResponse struct {
@@ -244,7 +244,7 @@ func listTorrentPeers(h *jsonrpc.Handler, c *core.Client) {
 }
 
 type listTorrentTrackersRequest struct {
-	InfoHash string `json:"info_hash" description:"torrent file hash" required:"true"`
+	InfoHash string `description:"torrent file hash" json:"info_hash" required:"true"`
 }
 
 type listTorrentTrackersResponse struct {

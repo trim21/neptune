@@ -594,7 +594,7 @@ func parsePex(msg proto.ExtPex) ([]pexPeer, []netip.AddrPort, error) {
 	}
 
 	if len(msg.Dropped)%6 != 0 {
-		return nil, nil, fmt.Errorf("invalid dropped address")
+		return nil, nil, errors.New("invalid dropped address")
 	}
 
 	if len(msg.Added6)%18 != 0 {
@@ -606,7 +606,7 @@ func parsePex(msg proto.ExtPex) ([]pexPeer, []netip.AddrPort, error) {
 	}
 
 	if len(msg.Dropped6)%18 != 0 {
-		return nil, nil, fmt.Errorf("invalid dropped6 address")
+		return nil, nil, errors.New("invalid dropped6 address")
 	}
 
 	var r = make([]pexPeer, 0, len(msg.AddedFlag)+len(msg.Added6Flag))

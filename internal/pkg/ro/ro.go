@@ -13,7 +13,7 @@ import (
 	"unsafe"
 )
 
-// RO is a read-only view of some bytes of memory. It may be be backed
+// RO is a read-only view of some bytes of memory. It may be backed
 // by a string or []byte. Notably, unlike a string, the memory is not
 // guaranteed to be immutable. While the length is fixed, the
 // underlying bytes might change if interleaved with code that's

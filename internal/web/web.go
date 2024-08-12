@@ -73,7 +73,7 @@ func New(c *core.Client, token string, enableDebug bool) http.Handler {
 			s := []byte(version.FormatBuildInfo(info))
 
 			r.Get("/debug/version", func(w http.ResponseWriter, r *http.Request) {
-				w.Header().Set("content-type", "text/plain")
+				w.Header().Set("Content-Type", "text/plain")
 				w.WriteHeader(http.StatusOK)
 				_, _ = fmt.Fprintln(w, version.Print())
 				_, _ = fmt.Fprintln(w)
@@ -103,7 +103,7 @@ func New(c *core.Client, token string, enableDebug bool) http.Handler {
 	addTorrent(h, c)
 	removeTorrent(h, c)
 	getTorrent(h, c)
-	//MoveTorrent(h, c)
+	// MoveTorrent(h, c)
 
 	var auth = func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -128,7 +128,7 @@ func New(c *core.Client, token string, enableDebug bool) http.Handler {
 	r.Get("/docs/openapi.json", h.OpenAPI.ServeHTTP)
 
 	r.Get("/docs/", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("content-type", "text/html")
+		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(swaggerUI)
 	})

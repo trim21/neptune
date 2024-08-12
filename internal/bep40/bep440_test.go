@@ -16,8 +16,8 @@ import (
 )
 
 func TestBep40Priority4(t *testing.T) {
-	require.EqualValues(t, crc32c.Sum(lo.Must(hex.DecodeString("624C14007BD50000"))), 0xec2d7224)
-	require.EqualValues(t, crc32c.Sum(lo.Must(hex.DecodeString("7BD5200A7BD520EA"))), 0x99568189)
+	require.EqualValues(t, 0xec2d7224, crc32c.Sum(lo.Must(hex.DecodeString("624C14007BD50000"))))
+	require.EqualValues(t, 0x99568189, crc32c.Sum(lo.Must(hex.DecodeString("7BD5200A7BD520EA"))))
 
 	require.EqualValues(t, 0xec2d7224, bep40.Priority4(
 		netip.MustParseAddrPort("123.213.32.10:0"),

@@ -17,6 +17,6 @@ func TestPool(t *testing.T) {
 	})
 
 	b := p.Get()
-	require.Equal(t, 1024, len(b))
+	require.Len(t, b, 1024)
 	require.Equal(t, 1024, cap(b))
 }

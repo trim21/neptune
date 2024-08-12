@@ -34,5 +34,4 @@ func TestMap(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, 1, v)
 	require.Equal(t, 1, m.Size())
-
 }

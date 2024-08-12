@@ -220,7 +220,7 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 	return d
 }
 
-// if download encounter an error must stop downloading/uploading
+// if download encounter an error must stop downloading/uploading.
 func (d *Download) setError(err error) {
 	if err == io.EOF {
 		panic("unexpected EOF error")

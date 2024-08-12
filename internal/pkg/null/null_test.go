@@ -40,7 +40,7 @@ func TestNull_Interface(t *testing.T) {
 	require.EqualValues(t, 1, n.Interface())
 
 	n = null.Int{Set: false, Value: 1}
-	require.EqualValues(t, nil, n.Interface())
+	require.Nil(t, n.Interface())
 }
 
 func TestNull_UnmarshalJSON(t *testing.T) {

@@ -143,7 +143,7 @@ func (d *Download) backgroundReqHandler() {
 	}
 }
 
-// buf must be bigger enough to read whole piece
+// buf must be bigger enough to read whole piece.
 func (d *Download) readPiece(index uint32, buf []byte) error {
 	pieces := d.pieceInfo[index]
 	var offset int64 = 0

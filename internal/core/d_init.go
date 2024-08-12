@@ -78,7 +78,7 @@ func (d *Download) initCheck() error {
 			_, err = d.ioDown.IO64(gfs.CopyReaderAt(w, f.File, chunk.offsetOfFile, chunk.length))
 			if err != nil {
 				f.Close()
-				return errgo.Wrap(err, fmt.Sprintf("failed to read file %s", f.File.Name()))
+				return errgo.Wrap(err, "failed to read file "+f.File.Name())
 			}
 
 			f.Release()

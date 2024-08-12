@@ -42,7 +42,7 @@ func (h *Heap[T]) Push(x T) {
 }
 
 // Pop removes and returns the minimum element from the heap.
-// panic if slice is empty
+// panic if slice is empty.
 func (h *Heap[T]) Pop() T {
 	x := h.Data[0]
 

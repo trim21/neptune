@@ -16,14 +16,14 @@ type MetaInfo struct {
 	Announce string `bencode:"announce,omitempty"` // BEP 3
 	Comment  string `bencode:"comment,omitempty"`
 
-	//CreatedBy    string        `bencode:"created by,omitempty"`
-	//Encoding     string        `bencode:"encoding,omitempty"`
-	//UrlList UrlList `bencode:"url-list,omitempty"` // BEP 19 WebSeeds
+	// CreatedBy    string        `bencode:"created by,omitempty"`
+	// Encoding     string        `bencode:"encoding,omitempty"`
+	// UrlList UrlList `bencode:"url-list,omitempty"` // BEP 19 WebSeeds
 
 	// Where's this specified? Mentioned at
 	// https://wiki.theory.org/index.php/BitTorrentSpecification: (optional) the creation time of
 	// the torrent, in standard UNIX epoch format (integer, seconds since 1-Jan-1970 00:00:00 UTC)
-	//CreationDate null.Null[bencode.Total] `bencode:"creation date,omitempty,ignore_unmarshal_type_error"`
+	// CreationDate null.Null[bencode.Total] `bencode:"creation date,omitempty,ignore_unmarshal_type_error"`
 	InfoBytes    bencode.RawBytes `bencode:"info,omitempty"`          // BEP 3
 	AnnounceList AnnounceList     `bencode:"announce-list,omitempty"` // BEP 12
 }
@@ -53,7 +53,6 @@ func LoadFromFile(filename string) (*MetaInfo, error) {
 		return nil, err
 	}
 	return &mi, nil
-
 }
 
 func (mi MetaInfo) UnmarshalInfo() (info Info, err error) {

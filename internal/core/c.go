@@ -36,12 +36,12 @@ import (
 func New(cfg config.Config, sessionPath string, debug bool) *Client {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	//var mseDisabled bool
-	//var mseSelector mse.CryptoSelector
-	//switch cfg.App.Crypto {
-	//case "force":
+	// var mseDisabled bool
+	// var mseSelector mse.CryptoSelector
+	// switch cfg.App.Crypto {
+	// case "force":
 	//	mseSelector = mse.ForceCrypto
-	//case "prefer":
+	// case "prefer":
 	//	mseSelector = mse.PreferCrypto
 	//case "prefer-not":
 	//	mseSelector = mse.DefaultCryptoSelector
@@ -106,7 +106,7 @@ func New(cfg config.Config, sessionPath string, debug bool) *Client {
 
 func (c *Client) initMetrics() {
 	prometheus.MustRegister(prometheus.NewGaugeFunc(prometheus.GaugeOpts{
-		Name: "neptune_client_connections_count",
+		Name: "neptune_client_connections",
 		Help: "Current number connections tracked by client",
 	}, func() float64 {
 		return float64(c.connectionCount.Load())

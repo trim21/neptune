@@ -38,9 +38,9 @@ func (d *Download) setAnnounceList(trackers metainfo.AnnounceList) {
 			for {
 				d.pendingPeersMutex.Lock()
 				for i, s := range []string{
-					//"192.168.1.3:50025",
+					// "192.168.1.3:50025",
 					"192.168.1.3:6885",
-					//"127.0.0.1:51343",
+					// "127.0.0.1:51343",
 				} {
 					d.pendingPeers.Push(peerWithPriority{
 						addrPort: netip.MustParseAddrPort(s),
@@ -207,8 +207,8 @@ type Tracker struct {
 	failureMessage   string
 	url              string
 	peerCount        int
-	//leechers         int
-	//seeders          int
+	// leechers         int
+	// seeders          int
 }
 
 func (t *Tracker) req(d *Download) *resty.Request {
@@ -340,14 +340,14 @@ func (t *Tracker) announceStop(d *Download) error {
 	return nil
 }
 
-// ScrapeUrl return enabled tracker url for scrape request
+// ScrapeUrl return enabled tracker url for scrape request.
 func (d *Download) ScrapeUrl() string {
 	// TODO : todo
 	panic("not implemented")
-	//d.m.RLock()
-	//defer d.m.RUnlock()
+	// d.m.RLock()
+	// defer d.m.RUnlock()
 
-	//for _, tier := range d.trackers {
+	// for _, tier := range d.trackers {
 	//	for _, t := range tier.trackers {
 	//}
 	//}

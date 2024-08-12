@@ -130,7 +130,7 @@ func (h *Handler) Add(u usecase.Interactor) {
 			return nil
 		})
 		if err != nil {
-			panic(fmt.Sprintf("failed to add to OpenAPI schema: %s", err.Error()))
+			panic("failed to add to OpenAPI schema: " + err.Error())
 		}
 	}
 }
@@ -208,7 +208,7 @@ func (h *Handler) invoke(ctx context.Context, req Request, resp *Response) {
 	if !found {
 		resp.Error = &Error{
 			Code:    CodeMethodNotFound,
-			Message: fmt.Sprintf("method not found: %s", req.Method),
+			Message: "method not found: " + req.Method,
 		}
 
 		return
@@ -245,7 +245,7 @@ func (h *Handler) encode(resp *Response, output any) {
 	if err != nil {
 		resp.Error = &Error{
 			Code:    CodeInternalError,
-			Message: fmt.Sprintf("failed to marshal result: %s", err.Error()),
+			Message: "failed to marshal result: " + err.Error(),
 		}
 
 		return

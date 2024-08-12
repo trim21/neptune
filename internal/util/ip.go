@@ -71,7 +71,7 @@ func GetLocalIpaddress(enabledIf []string) (map[string][]net.IP, error) {
 
 		addrs, err := i.Addrs()
 		if err != nil {
-			return nil, errgo.Wrap(err, fmt.Sprintf("failed to get address of net interface %s", i.Name))
+			return nil, errgo.Wrap(err, "failed to get address of net interface "+i.Name)
 		}
 
 		for _, addr := range addrs {

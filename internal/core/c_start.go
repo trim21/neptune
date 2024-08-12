@@ -76,7 +76,7 @@ func (c *Client) Start() error {
 			err := c.saveSession()
 			c.m.RUnlock()
 			if err != nil {
-				fmt.Println(string(err.Stack))
+				fmt.Println(string(err.Stack)) //nolint: forbidigo
 			}
 		}
 	}()
@@ -122,7 +122,7 @@ func (c *Client) startListen() error {
 	go func() {
 		for {
 			// it may only return timeout error, so we can ignore this
-			//_ = c.sem.Acquire(context.Background(), 1)
+			// _ = c.sem.Acquire(context.Background(), 1)
 			conn, err := l.Accept()
 			if err != nil {
 				c.sem.Release(1)
@@ -144,7 +144,7 @@ func (c *Client) startListen() error {
 			c.connectionCount.Add(1)
 
 			// TODO: support MSE
-			//if c.mseDisabled {
+			// if c.mseDisabled {
 			c.connChan <- incomingConn{
 				addr: lo.Must(netip.ParseAddrPort(conn.RemoteAddr().String())),
 				conn: conn,
@@ -153,7 +153,7 @@ func (c *Client) startListen() error {
 			//}
 
 			//// handle mse
-			//go func() {
+			// go func() {
 			//	c.m.RLock()
 			//	keys := c.infoHashes
 			//	c.m.RUnlock()
@@ -170,7 +170,7 @@ func (c *Client) startListen() error {
 			//		addr: lo.Must(netip.ParseAddrPort(peers.RemoteAddr().String())),
 			//		peers: rwc,
 			//	}
-			//}()
+			// }()
 		}
 	}()
 	return nil

@@ -16,8 +16,8 @@ import (
 )
 
 type removeTorrentRequest struct {
-	InfoHash   string `json:"info_hash" description:"torrent file hash" required:"true"`
-	DeleteData bool   `json:"delete_data" description:"delete torrent data" required:"false"`
+	InfoHash   string `description:"torrent file hash"   json:"info_hash"   required:"true"`
+	DeleteData bool   `description:"delete torrent data" json:"delete_data" required:"false"`
 }
 
 type removeTorrentResponse struct {

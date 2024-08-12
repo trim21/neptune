@@ -48,7 +48,7 @@ func (d *Download) Check() {
 	d.stateCond.Broadcast()
 }
 
-// Init check existing files
+// Init check existing files.
 func (d *Download) Init(resumed bool) {
 	if !resumed {
 		d.log.Debug().Msg("initializing download")
@@ -113,7 +113,7 @@ func (d *Download) handleConnectionChange() {
 		case <-d.ctx.Done():
 			return
 		case <-d.buildNetworkPieces:
-			//d.onConnectionChanged()
+			// d.onConnectionChanged()
 		}
 	}
 }

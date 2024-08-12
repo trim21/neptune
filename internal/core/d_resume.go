@@ -95,7 +95,7 @@ func (c *Client) UnmarshalResume(data []byte) error {
 			return errgo.Wrap(err, fmt.Sprintf("torrent %s missing at %s", r.InfoHash, tPath))
 		}
 
-		return errgo.Wrap(err, fmt.Sprintf("failed to decode torrent file %s", tPath))
+		return errgo.Wrap(err, "failed to decode torrent file "+tPath)
 	}
 
 	info, err := meta.FromTorrent(*m)

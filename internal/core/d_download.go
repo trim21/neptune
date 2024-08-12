@@ -183,7 +183,6 @@ func (d *Download) handleRes(res *proto.ChunkResponse) {
 			continue
 		}
 
-		pieceIndex := pieceIndex
 		tasks.Submit(func() {
 			err := d.checkPiece(pieceIndex)
 			if err != nil {
@@ -225,7 +224,7 @@ func (d *Download) handleResEndgame(res *proto.ChunkResponse) {
 	}
 }
 
-// find all chunks from chunkHeap and write them to disk
+// find all chunks from chunkHeap and write them to disk.
 func (d *Download) handlePieceFromHeap(index uint32) {
 	chunks := heap.New[responseChunk]()
 	for _, chunk := range d.chunkHeap.Data {
@@ -358,7 +357,7 @@ func (d *Download) checkDone() {
 	d.announce(EventCompleted)
 }
 
-func (d *Download) updateRarePieces(force bool) {
+func (d *Download) updateRarePieces() {
 	d.ratePieceMutex.Lock()
 	defer d.ratePieceMutex.Unlock()
 
@@ -428,7 +427,7 @@ func (d *Download) scheduleSeq() {
 		return
 	}
 
-	d.updateRarePieces(true)
+	d.updateRarePieces()
 	var peers = make([]*Peer, 0, d.peers.Size())
 
 	d.peers.Range(func(addr netip.AddrPort, p *Peer) bool {

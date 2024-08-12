@@ -61,7 +61,6 @@ func fileChunks(info meta.Info, pieceStart, end int64) []fileChunkInfo {
 		currentReadStart := end - needToRead
 
 		if currentFileStart <= currentReadStart && currentReadStart <= currentFileEnd {
-
 			shouldRead := min(currentFileEnd-currentReadStart, needToRead)
 
 			result = append(result, fileChunkInfo{

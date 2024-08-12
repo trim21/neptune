@@ -97,7 +97,7 @@ func (m *Monitor) WrapReader(r io.Reader) io.Reader {
 	}
 }
 
-// IO64 is just like IO, but accept int64
+// IO64 is just like IO, but accept int64.
 func (m *Monitor) IO64(n int64, err error) (int, error) {
 	return m.Update(int(n)), err
 }

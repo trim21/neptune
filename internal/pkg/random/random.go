@@ -21,7 +21,7 @@ const base64UrlSafeChars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOP
 
 // UrlSafeStr generate a cryptographically secure url safe string in given length.
 // result is not a valid base64 string or base64url string
-// entropy = 64^size
+// entropy = 64^size.
 func UrlSafeStr(size int) string {
 	r := Bytes(size)
 
@@ -65,7 +65,7 @@ func PrintableBytes(size int) []byte {
 
 // Bytes generate a cryptographically secure random bytes.
 // Will panic if it can't read from 'crypto/rand'.
-// entropy = 256^size
+// entropy = 256^size.
 func Bytes(size int) []byte {
 	reader := p.Get()
 	defer p.Put(reader)

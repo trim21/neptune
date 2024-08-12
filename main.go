@@ -51,8 +51,8 @@ func main() {
 
 	debug := viper.GetBool("debug")
 	if debug {
-		//runtime.SetBlockProfileRate(10000)
-		//runtime.SetMutexProfileFraction(10000)
+		// runtime.SetBlockProfileRate(10000)
+		// runtime.SetMutexProfileFraction(10000)
 		_, _ = fmt.Fprintln(os.Stderr, "enable debug mode")
 	}
 
@@ -122,9 +122,9 @@ func main() {
 		done <- empty.Empty{}
 	}()
 
-	//if global.Dev {
-	//log.Debug().Msg("add debug torrent")
-	//if sys.IsWindows {
+	// if global.Dev {
+	// log.Debug().Msg("add debug torrent")
+	// if sys.IsWindows {
 	//	//{
 	//	//	lo.Must0(os.RemoveAll("D:\\downloads\\2"))
 	//	//	m := lo.Must(metainfo.LoadFromFile(`C:\Users\Trim21\Downloads\2.torrent`))
@@ -138,7 +138,7 @@ func main() {
 	//	}
 	//}
 	//
-	//if sys.IsLinux {
+	// if sys.IsLinux {
 	//	lo.Must0(os.RemoveAll("/export/ssd-2t/try/2"))
 	//	m := lo.Must(metainfo.LoadFromFile(`/export/ssd-2t/2.torrent`))
 	//	lo.Must0(app.AddTorrent(lo.Must(os.ReadFile(`/export/ssd-2t/2.torrent`)), m, lo.Must(meta.FromTorrent(*m)), "/export/ssd-2t/try/2", nil))
@@ -164,18 +164,18 @@ func setupMetrics() {
 		// https://pkg.go.dev/runtime/metrics
 		prometheus.MustRegister(collectors.NewGoCollector(
 			collectors.WithGoCollectorRuntimeMetrics(
-				//collectors.MetricsAll,
-				//collectors.GoRuntimeMetricsRule{},
+				// collectors.MetricsAll,
+				// collectors.GoRuntimeMetricsRule{},
 
 				collectors.MetricsGC,
 				collectors.MetricsMemory,
 				collectors.MetricsScheduler,
 				collectors.GoRuntimeMetricsRule{Matcher: regexp.MustCompile("^/cgo/.*")},
 			),
-			//collectors.WithoutGoCollectorRuntimeMetrics(
+			// collectors.WithoutGoCollectorRuntimeMetrics(
 			//	regexp.MustCompile("^/godebug/.*"),
 			//	regexp.MustCompile("^/cpu/.*"),
-			//),
+			// ),
 		))
 	}
 }
@@ -324,7 +324,7 @@ func setupLogger(sessionPath string) {
 			Filename:   filepath.Join(sessionPath, "logs", "app.log"),
 			MaxSize:    10, // megabytes
 			MaxBackups: 3,
-			MaxAge:     28, //days
+			MaxAge:     28, // days
 		}
 		w = zerolog.MultiLevelWriter(rotation, w)
 	}

@@ -22,7 +22,7 @@ const (
 	Piece         Message = 7
 	Cancel        Message = 8
 
-	// BEP 5, for DHT
+	// BEP 5, for DHT.
 
 	Port Message = 9
 
@@ -43,9 +43,9 @@ const (
 	// BEP 52 - BitTorrent Protocol v2
 	//https://www.bittorrent.org/beps/bep_0052.html
 
-	//HashRequest Message = 21
-	//Hashes      Message = 22
-	//HashReject  Message = 23
+	// HashRequest Message = 21
+	// Hashes      Message = 22
+	// HashReject  Message = 23.
 
 	BitCometExtension Message = 0xff
 )
@@ -64,7 +64,7 @@ func SendNoPayload(conn io.Writer, e Message) error {
 	return err
 }
 
-// SendIndexOnly event with index only payload
+// SendIndexOnly event with index only payload.
 func SendIndexOnly(conn io.Writer, e Message, index uint32) error {
 	var b = make([]byte, 0, 9)
 	b = binary.BigEndian.AppendUint32(b, 1)

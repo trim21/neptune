@@ -10,7 +10,7 @@ import (
 )
 
 // Cond is a chan based sync.Cond can be selected.
-// this help background goroutine to avoid wait on a chan
+// this help background goroutine to avoid wait on a chan.
 type Cond struct {
 	L sync.Locker
 	C chan empty.Empty

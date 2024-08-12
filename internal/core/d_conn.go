@@ -23,10 +23,10 @@ type connHistory struct {
 	refused bool
 }
 
-// AddConn add an incoming connection from client listener
+// AddConn add an incoming connection from client listener.
 func (d *Download) AddConn(addr netip.AddrPort, conn net.Conn, h proto.Handshake) {
-	//d.connMutex.Lock()
-	//defer d.connMutex.Unlock()
+	// d.connMutex.Lock()
+	// defer d.connMutex.Unlock()
 	d.connectionHistory.Add(addr, connHistory{})
 	NewIncomingPeer(conn, d, addr, h)
 }

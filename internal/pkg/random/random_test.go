@@ -15,7 +15,7 @@ func TestSecureRandomString(t *testing.T) {
 	t.Parallel()
 	for range 300 {
 		s := random.UrlSafeStr(64)
-		require.Equal(t, 64, len(s))
+		require.Len(t, s, 64)
 	}
 }
 
@@ -29,14 +29,14 @@ func TestBias(t *testing.T) {
 
 	for range loop {
 		s := random.UrlSafeStr(sLen)
-		require.Equal(t, sLen, len(s))
+		require.Len(t, s, sLen)
 		for _, b := range s {
 			counts[b]++
 			count++
 		}
 	}
 
-	require.Equal(t, 64, len(counts))
+	require.Len(t, counts, 64)
 
 	avg := float64(count) / float64(len(counts))
 	for k, n := range counts {

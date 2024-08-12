@@ -10,7 +10,7 @@ import (
 	"neptune/internal/pkg/flowrate"
 )
 
-// Copy a file with ctx manager controlled
+// Copy a file with ctx manager controlled.
 func Copy(ctx context.Context, dest io.Writer, src io.Reader, buf []byte, monitor *flowrate.Monitor) error {
 	return copyImpl(ctx, dest, src, buf, monitor)
 }

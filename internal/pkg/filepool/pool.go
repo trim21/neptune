@@ -11,7 +11,7 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-//func init() {
+// func init() {
 //	prometheus.MustRegister(prometheus.NewGaugeFunc(prometheus.GaugeOpts{
 //		Name: "neptune_file_pool_size",
 //	}, func() float64 {
