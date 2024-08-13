@@ -5,6 +5,7 @@ package meta
 
 import (
 	"crypto/sha1"
+	"encoding/hex"
 	"errors"
 	"path/filepath"
 
@@ -30,6 +31,7 @@ type Info struct {
 	LastPieceSize int64
 	NumPieces     uint32
 	Hash          metainfo.Hash
+	HexHash       string
 	Private       bool
 }
 
@@ -76,13 +78,16 @@ func FromTorrent(m metainfo.MetaInfo) (Info, error) {
 		}
 	}
 
+	h := m.HashInfoBytes()
+
 	i := Info{
-		Hash:          m.HashInfoBytes(),
+		Hash:          h,
 		Private:       null.NewFromPtr(info.Private).Value,
 		Name:          info.BestName(),
 		TotalLength:   info.TotalLength(),
 		Pieces:        pieces,
 		NumPieces:     uint32(info.NumPieces()),
+		HexHash:       hex.EncodeToString(h[:]),
 		PieceLength:   info.PieceLength,
 		LastPieceSize: info.TotalLength() - info.PieceLength*int64(info.NumPieces()-1),
 		Files:         files,

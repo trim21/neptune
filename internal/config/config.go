@@ -15,6 +15,7 @@ type Application struct {
 	DownloadDir     string `toml:"download-dir"`
 	MaxHTTPParallel int    `toml:"max-http-parallel"`
 	P2PPort         uint16 `toml:"p2p-port"`
+	LSPDisabled     bool   `toml:"lsp-disabled"`
 	NumWant         uint16 `toml:"num-want"`
 	// hard global connection limit
 	GlobalConnectionLimit uint16 `toml:"global-connections-limit"`

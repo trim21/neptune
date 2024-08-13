@@ -70,6 +70,22 @@ func (c *Client) Start() error {
 
 	go func() {
 		for {
+			time.Sleep(10)
+			c.m.Lock()
+			c.m.Unlock()
+		}
+	}()
+
+	if !c.Config.App.LSPDisabled {
+		go func() {
+			for ih := range c.lsp.C {
+				_ = ih
+			}
+		}()
+	}
+
+	go func() {
+		for {
 			time.Sleep(time.Minute * 10)
 			c.m.RLock()
 			log.Info().Msg("save session")

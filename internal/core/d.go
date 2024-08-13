@@ -60,6 +60,8 @@ type Download struct {
 	pendingPeers      *heap.Heap[peerWithPriority]
 	rarePieceQueue    *heap.Heap[pieceRare] // piece index ordered by rare
 
+	lastLSDAnnounce atomic.Time
+
 	// signal to rebuild connected pendingPeers bitmap
 	// should be fired when pendingPeers send bitmap/Have/HaveAll message
 	buildNetworkPieces chan empty.Empty

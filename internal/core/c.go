@@ -17,6 +17,7 @@ import (
 	"github.com/go-resty/resty/v2"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog/log"
+	"github.com/trim21/bep14"
 	"github.com/trim21/conntrack"
 	"go.uber.org/atomic"
 	"golang.org/x/sync/semaphore"
@@ -61,6 +62,12 @@ func New(cfg config.Config, sessionPath string, debug bool) *Client {
 
 	v4, v6, _ := util.GetIpAddress()
 
+	var lsp *bep14.LSP
+
+	if !cfg.App.LSPDisabled {
+		lsp = bep14.New(cfg.App.P2PPort, bep14.EnableV4(), bep14.EnableV6())
+	}
+
 	c := &Client{
 		Config:      cfg,
 		ctx:         ctx,
@@ -69,6 +76,8 @@ func New(cfg config.Config, sessionPath string, debug bool) *Client {
 		checkQueue:  make([]metainfo.Hash, 0, 3),
 		downloadMap: make(map[metainfo.Hash]*Download),
 		connChan:    make(chan incomingConn, 1),
+
+		lsp: lsp,
 
 		dht: d,
 
@@ -150,6 +159,7 @@ type Client struct {
 	connectionCount atomic.Uint32
 	m               sync.RWMutex
 	debug           bool
+	lsp             *bep14.LSP
 }
 
 type DownloadInfo struct {
