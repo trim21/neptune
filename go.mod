@@ -21,7 +21,7 @@ require (
 	github.com/kelindar/bitmap v1.5.2
 	github.com/panjf2000/ants/v2 v2.10.0
 	github.com/pelletier/go-toml/v2 v2.2.2
-	github.com/prometheus/client_golang v1.19.1
+	github.com/prometheus/client_golang v1.20.2
 	github.com/puzpuzpuz/xsync/v3 v3.4.0
 	github.com/rs/zerolog v1.33.0
 	github.com/samber/lo v1.46.0
@@ -59,6 +59,7 @@ require (
 	github.com/golang/glog v1.2.2 // indirect
 	github.com/jpillora/backoff v1.0.0 // indirect
 	github.com/kelindar/simd v1.1.2 // indirect
+	github.com/klauspost/compress v1.17.9 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.8 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
