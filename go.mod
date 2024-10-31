@@ -7,7 +7,7 @@ toolchain go1.23.2
 require (
 	github.com/KimMachineGun/automemlimit v0.6.1
 	github.com/cespare/xxhash/v2 v2.3.0
-	github.com/dgraph-io/ristretto v0.1.1
+	github.com/dgraph-io/ristretto v0.2.0
 	github.com/docker/go-units v0.5.0
 	github.com/dustin/go-humanize v1.0.1
 	github.com/go-chi/chi/v5 v5.1.0
@@ -56,7 +56,6 @@ require (
 	github.com/go-playground/universal-translator v0.18.1 // indirect
 	github.com/go-viper/mapstructure/v2 v2.1.0 // indirect
 	github.com/godbus/dbus/v5 v5.0.4 // indirect
-	github.com/golang/glog v1.2.2 // indirect
 	github.com/jpillora/backoff v1.0.0 // indirect
 	github.com/kelindar/simd v1.1.2 // indirect
 	github.com/klauspost/compress v1.17.9 // indirect
