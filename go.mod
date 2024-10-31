@@ -36,7 +36,7 @@ require (
 	github.com/trim21/go-bencode v0.0.15
 	github.com/valyala/bytebufferpool v1.0.0
 	go.uber.org/atomic v1.11.0
-	go.uber.org/automaxprocs v1.5.3
+	go.uber.org/automaxprocs v1.6.0
 	go.uber.org/multierr v1.11.0
 	golang.org/x/net v0.30.0
 	golang.org/x/sync v0.8.0
