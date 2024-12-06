@@ -38,8 +38,8 @@ require (
 	go.uber.org/atomic v1.11.0
 	go.uber.org/automaxprocs v1.6.0
 	go.uber.org/multierr v1.11.0
-	golang.org/x/net v0.30.0
-	golang.org/x/sync v0.8.0
+	golang.org/x/net v0.31.0
+	golang.org/x/sync v0.9.0
 	golang.org/x/sys v0.27.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 )
@@ -81,8 +81,8 @@ require (
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/swaggest/jsonschema-go v0.3.72 // indirect
 	github.com/swaggest/refl v1.3.0 // indirect
-	golang.org/x/crypto v0.28.0 // indirect
-	golang.org/x/text v0.19.0 // indirect
+	golang.org/x/crypto v0.29.0 // indirect
+	golang.org/x/text v0.20.0 // indirect
 	google.golang.org/protobuf v1.34.2 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
