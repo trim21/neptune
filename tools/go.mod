@@ -1,11 +1,11 @@
 module tools
 
-go 1.22.0
+go 1.23
 
-toolchain go1.23.2
+toolchain go1.23.4
 
 require (
-	github.com/dkorunic/betteralign v0.5.1
+	github.com/dkorunic/betteralign v0.6.0
 	golang.org/x/tools v0.27.0
 	golang.org/x/vuln v1.1.3
 	gotest.tools/gotestsum v1.12.0
@@ -34,14 +34,14 @@ require (
 	github.com/sirkon/dst v0.26.4 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/stretchr/testify v1.9.0 // indirect
-	go.uber.org/automaxprocs v1.5.3 // indirect
+	go.uber.org/automaxprocs v1.6.0 // indirect
 	go.uber.org/goleak v1.2.1 // indirect
-	golang.org/x/exp v0.0.0-20240808152545-0cdaa3abc0fa // indirect
+	golang.org/x/exp v0.0.0-20241108190413-2d47ceb2692f // indirect
 	golang.org/x/mod v0.22.0 // indirect
 	golang.org/x/sync v0.9.0 // indirect
 	golang.org/x/sys v0.27.0 // indirect
 	golang.org/x/telemetry v0.0.0-20240703143146-5dc3c48f4727 // indirect
 	golang.org/x/term v0.21.0 // indirect
 	golang.org/x/text v0.16.0 // indirect
-	google.golang.org/protobuf v1.34.2 // indirect
+	google.golang.org/protobuf v1.35.2 // indirect
 )
