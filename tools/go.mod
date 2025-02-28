@@ -1,8 +1,8 @@
 module tools
 
-go 1.22.0
+go 1.23
 
-toolchain go1.23.4
+toolchain go1.23.6
 
 require (
 	github.com/dkorunic/betteralign v0.5.1
