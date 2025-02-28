@@ -385,7 +385,7 @@ func debugPrintTrackers(w io.Writer, d *Download) {
 		for _, tracker := range tier.trackers {
 			t.AppendRow(table.Row{
 				iterIndex,
-				lo.Elipse(tracker.url, 40),
+				lo.Ellipsis(tracker.url, 40),
 				0,
 				0,
 				tracker.lastAnnounceTime.Format(time.RFC3339),
@@ -410,7 +410,7 @@ func debugPrintPeers(w io.Writer, d *Download) {
 
 	d.peers.Range(func(addr netip.AddrPort, p *Peer) bool {
 		t.AppendRow(table.Row{
-			lo.Elipse(addr.String(), 20),
+			lo.Ellipsis(addr.String(), 20),
 			humanize.IBytes(uint64(p.ioIn.Status().CurRate)) + "/s",
 			humanize.IBytes(uint64(p.ioOut.Status().CurRate)) + "/s",
 			p.myRequests.Size(),
