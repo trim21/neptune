@@ -7,7 +7,7 @@ toolchain go1.23.6
 require (
 	github.com/KimMachineGun/automemlimit v0.6.1
 	github.com/cespare/xxhash/v2 v2.3.0
-	github.com/dgraph-io/ristretto v0.2.0
+	github.com/dgraph-io/ristretto v1.0.1
 	github.com/docker/go-units v0.5.0
 	github.com/dustin/go-humanize v1.0.1
 	github.com/go-chi/chi/v5 v5.2.1
