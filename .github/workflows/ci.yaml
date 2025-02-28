@@ -24,7 +24,7 @@ jobs:
       - run: echo go-mod-tidy > env.txt
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.22.5"
+          go-version: "1.22"
           cache-dependency-path: |
             env.txt
             go.sum
