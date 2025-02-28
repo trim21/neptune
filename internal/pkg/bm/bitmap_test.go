@@ -5,7 +5,6 @@ package bm_test
 
 import (
 	"encoding/hex"
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -58,5 +57,5 @@ func TestBitfield(t *testing.T) {
 
 	bytes := b.Bitfield()
 
-	require.EqualValues(t, []byte{1 << 7, 0, 0, 0, 0, 0, 0, 0}, bytes, fmt.Sprintf("%b", bytes))
+	require.EqualValues(t, []byte{1 << 7, 0, 0, 0, 0, 0, 0, 0}, bytes)
 }

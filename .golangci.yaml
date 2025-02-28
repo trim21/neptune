@@ -84,12 +84,14 @@ linters:
 #    - canonicalheader
 
   disable:
+    - execinquery
+    - recvcheck
+    - gomnd
+    - tenv
     - errcheck
     - unused
     - gochecknoglobals
     - containedctx
-    - gomnd
-    - gomnd
     - goimports
     - execinquery
     - wsl
