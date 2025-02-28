@@ -84,9 +84,7 @@ linters:
 #    - canonicalheader
 
   disable:
-    - execinquery
     - recvcheck
-    - gomnd
     - tenv
     - errcheck
     - unused

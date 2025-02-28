@@ -22,7 +22,7 @@ require (
 	github.com/prometheus/client_golang v1.21.0
 	github.com/puzpuzpuz/xsync/v3 v3.5.1
 	github.com/rs/zerolog v1.33.0
-	github.com/samber/lo v1.47.0
+	github.com/samber/lo v1.49.1
 	github.com/sourcegraph/conc v0.3.0
 	github.com/spf13/pflag v1.0.6
 	github.com/spf13/viper v1.20.0-alpha.6
