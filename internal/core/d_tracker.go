@@ -15,6 +15,7 @@ import (
 	"github.com/go-resty/resty/v2"
 	"github.com/rs/zerolog/log"
 	"github.com/samber/lo"
+	"github.com/samber/lo/mutable"
 	"github.com/trim21/errgo"
 	"github.com/trim21/go-bencode"
 	"github.com/valyala/bytebufferpool"
@@ -55,7 +56,8 @@ func (d *Download) setAnnounceList(trackers metainfo.AnnounceList) {
 	}
 
 	for _, tier := range trackers {
-		t := TrackerTier{trackers: lo.Map(lo.Shuffle(tier), func(item string, index int) *Tracker {
+		mutable.Shuffle(tier)
+		t := TrackerTier{trackers: lo.Map(tier, func(item string, index int) *Tracker {
 			return &Tracker{url: item, nextAnnounce: time.Now()}
 		})}
 

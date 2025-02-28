@@ -91,7 +91,6 @@ linters:
     - gochecknoglobals
     - containedctx
     - goimports
-    - execinquery
     - wsl
     - gofumpt
     - varnamelen
