@@ -10,7 +10,7 @@ import (
 	"net/netip"
 
 	"github.com/cespare/xxhash/v2"
-	"github.com/dgraph-io/ristretto"
+	"github.com/dgraph-io/ristretto/v2"
 	"github.com/samber/lo"
 	"github.com/sourcegraph/conc"
 
