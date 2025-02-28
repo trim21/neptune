@@ -4,14 +4,9 @@
 package core
 
 import (
-	"encoding/binary"
-	"hash/maphash"
 	"io"
 	"net/netip"
 
-	"github.com/cespare/xxhash/v2"
-	"github.com/dgraph-io/ristretto/v2"
-	"github.com/samber/lo"
 	"github.com/sourcegraph/conc"
 
 	"neptune/internal/metainfo"
@@ -25,22 +20,6 @@ type cacheKey struct {
 	hash  metainfo.Hash
 	index uint32
 }
-
-var seed = maphash.MakeSeed()
-
-var cache = lo.Must(ristretto.NewCache(&ristretto.Config{
-	NumCounters: 1e7,     // number of keys to track frequency of (10M).
-	MaxCost:     1 << 30, // maximum cost of cache (1GB).
-	BufferItems: 64,      // number of keys per Get buffer.
-	KeyToHash: func(key any) (uint64, uint64) {
-		k := key.(cacheKey)
-		var h maphash.Hash
-		h.SetSeed(seed)
-		_, _ = h.Write(k.hash[:])
-		_ = binary.Write(&h, binary.BigEndian, k.index)
-		return h.Sum64(), xxhash.Sum64(k.hash[:])
-	},
-}))
 
 func (d *Download) backgroundReqHandler() {
 	var reqPieceCount = make(map[uint32]uint32, d.info.NumPieces)
@@ -96,26 +75,15 @@ func (d *Download) backgroundReqHandler() {
 
 			pieceReq := h.Pop()
 
-			key := cacheKey{
-				hash:  d.info.Hash,
-				index: pieceReq.index,
-			}
-
 			var buf *mempool.Buffer
-			value, ok := cache.Get(key)
-			if ok {
-				buf = value.(*mempool.Buffer)
-			} else {
-				buf = mempool.GetWithCap(int(d.pieceLength(pieceReq.index)))
 
-				err := d.readPiece(pieceReq.index, buf.B)
-				if err != nil {
-					mempool.Put(buf)
-					d.setError(err)
-					continue
-				}
+			buf = mempool.GetWithCap(int(d.pieceLength(pieceReq.index)))
 
-				cache.Set(key, buf, int64(buf.Len()))
+			err := d.readPiece(pieceReq.index, buf.B)
+			if err != nil {
+				mempool.Put(buf)
+				d.setError(err)
+				continue
 			}
 
 			var g conc.WaitGroup
