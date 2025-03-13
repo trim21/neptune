@@ -1,8 +1,8 @@
 module neptune
 
-go 1.23
+go 1.23.0
 
-toolchain go1.23.6
+toolchain go1.24.1
 
 require (
 	github.com/KimMachineGun/automemlimit v0.7.1
@@ -38,7 +38,7 @@ require (
 	go.uber.org/multierr v1.11.0
 	golang.org/x/net v0.35.0
 	golang.org/x/sync v0.11.0
-	golang.org/x/sys v0.30.0
+	golang.org/x/sys v0.31.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 )
 
