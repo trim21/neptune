@@ -3,8 +3,8 @@ module tools
 go 1.23.7
 
 require (
-	github.com/dkorunic/betteralign v0.6.6
-	golang.org/x/tools v0.30.0
+	github.com/dkorunic/betteralign v0.6.7
+	golang.org/x/tools v0.31.0
 	golang.org/x/vuln v1.1.4
 	gotest.tools/gotestsum v1.12.0
 )
@@ -26,9 +26,9 @@ require (
 	github.com/sirkon/dst v0.26.4 // indirect
 	github.com/stretchr/testify v1.9.0 // indirect
 	go.uber.org/automaxprocs v1.6.0 // indirect
-	golang.org/x/mod v0.23.0 // indirect
-	golang.org/x/sync v0.11.0 // indirect
-	golang.org/x/sys v0.30.0 // indirect
+	golang.org/x/mod v0.24.0 // indirect
+	golang.org/x/sync v0.12.0 // indirect
+	golang.org/x/sys v0.31.0 // indirect
 	golang.org/x/telemetry v0.0.0-20240703143146-5dc3c48f4727 // indirect
 	golang.org/x/term v0.21.0 // indirect
 	golang.org/x/text v0.16.0 // indirect
