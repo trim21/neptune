@@ -27,14 +27,9 @@ jobs:
           version: 3.x
           repo-token: ${{ github.token }}
 
-      - run: echo build-binary > env.txt
-
-      - uses: actions/setup-go@v5
+      - uses: trim21/actions/setup-go@master
         with:
-          go-version-file: 'go.mod'
-          cache-dependency-path: |
-            env.txt
-            go.sum
+          cache-namespace: build
 
       - run: task release
 

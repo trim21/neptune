@@ -21,14 +21,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: echo go-mod-tidy > env.txt
-      - uses: actions/setup-go@v5
+
+      - uses: trim21/actions/setup-go@master
         with:
-          go-version-file: 'go.mod'
-          cache-dependency-path: |
-            env.txt
-            go.sum
-            tools/go.sum
+          cache-namespace: sec
 
       - run: go mod tidy
         working-directory: tools
@@ -50,17 +46,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-go@v5
+      - uses: trim21/actions/setup-go@master
         with:
-          go-version-file: 'go.mod'
-          cache-dependency-path: |
-            go.sum
-            tools/go.sum
+          cache-namespace: test
 
       - run: go install gotest.tools/gotestsum@latest
         working-directory: tools
-
-      - run: go get -t ./...
 
       - run: >-
           gotestsum --format=pkgname --format-hide-empty-pkg
@@ -100,9 +91,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: trim21/actions/setup-go@master
         with:
-          go-version-file: 'go.mod'
+          cache-namespace: lint
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
