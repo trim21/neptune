@@ -23,7 +23,7 @@ require (
 	github.com/samber/lo v1.49.1
 	github.com/sourcegraph/conc v0.3.0
 	github.com/spf13/pflag v1.0.6
-	github.com/spf13/viper v1.20.0-alpha.6
+	github.com/spf13/viper v1.20.0
 	github.com/stretchr/testify v1.10.0
 	github.com/swaggest/openapi-go v0.2.57
 	github.com/swaggest/usecase v1.3.1
@@ -44,11 +44,11 @@ require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
-	github.com/fsnotify/fsnotify v1.7.0 // indirect
+	github.com/fsnotify/fsnotify v1.8.0 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.8 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
-	github.com/go-viper/mapstructure/v2 v2.1.0 // indirect
+	github.com/go-viper/mapstructure/v2 v2.2.1 // indirect
 	github.com/jpillora/backoff v1.0.0 // indirect
 	github.com/kelindar/simd v1.1.2 // indirect
 	github.com/klauspost/compress v1.17.11 // indirect
@@ -65,9 +65,9 @@ require (
 	github.com/prometheus/procfs v0.15.1 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/rogpeppe/go-internal v1.11.0 // indirect
-	github.com/sagikazarmark/locafero v0.6.0 // indirect
-	github.com/spf13/afero v1.11.0 // indirect
-	github.com/spf13/cast v1.7.0 // indirect
+	github.com/sagikazarmark/locafero v0.7.0 // indirect
+	github.com/spf13/afero v1.12.0 // indirect
+	github.com/spf13/cast v1.7.1 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/swaggest/jsonschema-go v0.3.73 // indirect
 	github.com/swaggest/refl v1.3.1 // indirect
