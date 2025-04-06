@@ -1,6 +1,6 @@
 module tools
 
-go 1.23.7
+go 1.23.8
 
 require (
 	github.com/dkorunic/betteralign v0.6.7
