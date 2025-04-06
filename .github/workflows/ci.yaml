@@ -99,3 +99,14 @@ jobs:
         uses: golangci/golangci-lint-action@v7
         with:
           version: v2.0.2
+
+  dprint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - run: curl -fsSL https://dprint.dev/install.sh | sh -
+      - run: echo "/home/runner/.dprint/bin" >> $GITHUB_PATH
+      - run: dprint output-file-paths
+      - run: dprint check

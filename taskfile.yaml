@@ -67,7 +67,7 @@ tasks:
         vars:
           GOOS: windows
           GOARCH: amd64
-          OUT_PATH: 'dist/neptune_windows_amd64.exe'
+          OUT_PATH: "dist/neptune_windows_amd64.exe"
 
   release:windows:arm64:
     cmds:
@@ -75,7 +75,7 @@ tasks:
         vars:
           GOOS: windows
           GOARCH: arm64
-          OUT_PATH: 'dist/neptune_windows_arm64.exe'
+          OUT_PATH: "dist/neptune_windows_arm64.exe"
 
   release:darwin:amd64:
     cmds:
@@ -83,7 +83,7 @@ tasks:
         vars:
           GOOS: darwin
           GOARCH: amd64
-          OUT_PATH: 'dist/neptune_darwin_amd64'
+          OUT_PATH: "dist/neptune_darwin_amd64"
 
   release:darwin:arm64:
     cmds:
@@ -91,7 +91,7 @@ tasks:
         vars:
           GOOS: darwin
           GOARCH: arm64
-          OUT_PATH: 'dist/neptune_darwin_arm64'
+          OUT_PATH: "dist/neptune_darwin_arm64"
 
   release:linux:amd64:
     cmds:
@@ -99,7 +99,7 @@ tasks:
         vars:
           GOOS: linux
           GOARCH: amd64
-          OUT_PATH: 'dist/neptune_linux_amd64'
+          OUT_PATH: "dist/neptune_linux_amd64"
 
   release:linux:arm64:
     cmds:
@@ -107,12 +107,12 @@ tasks:
         vars:
           GOOS: linux
           GOARCH: arm64
-          OUT_PATH: 'dist/neptune_linux_arm64'
+          OUT_PATH: "dist/neptune_linux_arm64"
 
   binary:
     internal: true
     env:
-      CGO_ENABLED: '0'
+      CGO_ENABLED: "0"
     vars:
       REF:
         sh: git describe --first-parent --all
@@ -120,11 +120,11 @@ tasks:
         sh: git rev-parse --short HEAD
     cmds:
       - >-
-        {{ if .GOARCH }}GOARCH={{ .GOARCH }}{{ end }}
-        {{ if .GOOS }}GOOS={{ .GOOS }}{{ end }}
-        go build
-        -ldflags="-s -X 'neptune/internal/version.Ref={{ .REF }}' -X 'neptune/internal/version.BuildDate={{ dateInZone "2006-01-02T15:04:05Z07:00" (now) "UTC" }}'" 
-        -buildvcs=true {{ .EXTRA_FLAGS }} -trimpath -tags release -o {{ .OUT_PATH }}
+          {{ if .GOARCH }}GOARCH={{ .GOARCH }}{{ end }}
+          {{ if .GOOS }}GOOS={{ .GOOS }}{{ end }}
+          go build
+          -ldflags="-s -X 'neptune/internal/version.Ref={{ .REF }}' -X 'neptune/internal/version.BuildDate={{ dateInZone "2006-01-02T15:04:05Z07:00" (now) "UTC" }}'"
+          -buildvcs=true {{ .EXTRA_FLAGS }} -trimpath -tags release -o {{ .OUT_PATH }}
 
   build:
     generates:
@@ -155,11 +155,11 @@ tasks:
     cmds:
       - go build -trimpath -o dist/dev/tmp.exe
       - |
-        until rm dist/dev/server.exe -rf && cp dist/dev/tmp.exe dist/dev/neptune.exe
-        do
-          echo "can't copy, try again"
-          sleep 1
-        done
+          until rm dist/dev/server.exe -rf && cp dist/dev/tmp.exe dist/dev/neptune.exe
+          do
+            echo "can't copy, try again"
+            sleep 1
+          done
       - dist/dev/neptune.exe --debug --config-file config.yaml
 
   pprof:
