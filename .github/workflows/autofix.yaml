@@ -12,7 +12,7 @@ env:
   GOTOOLCHAIN: "local"
 
 jobs:
-  lint:
+  dprint:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
