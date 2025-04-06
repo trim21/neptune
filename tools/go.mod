@@ -3,7 +3,7 @@ module tools
 go 1.23.8
 
 require (
-	github.com/dkorunic/betteralign v0.6.7
+	github.com/dkorunic/betteralign v0.7.0
 	golang.org/x/tools v0.31.0
 	golang.org/x/vuln v1.1.4
 	gotest.tools/gotestsum v1.12.1
