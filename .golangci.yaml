@@ -1,142 +1,139 @@
+version: "2"
 run:
-  go: '1.23'
-
-linters-settings:
-  gci:
-    sections:
-      - standard # Standard section: captures all standard packages.
-      - default # Default section: contains all imports that could not be matched to another section type.
-#      - blank # Blank section: contains all blank imports. This section is not present unless explicitly enabled.
-#      - dot # Dot section: contains all dot imports. This section is not present unless explicitly enabled.
-#      - alias # Alias section: contains all alias imports. This section is not present unless explicitly enabled.
-      - localmodule # Local module section: contains all local packages. This section is not present unless explicitly enabled.
-    skip-generated: true
-    custom-order: true
-  govet:
-    enable:
-      - appends
-      - asmdecl
-      - assign
-      - atomic
-      - atomicalign
-      - bools
-      - buildtag
-      - cgocall
-      - composites
-      - copylocks
-      - deepequalerrors
-      - defers
-      - directive
-      - errorsas
-      - fieldalignment
-      - findcall
-      - framepointer
-      - httpresponse
-      - ifaceassert
-      - loopclosure
-      - lostcancel
-      - nilfunc
-      - nilness
-      - printf
-      - reflectvaluecompare
-      - shadow
-      - shift
-      - sigchanyzer
-      - slog
-      - sortslice
-      - stdmethods
-      - stringintconv
-      - structtag
-      - testinggoroutine
-      - tests
-      - unmarshal
-      - unreachable
-      - unsafeptr
-      - unusedresult
-      - unusedwrite
-
-  staticcheck:
-    # SAxxxx checks in https://staticcheck.io/docs/configuration/options/#checks
-    #     Default: ["*"]
-    checks: [ "all", U1000 ]
-
-  gofmt:
-    rewrite-rules:
-      - pattern: interface{}
-        replacement: any
-
-  depguard:
-    rules:
-      main:
-        deny:
-          - pkg: "sync/atomic"
-            desc: use uber atomic package
-
+  go: "1.23"
 linters:
-  # See the dedicated "linters" documentation section.
-  enable-all: true
-#  enable:
-#    - gci
-#    - govet
-##    - exhaustive
-#    - depguard
-#    - staticcheck
-#    - canonicalheader
-
+  default: all
   disable:
-    - recvcheck
-    - tenv
-    - errcheck
-    - unused
-    - gochecknoglobals
     - containedctx
-    - goimports
-    - wsl
-    - gofumpt
-    - varnamelen
-    - wrapcheck
-    - zerologlint
-    - thelper
-    - testpackage
-    - tagliatelle
-    - reassign
-    - paralleltest
-    - nonamedreturns
-    - nlreturn
-    - mnd
-    - lll
-    - forcetypeassert
-    - maintidx
-    - stylecheck
-    - gocyclo
-    - nestif
-    - godox
-    - revive
-    - ireturn
     - contextcheck
+    - cyclop
     - dupword
-    - gocognit
-    - nilnil
-    - exhaustruct
+    - durationcheck
+    - err113
+    - errcheck
+    - errchkjson
     - errname
     - errorlint
-    - gosec
-    - funlen
-    - durationcheck
     - exhaustive
-    - errchkjson
+    - exhaustruct
+    - forcetypeassert
+    - funlen
+    - gochecknoglobals
     - gochecknoinits
+    - gocognit
     - gocritic
-    - err113
-    - cyclop
-
-#  fast: true
-
-issues:
-  exclude-rules:
-    - path: internal/web/jsonrpc/
-      linters:
-        - govet
-    - path: main.go
-      linters:
-        - forbidigo
+    - gocyclo
+    - godox
+    - gosec
+    - ireturn
+    - lll
+    - maintidx
+    - mnd
+    - nestif
+    - nilnil
+    - nlreturn
+    - nonamedreturns
+    - paralleltest
+    - reassign
+    - recvcheck
+    - revive
+    - tagliatelle
+    - testpackage
+    - thelper
+    - unused
+    - varnamelen
+    - wrapcheck
+    - wsl
+    - zerologlint
+  settings:
+    depguard:
+      rules:
+        main:
+          deny:
+            - pkg: sync/atomic
+              desc: use uber atomic package
+    govet:
+      enable:
+        - appends
+        - asmdecl
+        - assign
+        - atomic
+        - atomicalign
+        - bools
+        - buildtag
+        - cgocall
+        - composites
+        - copylocks
+        - deepequalerrors
+        - defers
+        - directive
+        - errorsas
+        - fieldalignment
+        - findcall
+        - framepointer
+        - httpresponse
+        - ifaceassert
+        - loopclosure
+        - lostcancel
+        - nilfunc
+        - nilness
+        - printf
+        - reflectvaluecompare
+        - shadow
+        - shift
+        - sigchanyzer
+        - slog
+        - sortslice
+        - stdmethods
+        - stringintconv
+        - structtag
+        - testinggoroutine
+        - tests
+        - unmarshal
+        - unreachable
+        - unsafeptr
+        - unusedresult
+        - unusedwrite
+    staticcheck:
+      checks:
+        - U1000
+        - all
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - govet
+        path: internal/web/jsonrpc/
+      - linters:
+          - forbidigo
+        path: main.go
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  enable:
+    - gci
+    - gofmt
+  settings:
+    gci:
+      sections:
+        - standard
+        - default
+        - localmodule
+      custom-order: true
+    gofmt:
+      rewrite-rules:
+        - pattern: interface{}
+          replacement: any
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

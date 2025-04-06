@@ -204,7 +204,7 @@ func (c *Client) GetTorrentFiles(h metainfo.Hash) []TorrentFile {
 	return results
 }
 
-type ApiPeers struct {
+type APIPeers struct {
 	Address      string  `json:"address"`
 	Client       string  `json:"client"`
 	Progress     float64 `json:"progress"`
@@ -213,7 +213,7 @@ type ApiPeers struct {
 	IsIncoming   bool    `json:"is_incoming"`
 }
 
-func (c *Client) GetTorrentPeers(h metainfo.Hash) []ApiPeers {
+func (c *Client) GetTorrentPeers(h metainfo.Hash) []APIPeers {
 	c.m.RLock()
 	d, ok := c.downloadMap[h]
 	if !ok {
@@ -222,10 +222,10 @@ func (c *Client) GetTorrentPeers(h metainfo.Hash) []ApiPeers {
 	}
 	c.m.RUnlock()
 
-	var results = make([]ApiPeers, 0, d.peers.Size())
+	var results = make([]APIPeers, 0, d.peers.Size())
 
 	d.peers.Range(func(addr netip.AddrPort, p *Peer) bool {
-		results = append(results, ApiPeers{
+		results = append(results, APIPeers{
 			Address:      addr.String(),
 			Client:       lo.FromPtrOr(p.UserAgent.Load(), ""),
 			Progress:     float64(p.Bitmap.Count()) / float64(d.info.NumPieces),
@@ -239,12 +239,12 @@ func (c *Client) GetTorrentPeers(h metainfo.Hash) []ApiPeers {
 	return results
 }
 
-type ApiTrackers struct {
+type APITrackers struct {
 	URL  string `json:"url"`
 	Tier int    `json:"tier"`
 }
 
-func (c *Client) GetTorrentTrackers(h metainfo.Hash) []ApiTrackers {
+func (c *Client) GetTorrentTrackers(h metainfo.Hash) []APITrackers {
 	c.m.RLock()
 	d, ok := c.downloadMap[h]
 	if !ok {
@@ -253,14 +253,14 @@ func (c *Client) GetTorrentTrackers(h metainfo.Hash) []ApiTrackers {
 	}
 	c.m.RUnlock()
 
-	var results = make([]ApiTrackers, 0, 10)
+	var results = make([]APITrackers, 0, 10)
 
 	d.trackerMutex.RLock()
 	defer d.trackerMutex.RUnlock()
 
 	for iterIndex, tier := range d.trackers {
 		for _, tracker := range tier.trackers {
-			results = append(results, ApiTrackers{
+			results = append(results, APITrackers{
 				Tier: iterIndex,
 				URL:  tracker.url,
 			})

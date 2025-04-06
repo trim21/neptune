@@ -65,7 +65,7 @@ func newPeer(
 	l := d.log.With().Stringer("addr", addr)
 	var ua string
 	if h != nil {
-		ua = util.ParsePeerId(h.PeerID)
+		ua = util.ParsePeerID(h.PeerID)
 		l = l.Str("peer_id", url.QueryEscape(h.PeerID.AsString()))
 	}
 
@@ -293,7 +293,7 @@ func (p *Peer) start(skipHandshake bool) {
 
 		p.log = p.log.With().Str("peer_id", url.QueryEscape(string(h.PeerID[:]))).Logger()
 		p.log.Trace().Msg("connect to addrPort")
-		ua := util.ParsePeerId(h.PeerID)
+		ua := util.ParsePeerID(h.PeerID)
 		p.UserAgent.Store(&ua)
 	}
 

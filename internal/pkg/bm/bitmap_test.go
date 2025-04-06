@@ -43,7 +43,7 @@ func TestParseBitfield(t *testing.T) {
 
 	r := bm.FromBitfields(bitfield, size)
 
-	require.EqualValues(t, int(size), int(r.Count()))
+	require.Equal(t, int(size), int(r.Count()))
 
 	for i := uint32(23326 - 64); i < 23326; i++ {
 		require.True(t, r.Contains(i))
@@ -57,5 +57,5 @@ func TestBitfield(t *testing.T) {
 
 	bytes := b.Bitfield()
 
-	require.EqualValues(t, []byte{1 << 7, 0, 0, 0, 0, 0, 0, 0}, bytes)
+	require.Equal(t, []byte{1 << 7, 0, 0, 0, 0, 0, 0, 0}, bytes)
 }

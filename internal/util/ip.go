@@ -12,7 +12,7 @@ import (
 	"github.com/trim21/errgo"
 )
 
-func GetIpAddress() (*netip.Addr, *netip.Addr, error) {
+func GetIPAddress() (*netip.Addr, *netip.Addr, error) {
 	addrs, err := GetLocalIpaddress(nil)
 	if err != nil {
 		return nil, nil, err

@@ -40,7 +40,7 @@ func TestBep40Priority4(t *testing.T) {
 }
 
 func TestV6(t *testing.T) {
-	require.EqualValues(t, uint32(0xfbd26e29), bep40.Priority6(
+	require.Equal(t, uint32(0xfbd26e29), bep40.Priority6(
 		netip.MustParseAddrPort("[2015:7693:6cd9:a56a:e47f:7101:483e:800a]:0"),
 		netip.MustParseAddrPort("[b1fa:9ff2:fbdc:23b9:3618:332c:216c:5b4a]:0"),
 	))

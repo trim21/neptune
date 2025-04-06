@@ -342,8 +342,8 @@ func (t *Tracker) announceStop(d *Download) error {
 	return nil
 }
 
-// ScrapeUrl return enabled tracker url for scrape request.
-func (d *Download) ScrapeUrl() string {
+// ScrapeURL return enabled tracker url for scrape request.
+func (d *Download) ScrapeURL() string {
 	// TODO : todo
 	panic("not implemented")
 	// d.m.RLock()

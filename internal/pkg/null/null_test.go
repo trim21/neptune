@@ -48,7 +48,7 @@ func TestNull_UnmarshalJSON(t *testing.T) {
 
 	var n null.Int
 	require.NoError(t, json.Unmarshal([]byte("10"), &n))
-	require.EqualValues(t, 10, n.Value)
+	require.Equal(t, 10, n.Value)
 
 	n = null.Int{}
 	require.NoError(t, json.Unmarshal([]byte(" null "), &n))
@@ -60,7 +60,7 @@ func Test_UnmarshalBencode(t *testing.T) {
 
 	var n null.Int
 	require.NoError(t, bencode.Unmarshal([]byte("i10e"), &n))
-	require.EqualValues(t, 10, n.Value)
+	require.Equal(t, 10, n.Value)
 
 	var s struct {
 		N null.Int `bencode:"n"`

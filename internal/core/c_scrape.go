@@ -36,7 +36,7 @@ func (c *Client) scrape() {
 			continue
 		}
 
-		m[d.ScrapeUrl()] = append(m[d.ScrapeUrl()], h)
+		m[d.ScrapeURL()] = append(m[d.ScrapeURL()], h)
 	}
 
 	for scrapeUrl, hashes := range m {

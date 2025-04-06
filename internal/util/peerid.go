@@ -78,7 +78,7 @@ var azStyleMapping = map[[2]byte]string{
 	{'Z', 'T'}: "ZipTorrent",
 }
 
-func ParsePeerId(id [20]byte) string {
+func ParsePeerID(id [20]byte) string {
 	if id[0] == '-' && id[7] == '-' {
 		name, ok := azStyleMapping[[2]byte(id[1:3])]
 		if !ok {

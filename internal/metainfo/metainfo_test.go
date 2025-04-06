@@ -36,7 +36,7 @@ func testFile(t *testing.T, filename string) {
 
 	b, err := bencode.Marshal(&info)
 	require.NoError(t, err)
-	require.EqualValues(t, string(b), string(mi.InfoBytes))
+	require.Equal(t, string(b), string(mi.InfoBytes))
 }
 
 func TestFile(t *testing.T) {
@@ -54,7 +54,7 @@ func testUnmarshal(t *testing.T, input string, expected *MetaInfo) {
 		return
 	}
 	require.NoError(t, err)
-	require.EqualValues(t, *expected, actual)
+	require.Equal(t, *expected, actual)
 }
 
 func TestUnmarshal(t *testing.T) {

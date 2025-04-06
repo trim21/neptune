@@ -219,7 +219,7 @@ type listTorrentPeersRequest struct {
 }
 
 type listTorrentPeersResponse struct {
-	Peers []core.ApiPeers `json:"peers"`
+	Peers []core.APIPeers `json:"peers"`
 }
 
 func listTorrentPeers(h *jsonrpc.Handler, c *core.Client) {
@@ -248,7 +248,7 @@ type listTorrentTrackersRequest struct {
 }
 
 type listTorrentTrackersResponse struct {
-	Trackers []core.ApiTrackers `json:"trackers"`
+	Trackers []core.APITrackers `json:"trackers"`
 }
 
 func listTorrentTrackers(h *jsonrpc.Handler, c *core.Client) {
