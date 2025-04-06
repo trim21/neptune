@@ -42,7 +42,7 @@ func (c *Client) Start() error {
 	go func() {
 		for {
 			time.Sleep(time.Minute * 5)
-			v4, v6, err := util.GetIpAddress()
+			v4, v6, err := util.GetIPAddress()
 			if err != nil {
 				log.Err(err).Msg("failed to get local ip address")
 				continue

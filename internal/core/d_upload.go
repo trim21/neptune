@@ -123,7 +123,7 @@ func (d *Download) readPiece(index uint32, buf []byte) error {
 
 		n, err := f.File.ReadAt(buf[offset:offset+chunk.length], chunk.offsetOfFile)
 		if err != nil {
-			if !(int64(n) == chunk.length && err == io.EOF) {
+			if int64(n) != chunk.length || err != io.EOF {
 				return err
 			}
 		}

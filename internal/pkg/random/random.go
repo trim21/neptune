@@ -19,10 +19,10 @@ var p = gsync.NewPool(func() *bufio.Reader {
 
 const base64UrlSafeChars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_"
 
-// UrlSafeStr generate a cryptographically secure url safe string in given length.
+// URLSafeStr generate a cryptographically secure url safe string in given length.
 // result is not a valid base64 string or base64url string
 // entropy = 64^size.
-func UrlSafeStr(size int) string {
+func URLSafeStr(size int) string {
 	r := Bytes(size)
 
 	for i, rb := range r {

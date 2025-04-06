@@ -18,19 +18,19 @@ func panicMessage(msg []string) {
 }
 
 func Equal[T comparable](actual, expected T, msg ...string) {
-	if !(expected == actual) {
+	if expected != actual {
 		panicMessage(msg)
 	}
 }
 
 func NotEqual[T comparable](actual, expected T, msg ...string) {
-	if !(expected != actual) {
+	if expected == actual {
 		panicMessage(msg)
 	}
 }
 
 func Less[T cmp.Ordered](v1, v2 T, msg ...string) {
-	if !(v1 < v2) {
+	if v1 >= v2 {
 		panicMessage(msg)
 	}
 }

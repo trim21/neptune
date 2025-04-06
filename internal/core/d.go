@@ -208,7 +208,7 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 
 		downloadDir: basePath,
 
-		trackerKey: random.UrlSafeStr(16),
+		trackerKey: random.URLSafeStr(16),
 	}
 
 	d.stateCond = gsync.NewCond(&d.m)

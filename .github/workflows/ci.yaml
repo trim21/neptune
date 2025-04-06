@@ -3,12 +3,12 @@ name: ci
 on:
   push:
     paths-ignore:
-      - '*.md'
+      - "*.md"
     branches:
       - master
   pull_request:
     paths-ignore:
-      - '*.md'
+      - "*.md"
     branches:
       - master
 
@@ -42,7 +42,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ ubuntu-latest, windows-latest, macos-14, macos-13 ]
+        os: [ubuntu-latest, windows-latest, macos-14, macos-13]
     steps:
       - uses: actions/checkout@v4
 
@@ -94,7 +94,19 @@ jobs:
       - uses: trim21/actions/setup-go@master
         with:
           cache-namespace: lint
+
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v7
         with:
-          version: v1.64.5
+          version: v2.0.2
+
+  dprint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - run: curl -fsSL https://dprint.dev/install.sh | sh -
+      - run: echo "/home/runner/.dprint/bin" >> $GITHUB_PATH
+      - run: dprint output-file-paths
+      - run: dprint check

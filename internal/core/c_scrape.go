@@ -36,16 +36,16 @@ func (c *Client) scrape() {
 			continue
 		}
 
-		m[d.ScrapeUrl()] = append(m[d.ScrapeUrl()], h)
+		m[d.ScrapeURL()] = append(m[d.ScrapeURL()], h)
 	}
 
-	for scrapeUrl, hashes := range m {
+	for scrapeURL, hashes := range m {
 		r := c.http.R()
 		r.QueryParam = url.Values{"info_hash": lo.Map(hashes, func(item metainfo.Hash, index int) string {
 			return item.AsString()
 		})}
 
-		res, err := r.Get(scrapeUrl)
+		res, err := r.Get(scrapeURL)
 		if err != nil {
 			log.Info().Err(err).Msg("failed to scrape")
 			continue

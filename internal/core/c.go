@@ -59,7 +59,7 @@ func New(cfg config.Config, sessionPath string, debug bool) *Client {
 
 	d := dht.Start(conn, cfg.App.P2PPort)
 
-	v4, v6, _ := util.GetIpAddress()
+	v4, v6, _ := util.GetIPAddress()
 
 	c := &Client{
 		Config:      cfg,
