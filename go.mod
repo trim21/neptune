@@ -1,6 +1,6 @@
 module neptune
 
-go 1.23.8
+go 1.24.3
 
 require (
 	github.com/KimMachineGun/automemlimit v0.7.1
