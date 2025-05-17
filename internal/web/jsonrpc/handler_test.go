@@ -59,7 +59,7 @@ func TestHandler_Add(t *testing.T) {
 
 	h.Add(u)
 
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, "/", bytes.NewReader([]byte(`{"jsonrpc":"2.0","method":"echo","params":{"a":"abc","b":5},"id":1}`)))
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "/", bytes.NewReader([]byte(`{"jsonrpc":"2.0","method":"echo","params":{"a":"abc","b":5},"id":1}`)))
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
@@ -67,7 +67,7 @@ func TestHandler_Add(t *testing.T) {
 	require.JSONEq(t, `{"jsonrpc":"2.0","result":{"b":5,"a":"abc"},"id":1}`, w.Body.String())
 	require.Equal(t, 1, cnt)
 
-	req, err = http.NewRequestWithContext(context.Background(), http.MethodPost, "/", bytes.NewReader([]byte(`{"jsonrpc":"2.0","method":"echo","params":{"a":"abc","b":"abc"},"id":1}`)))
+	req, err = http.NewRequestWithContext(t.Context(), http.MethodPost, "/", bytes.NewReader([]byte(`{"jsonrpc":"2.0","method":"echo","params":{"a":"abc","b":"abc"},"id":1}`)))
 	require.NoError(t, err)
 
 	w = httptest.NewRecorder()
@@ -75,10 +75,10 @@ func TestHandler_Add(t *testing.T) {
 	require.JSONEq(t, `{"jsonrpc":"2.0","error":{"code":-32602,"message":"failed to unmarshal parameters","data":"json: cannot unmarshal string into Go struct field inp.b of type int"},"id":1}`, w.Body.String())
 	require.Equal(t, 2, cnt)
 
-	_, err = http.NewRequestWithContext(context.Background(), http.MethodPost, "/", bytes.NewReader([]byte(`{"jsonrpc":"2.0","method":"echo","params":{"a":"a","b":9},"id":1}`)))
+	_, err = http.NewRequestWithContext(t.Context(), http.MethodPost, "/", bytes.NewReader([]byte(`{"jsonrpc":"2.0","method":"echo","params":{"a":"a","b":9},"id":1}`)))
 	require.NoError(t, err)
 
-	req, err = http.NewRequestWithContext(context.Background(), http.MethodPost, "/", bytes.NewReader([]byte(`{"jsonrpc":"2.0","method":"echo","params":{"b":5},"id":1}`)))
+	req, err = http.NewRequestWithContext(t.Context(), http.MethodPost, "/", bytes.NewReader([]byte(`{"jsonrpc":"2.0","method":"echo","params":{"b":5},"id":1}`)))
 	require.NoError(t, err)
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, req)
