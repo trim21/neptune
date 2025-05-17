@@ -27,7 +27,7 @@ require (
 	github.com/spf13/pflag v1.0.6
 	github.com/spf13/viper v1.20.1
 	github.com/stretchr/testify v1.10.0
-	github.com/swaggest/openapi-go v0.2.57
+	github.com/swaggest/openapi-go v0.2.58
 	github.com/swaggest/usecase v1.3.1
 	github.com/trim21/conntrack v0.0.2
 	github.com/trim21/errgo v0.0.3
@@ -70,7 +70,7 @@ require (
 	github.com/spf13/afero v1.12.0 // indirect
 	github.com/spf13/cast v1.7.1 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
-	github.com/swaggest/jsonschema-go v0.3.73 // indirect
+	github.com/swaggest/jsonschema-go v0.3.74 // indirect
 	github.com/swaggest/refl v1.3.1 // indirect
 	golang.org/x/crypto v0.38.0 // indirect
 	golang.org/x/mod v0.24.0 // indirect
