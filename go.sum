@@ -143,8 +143,8 @@ github.com/swaggest/usecase v1.3.1 h1:JdKV30MTSsDxAXxkldLNcEn8O2uf565khyo6gr5sS+
 github.com/swaggest/usecase v1.3.1/go.mod h1:cae3lDd5VDmM36OQcOOOdAlEDg40TiQYIp99S9ejWqA=
 github.com/trim21/conntrack v0.0.2 h1:w3yZKwXTdGVwUCIIebWK43hWthzhbsAGcFnfjmjXSFU=
 github.com/trim21/conntrack v0.0.2/go.mod h1:+WnKAYkUv87gZMdJcRjN6xEK281cuZ4QM0JRJltqvgs=
-github.com/trim21/errgo v0.0.3 h1:q0cUPTs+4c5NxByA4f0HUGRvlNyBlUtdxFiTKQdTE68=
-github.com/trim21/errgo v0.0.3/go.mod h1:AH1KzogdvSkSPXbZq9QAuqSt1L1Eu5W8eYK32zPYv9s=
+github.com/trim21/errgo v0.0.6 h1:Qz10hGY51k5u7ADRa/jqan8VaQYKx7hAqUJ6t5m42/I=
+github.com/trim21/errgo v0.0.6/go.mod h1:8uSKeZAGc+XDaPDqcgOCduVPb2Xpb1YxqxfMK1JcLlo=
 github.com/trim21/go-bencode v0.0.15 h1:uxdJL2bEbhzPDanaD+vop6zkc7e6jkQobzciv5A8CYo=
 github.com/trim21/go-bencode v0.0.15/go.mod h1:qE+DPKJVxiP6Tjkroh1gEoeCmrYvScXD6XGO5t9eSSg=
 github.com/valyala/bytebufferpool v1.0.0 h1:GqA5TC/0021Y/b9FG4Oi9Mr3q7XYx6KllzawFIhcdPw=
