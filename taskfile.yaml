@@ -87,11 +87,11 @@ tasks:
         sh: git rev-parse --short HEAD
     cmds:
       - >-
-        {{ if .GOARCH }}GOARCH={{ .GOARCH }}{{ end }}
-        {{ if .GOOS }}GOOS={{ .GOOS }}{{ end }}
-        go build
-        -ldflags="-s -X 'neptune/internal/version.Ref={{ .REF }}' -X 'neptune/internal/version.BuildDate={{ dateInZone "2006-01-02T15:04:05Z07:00" (now) "UTC" }}'"
-        -buildvcs=true {{ .EXTRA_FLAGS }} -trimpath -tags release -o {{ .OUT_PATH }}
+          {{ if .GOARCH }}GOARCH={{ .GOARCH }}{{ end }}
+          {{ if .GOOS }}GOOS={{ .GOOS }}{{ end }}
+          go build
+          -ldflags="-s -X 'neptune/internal/version.Ref={{ .REF }}' -X 'neptune/internal/version.BuildDate={{ dateInZone "2006-01-02T15:04:05Z07:00" (now) "UTC" }}'"
+          -buildvcs=true {{ .EXTRA_FLAGS }} -trimpath -tags release -o {{ .OUT_PATH }}
 
   build:
     generates:
@@ -122,11 +122,11 @@ tasks:
     cmds:
       - go build -trimpath -o dist/dev/tmp.exe
       - |
-        until rm dist/dev/server.exe -rf && cp dist/dev/tmp.exe dist/dev/neptune.exe
-        do
-          echo "can't copy, try again"
-          sleep 1
-        done
+          until rm dist/dev/server.exe -rf && cp dist/dev/tmp.exe dist/dev/neptune.exe
+          do
+            echo "can't copy, try again"
+            sleep 1
+          done
       - dist/dev/neptune.exe --debug --config-file config.yaml
 
   pprof:
