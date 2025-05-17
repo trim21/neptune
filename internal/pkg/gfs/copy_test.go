@@ -6,7 +6,6 @@ package gfs_test
 import (
 	"bufio"
 	"bytes"
-	"context"
 	"crypto/rand"
 	"io"
 	"os"
@@ -33,7 +32,7 @@ func TestSmartCopy(t *testing.T) {
 
 	lo.Must(io.CopyN(srcFile, rand.Reader, units.MiB*200))
 
-	require.NoError(t, gfs.SmartCopy(context.Background(), src, out, flowrate.New(time.Second, time.Second)))
+	require.NoError(t, gfs.SmartCopy(t.Context(), src, out, flowrate.New(time.Second, time.Second)))
 
 	lo.Must(srcFile.Seek(0, io.SeekStart))
 
@@ -61,7 +60,7 @@ func TestCopy(t *testing.T) {
 	outFile := lo.Must(os.Create(out))
 	defer outFile.Close()
 
-	require.NoError(t, gfs.Copy(context.Background(), outFile, srcFile, make([]byte, units.MiB*4), flowrate.New(time.Second, time.Second)))
+	require.NoError(t, gfs.Copy(t.Context(), outFile, srcFile, make([]byte, units.MiB*4), flowrate.New(time.Second, time.Second)))
 
 	lo.Must(srcFile.Seek(0, io.SeekStart))
 	lo.Must(outFile.Seek(0, io.SeekStart))
