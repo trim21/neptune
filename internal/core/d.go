@@ -13,7 +13,7 @@ import (
 
 	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/kelindar/bitmap"
-	"github.com/puzpuzpuz/xsync/v3"
+	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"go.uber.org/atomic"

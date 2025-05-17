@@ -16,7 +16,7 @@ import (
 
 	"github.com/docker/go-units"
 	"github.com/kelindar/bitmap"
-	"github.com/puzpuzpuz/xsync/v3"
+	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/rs/zerolog"
 	"go.uber.org/atomic"
 
