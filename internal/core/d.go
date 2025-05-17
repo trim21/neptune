@@ -54,7 +54,7 @@ type Download struct {
 	netDown           *flowrate.Monitor // io rate for network data
 	ioUp              *flowrate.Monitor
 	ResChan           chan *proto.ChunkResponse
-	peers             *xsync.MapOf[netip.AddrPort, *Peer]
+	peers             *xsync.Map[netip.AddrPort, *Peer]
 	connectionHistory *expirable.LRU[netip.AddrPort, connHistory]
 	bm                *bm.Bitmap
 	pendingPeers      *heap.Heap[peerWithPriority]

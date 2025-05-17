@@ -139,12 +139,12 @@ type Peer struct {
 	cancel   context.CancelFunc
 	Bitmap   *bm.Bitmap
 
-	myRequests       *xsync.MapOf[proto.ChunkRequest, time.Time]
-	myRequestHistory *xsync.MapOf[proto.ChunkRequest, empty.Empty]
+	myRequests       *xsync.Map[proto.ChunkRequest, time.Time]
+	myRequestHistory *xsync.Map[proto.ChunkRequest, empty.Empty]
 
-	peerRequests *xsync.MapOf[proto.ChunkRequest, empty.Empty]
+	peerRequests *xsync.Map[proto.ChunkRequest, empty.Empty]
 
-	Rejected  *xsync.MapOf[proto.ChunkRequest, empty.Empty]
+	Rejected  *xsync.Map[proto.ChunkRequest, empty.Empty]
 	allowFast *bm.Bitmap
 	ioOut     *flowrate.Monitor
 	ioIn      *flowrate.Monitor
