@@ -97,12 +97,12 @@ func newPeer(
 		responseCond: gsync.NewCond(gsync.EmptyLock{}),
 
 		//ResChan:   make(chan req.Response, 1),
-		myRequests:       xsync.NewMapOf[proto.ChunkRequest, time.Time](),
-		myRequestHistory: xsync.NewMapOf[proto.ChunkRequest, empty.Empty](),
+		myRequests:       xsync.NewMap[proto.ChunkRequest, time.Time](),
+		myRequestHistory: xsync.NewMap[proto.ChunkRequest, empty.Empty](),
 
-		Rejected: xsync.NewMapOf[proto.ChunkRequest, empty.Empty](),
+		Rejected: xsync.NewMap[proto.ChunkRequest, empty.Empty](),
 
-		peerRequests: xsync.NewMapOf[proto.ChunkRequest, empty.Empty](),
+		peerRequests: xsync.NewMap[proto.ChunkRequest, empty.Empty](),
 
 		r: bufio.NewReaderSize(conn, units.KiB*18),
 		w: bufio.NewWriterSize(conn, units.KiB*8),

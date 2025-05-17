@@ -182,7 +182,7 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 		netDown: flowrate.New(time.Second, time.Second),
 		ioUp:    flowrate.New(time.Second, time.Second),
 
-		peers:             xsync.NewMapOf[netip.AddrPort, *Peer](),
+		peers:             xsync.NewMap[netip.AddrPort, *Peer](),
 		connectionHistory: expirable.NewLRU[netip.AddrPort, connHistory](1024, nil, time.Minute*10),
 
 		chunkMap: make(bitmap.Bitmap, int64(info.NumPieces)*((info.PieceLength+defaultBlockSize-1)/defaultBlockSize)),
