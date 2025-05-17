@@ -8,7 +8,7 @@ import (
 	"io"
 )
 
-//go:generate stringer -type=Message
+//go:generate go tool golang.org/x/tools/cmd/stringer -type=Message
 type Message byte
 
 const (
