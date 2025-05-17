@@ -12,11 +12,14 @@ on:
     branches:
       - master
 
+concurrency:
+  group: "${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: true
+
 env:
   GOTOOLCHAIN: local
 
 jobs:
-  # check go mod clean
   check:
     runs-on: ubuntu-latest
     steps:
@@ -38,7 +41,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-14, macos-13]
+        os: [ubuntu-latest, windows-latest, macos-15]
     steps:
       - uses: actions/checkout@v4
 
