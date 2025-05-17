@@ -32,7 +32,7 @@ import (
 
 type State uint8
 
-//go:generate stringer -type=State
+//go:generate go tool golang.org/x/tools/cmd/stringer -type=State
 const (
 	Stopped     State = 1 << 0
 	Downloading State = 1 << 1
