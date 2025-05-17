@@ -16,7 +16,7 @@ import (
 
 	"github.com/docker/go-units"
 	"github.com/kelindar/bitmap"
-	"github.com/puzpuzpuz/xsync/v3"
+	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/rs/zerolog"
 	"go.uber.org/atomic"
 
@@ -97,12 +97,12 @@ func newPeer(
 		responseCond: gsync.NewCond(gsync.EmptyLock{}),
 
 		//ResChan:   make(chan req.Response, 1),
-		myRequests:       xsync.NewMapOf[proto.ChunkRequest, time.Time](),
-		myRequestHistory: xsync.NewMapOf[proto.ChunkRequest, empty.Empty](),
+		myRequests:       xsync.NewMap[proto.ChunkRequest, time.Time](),
+		myRequestHistory: xsync.NewMap[proto.ChunkRequest, empty.Empty](),
 
-		Rejected: xsync.NewMapOf[proto.ChunkRequest, empty.Empty](),
+		Rejected: xsync.NewMap[proto.ChunkRequest, empty.Empty](),
 
-		peerRequests: xsync.NewMapOf[proto.ChunkRequest, empty.Empty](),
+		peerRequests: xsync.NewMap[proto.ChunkRequest, empty.Empty](),
 
 		r: bufio.NewReaderSize(conn, units.KiB*18),
 		w: bufio.NewWriterSize(conn, units.KiB*8),
@@ -139,12 +139,12 @@ type Peer struct {
 	cancel   context.CancelFunc
 	Bitmap   *bm.Bitmap
 
-	myRequests       *xsync.MapOf[proto.ChunkRequest, time.Time]
-	myRequestHistory *xsync.MapOf[proto.ChunkRequest, empty.Empty]
+	myRequests       *xsync.Map[proto.ChunkRequest, time.Time]
+	myRequestHistory *xsync.Map[proto.ChunkRequest, empty.Empty]
 
-	peerRequests *xsync.MapOf[proto.ChunkRequest, empty.Empty]
+	peerRequests *xsync.Map[proto.ChunkRequest, empty.Empty]
 
-	Rejected  *xsync.MapOf[proto.ChunkRequest, empty.Empty]
+	Rejected  *xsync.Map[proto.ChunkRequest, empty.Empty]
 	allowFast *bm.Bitmap
 	ioOut     *flowrate.Monitor
 	ioIn      *flowrate.Monitor
