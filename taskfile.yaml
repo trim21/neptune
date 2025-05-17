@@ -3,53 +3,20 @@ version: 3
 tasks:
   lint:
     desc: run lint
-    deps:
-      - tools:betteralign
     cmds:
-      - ./.bin/betteralign.exe -fix -apply ./...
       - golangci-lint run --fix
-      - staticcheck -tags=release -tests=false ./...
-      - staticcheck -tags=release ./...
 
   gen:
     desc: run go generate
     cmd: go generate ./...
 
-  tools:betteralign:
-    internal: true
-    generates:
-      - .bin/betteralign.exe
-    sources:
-      - tools/go.mod
-      - tools/go.sum
-    cmds:
-      - go build -modfile tools/go.mod -o ./.bin/betteralign.exe github.com/dkorunic/betteralign/cmd/betteralign
-
-  tools:gotestsum:
-    internal: true
-    generates:
-      - .bin/gotestsum.exe
-    sources:
-      - tools/go.mod
-      - tools/go.sum
-    cmds:
-      - go build -modfile tools/go.mod -o ./.bin/gotestsum.exe gotest.tools/gotestsum
-
   test:
     desc: run go test
-    deps:
-      - tools:gotestsum
-    cmd: ./.bin/gotestsum.exe --format-hide-empty-pkg -- -count=1 -coverprofile=coverage.txt -covermode=atomic -tags assert ./...
+    cmd: go test -count=1 -coverprofile=coverage.txt -covermode=atomic -tags assert ./...
 
   mod-tidy:
     cmds:
-      - task: mod-tidy:tools
       - go mod tidy
-
-  mod-tidy:tools:
-    internal: true
-    dir: tools
-    cmd: go mod tidy
 
   release:
     desc: build release binary for all supported platform
@@ -120,11 +87,11 @@ tasks:
         sh: git rev-parse --short HEAD
     cmds:
       - >-
-          {{ if .GOARCH }}GOARCH={{ .GOARCH }}{{ end }}
-          {{ if .GOOS }}GOOS={{ .GOOS }}{{ end }}
-          go build
-          -ldflags="-s -X 'neptune/internal/version.Ref={{ .REF }}' -X 'neptune/internal/version.BuildDate={{ dateInZone "2006-01-02T15:04:05Z07:00" (now) "UTC" }}'"
-          -buildvcs=true {{ .EXTRA_FLAGS }} -trimpath -tags release -o {{ .OUT_PATH }}
+        {{ if .GOARCH }}GOARCH={{ .GOARCH }}{{ end }}
+        {{ if .GOOS }}GOOS={{ .GOOS }}{{ end }}
+        go build
+        -ldflags="-s -X 'neptune/internal/version.Ref={{ .REF }}' -X 'neptune/internal/version.BuildDate={{ dateInZone "2006-01-02T15:04:05Z07:00" (now) "UTC" }}'"
+        -buildvcs=true {{ .EXTRA_FLAGS }} -trimpath -tags release -o {{ .OUT_PATH }}
 
   build:
     generates:
@@ -155,11 +122,11 @@ tasks:
     cmds:
       - go build -trimpath -o dist/dev/tmp.exe
       - |
-          until rm dist/dev/server.exe -rf && cp dist/dev/tmp.exe dist/dev/neptune.exe
-          do
-            echo "can't copy, try again"
-            sleep 1
-          done
+        until rm dist/dev/server.exe -rf && cp dist/dev/tmp.exe dist/dev/neptune.exe
+        do
+          echo "can't copy, try again"
+          sleep 1
+        done
       - dist/dev/neptune.exe --debug --config-file config.yaml
 
   pprof:
