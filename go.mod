@@ -16,7 +16,7 @@ require (
 	github.com/jedib0t/go-pretty/v6 v6.6.7
 	github.com/juju/ratelimit v1.0.2
 	github.com/karrick/godirwalk v1.17.0
-	github.com/kelindar/bitmap v1.5.2
+	github.com/kelindar/bitmap v1.5.3
 	github.com/panjf2000/ants/v2 v2.11.3
 	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/prometheus/client_golang v1.22.0
