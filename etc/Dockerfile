@@ -1,4 +1,4 @@
-FROM busybox:1-musl@sha256:597bf7e5e8faf26b8efc4cb558eea5dc14d9cc97d5b4c8cdbe6404a7432d5a67 AS builder
+FROM busybox:1-musl@sha256:254e6134b1bf813b34e920bc4235864a54079057d51ae6db9a4f2328f261c2ad AS builder
 
 ARG TARGETARCH
 
