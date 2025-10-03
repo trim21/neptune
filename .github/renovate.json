@@ -6,6 +6,6 @@
     "local>trim21/renovate-config:go"
   ],
   "schedule": [
-    "on the 29th day of the month if it is February"
+    "5 4 29 2 7"
   ]
 }
