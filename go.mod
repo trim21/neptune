@@ -27,7 +27,7 @@ require (
 	github.com/spf13/pflag v1.0.7
 	github.com/spf13/viper v1.20.1
 	github.com/stretchr/testify v1.10.0
-	github.com/swaggest/openapi-go v0.2.59
+	github.com/swaggest/openapi-go v0.2.60
 	github.com/swaggest/usecase v1.3.1
 	github.com/trim21/conntrack v0.0.2
 	github.com/trim21/errgo v0.0.6
