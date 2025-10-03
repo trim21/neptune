@@ -6,6 +6,6 @@
     "local>trim21/renovate-config:go"
   ],
   "schedule": [
-    "5 4 29 2 7"
+    "* 4 29 2 7"
   ]
 }
