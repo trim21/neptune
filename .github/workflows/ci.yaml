@@ -23,7 +23,7 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: trim21/actions/setup-go@master
         with:
@@ -43,7 +43,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-15]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: trim21/actions/setup-go@master
         with:
@@ -84,7 +84,7 @@ jobs:
   license:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - run: python tools/scan-license-header.py
 
   lint:
@@ -92,7 +92,7 @@ jobs:
       contents: read
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: trim21/actions/setup-go@master
         with:
           cache-namespace: lint
@@ -106,7 +106,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - run: curl -fsSL https://dprint.dev/install.sh | sh -
       - run: echo "/home/runner/.dprint/bin" >> $GITHUB_PATH
