@@ -4,26 +4,37 @@
 package core
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"io"
 	"net/netip"
+	"sort"
 
-	"github.com/sourcegraph/conc"
-
-	"neptune/internal/metainfo"
 	"neptune/internal/pkg/empty"
-	"neptune/internal/pkg/heap"
-	"neptune/internal/pkg/mempool"
 	"neptune/internal/proto"
 )
 
-type cacheKey struct {
-	hash  metainfo.Hash
-	index uint32
+type uploadReq struct {
+	peer *Peer
+	req  proto.ChunkRequest
 }
 
+var errUploadPaused = errors.New("upload paused")
+
 func (d *Download) backgroundReqHandler() {
-	var reqPieceCount = make(map[uint32]uint32, d.info.NumPieces)
-	var peers []*Peer
+	var requestsByPiece = make(map[uint32][]uploadReq, 64)
+	var pieceOrder []struct {
+		index uint32
+		count int
+	}
+
+	const maxResponsesPerWake = 1024
+	// Hard cap the amount of requests we inspect per wake.
+	// Without this, a request storm (many peers * deep request queues) would make us
+	// spend a long time ranging maps and sorting, even though we only send a bounded
+	// number of responses.
+	const maxRequestsToConsiderPerWake = maxResponsesPerWake * 8
 
 	for {
 		select {
@@ -34,10 +45,10 @@ func (d *Download) backgroundReqHandler() {
 				continue
 			}
 
-			clear(reqPieceCount)
-			clear(peers)
-			peers = peers[:0]
+			pieceOrder = pieceOrder[:0]
+			clear(requestsByPiece)
 
+			considered := 0
 			d.peers.Range(func(addr netip.AddrPort, p *Peer) bool {
 				if p.peerInterested.Load() {
 					if p.ourChoking.CompareAndSwap(true, false) {
@@ -45,70 +56,115 @@ func (d *Download) backgroundReqHandler() {
 					}
 				}
 
-				if p.peerRequests.Size() != 0 {
-					peers = append(peers, p)
+				if considered >= maxRequestsToConsiderPerWake {
+					return false
 				}
-				return true
+
+				if p.peerRequests.Size() == 0 {
+					return true
+				}
+
+				p.peerRequests.Range(func(key proto.ChunkRequest, _ empty.Empty) bool {
+					requestsByPiece[key.PieceIndex] = append(requestsByPiece[key.PieceIndex], uploadReq{peer: p, req: key})
+					considered++
+					return considered < maxRequestsToConsiderPerWake
+				})
+
+				return considered < maxRequestsToConsiderPerWake
 			})
 
-			var s = make([]pieceRare, 0, len(reqPieceCount))
-
-			for _, peer := range peers {
-				peer.peerRequests.Range(func(key proto.ChunkRequest, _ empty.Empty) bool {
-					reqPieceCount[key.PieceIndex]++
-					return true
-				})
-			}
-
-			for index, rare := range reqPieceCount {
-				s = append(s, pieceRare{
-					index: index,
-					rare:  rare,
-				})
-			}
-
-			if len(s) == 0 {
+			if len(requestsByPiece) == 0 {
 				continue
 			}
 
-			h := heap.FromSlice(s)
-
-			pieceReq := h.Pop()
-
-			var buf *mempool.Buffer
-
-			buf = mempool.GetWithCap(int(d.pieceLength(pieceReq.index)))
-
-			err := d.readPiece(pieceReq.index, buf.B)
-			if err != nil {
-				mempool.Put(buf)
-				d.setError(err)
-				continue
+			for pieceIndex, reqs := range requestsByPiece {
+				pieceOrder = append(pieceOrder, struct {
+					index uint32
+					count int
+				}{index: pieceIndex, count: len(reqs)})
 			}
 
-			var g conc.WaitGroup
+			sort.Slice(pieceOrder, func(i, j int) bool {
+				if pieceOrder[i].count == pieceOrder[j].count {
+					return pieceOrder[i].index < pieceOrder[j].index
+				}
+				return pieceOrder[i].count > pieceOrder[j].count
+			})
 
-			for _, p := range peers {
-				p.peerRequests.Range(func(key proto.ChunkRequest, _ empty.Empty) bool {
-					if key.PieceIndex == pieceReq.index {
-						d.ioUp.Update(int(key.Length))
-						d.c.ioUp.Update(int(key.Length))
-						d.uploaded.Add(int64(key.Length))
-						g.Go(func() {
-							p.Response(&proto.ChunkResponse{
-								Data:       buf.B[key.Begin : key.Begin+key.Length],
-								Begin:      key.Begin,
-								PieceIndex: pieceReq.index,
-							})
-						})
+			responses := 0
+			for _, po := range pieceOrder {
+				reqs := requestsByPiece[po.index]
+				for _, item := range reqs {
+					if responses >= maxResponsesPerWake {
+						select {
+						case d.scheduleResponseSignal <- empty.Empty{}:
+						default:
+						}
+						break
 					}
-					return true
-				})
-			}
 
-			g.Wait()
+					if !d.c.tryEnqueueUpload(uploadTask{d: d, peer: item.peer, req: item.req}) {
+						select {
+						case d.scheduleResponseSignal <- empty.Empty{}:
+						default:
+						}
+						responses = maxResponsesPerWake
+						break
+					}
+
+					responses++
+				}
+
+				if responses >= maxResponsesPerWake {
+					break
+				}
+			}
 		}
 	}
+}
+
+func (d *Download) readPieceRangeCtx(ctx context.Context, req proto.ChunkRequest, dst []byte) error {
+	if int(req.Length) != len(dst) {
+		return fmt.Errorf("invalid dst length: req=%d dst=%d", req.Length, len(dst))
+	}
+
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if d.GetState()&(Downloading|Seeding) == 0 {
+		return errUploadPaused
+	}
+
+	start := int64(req.PieceIndex)*d.info.PieceLength + int64(req.Begin)
+	end := start + int64(req.Length)
+
+	var offset int64
+	for _, chunk := range fileChunks(d.info, start, end) {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if d.GetState()&(Downloading|Seeding) == 0 {
+			return errUploadPaused
+		}
+
+		f, err := d.openFile(chunk.fileIndex)
+		if err != nil {
+			return err
+		}
+
+		n, err := f.File.ReadAt(dst[offset:offset+chunk.length], chunk.offsetOfFile)
+		if err != nil {
+			f.Release()
+			if int64(n) != chunk.length || err != io.EOF {
+				return err
+			}
+		}
+
+		offset += chunk.length
+		f.Release()
+	}
+
+	return nil
 }
 
 // buf must be bigger enough to read whole piece.

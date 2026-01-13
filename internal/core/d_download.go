@@ -6,6 +6,7 @@ package core
 import (
 	"cmp"
 	"crypto/sha1"
+	"io"
 	"net/netip"
 	"slices"
 	"time"
@@ -306,20 +307,59 @@ func (d *Download) writeChunkToDist(begin int64, data []byte) error {
 }
 
 func (d *Download) checkPiece(pieceIndex uint32) error {
-	// TODO(perf): there are some torrents have piece size 256mib, and we should not read them into memory in one shot
+	// stream hash to avoid buffering very large pieces in memory
+	const hashBufSize = 1 << 20 // 1 MiB cap per read
 
-	size := d.pieceLength(pieceIndex)
-	buf := mempool.GetWithCap(int(size))
-	defer mempool.Put(buf)
-
-	err := d.readPiece(pieceIndex, buf.B)
-	if err != nil {
-		return errgo.Wrap(err, "failed to read piece")
+	pieceSize := d.pieceLength(pieceIndex)
+	bufSize := int(min(int64(hashBufSize), pieceSize))
+	if bufSize == 0 {
+		bufSize = sha1.Size
 	}
 
-	if sha1.Sum(buf.B) != d.info.Pieces[pieceIndex] {
+	buf := mempool.GetWithCap(bufSize)
+	defer mempool.Put(buf)
+
+	hasher := sha1.New()
+	piece := d.pieceInfo[pieceIndex]
+
+	for _, chunk := range piece.fileChunks {
+		f, err := d.openFile(chunk.fileIndex)
+		if err != nil {
+			return errgo.Wrap(err, "failed to open file for hashing")
+		}
+
+		remaining := chunk.length
+		offset := chunk.offsetOfFile
+		for remaining > 0 {
+			toRead := int(min(int64(len(buf.B)), remaining))
+
+			n, err := f.File.ReadAt(buf.B[:toRead], offset)
+			if err != nil && err != io.EOF {
+				f.Release()
+				return errgo.Wrap(err, "failed to read piece data for hashing")
+			}
+
+			if n == 0 {
+				f.Release()
+				return errgo.Wrap(io.ErrUnexpectedEOF, "failed to read piece data for hashing")
+			}
+
+			hasher.Write(buf.B[:n])
+			remaining -= int64(n)
+			offset += int64(n)
+		}
+
+		f.Release()
+	}
+
+	var digest [sha1.Size]byte
+	copy(digest[:], hasher.Sum(nil))
+
+	if digest != d.info.Pieces[pieceIndex] {
 		d.corrupted.Add(d.info.PieceLength)
-		for i := pieceIndex * d.normalChunkLen; i < uint32(pieceChunksCount(d.info, pieceIndex)); i++ {
+		start := pieceIndex * d.normalChunkLen
+		end := start + uint32(pieceChunksCount(d.info, pieceIndex))
+		for i := start; i < end; i++ {
 			d.chunkMap.Remove(i)
 		}
 		return nil
@@ -328,7 +368,7 @@ func (d *Download) checkPiece(pieceIndex uint32) error {
 	notHave := d.bm.SetX(pieceIndex)
 
 	if notHave {
-		d.completed.Add(size)
+		d.completed.Add(pieceSize)
 		d.log.Trace().Msgf("piece %d done", pieceIndex)
 		d.have(pieceIndex)
 	}

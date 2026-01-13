@@ -186,9 +186,9 @@ type Peer struct {
 func (p *Peer) Response(res *proto.ChunkResponse) {
 	_, ok := p.peerRequests.LoadAndDelete(res.Request())
 	if !ok {
-		panic("send response without request")
+		// Request might be canceled concurrently (Cancel) or already served.
+		return
 	}
-	p.ioOut.Update(len(res.Data))
 	p.sendEventX(Event{
 		Event: proto.Piece,
 		Res:   res,

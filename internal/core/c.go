@@ -99,6 +99,7 @@ func New(cfg config.Config, sessionPath string, debug bool) *Client {
 		debug:   debug,
 	}
 
+	c.startUploadPool()
 	c.initMetrics()
 
 	return c
@@ -125,6 +126,7 @@ type Client struct {
 	downloadMap map[metainfo.Hash]*Download
 	connChan    chan incomingConn
 	sem         *semaphore.Weighted
+	uploadQ     chan uploadTask
 	fh          map[string]*os.File
 
 	ioDown *flowrate.Monitor
