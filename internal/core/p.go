@@ -189,6 +189,7 @@ func (p *Peer) Response(res *proto.ChunkResponse) {
 		// Request might be canceled concurrently (Cancel) or already served.
 		return
 	}
+	p.ioOut.Update(len(res.Data))
 	p.sendEventX(Event{
 		Event: proto.Piece,
 		Res:   res,
