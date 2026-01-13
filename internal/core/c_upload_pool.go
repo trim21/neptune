@@ -21,6 +21,8 @@ func (c *Client) startUploadPool() {
 	if workerCount <= 0 {
 		workerCount = 64
 	}
+	// Avoid spawning an extreme number of goroutines due to misconfiguration.
+	workerCount = min(workerCount, 4096)
 
 	// Bounded queue to avoid unbounded memory growth under request storms.
 	// Keep it large enough to absorb bursts while still bounded.
@@ -80,11 +82,11 @@ func (c *Client) uploadWorker() {
 				continue
 			}
 
-			d.ioUp.Update(len(res.Data))
-			d.c.ioUp.Update(len(res.Data))
-			d.uploaded.Add(int64(len(res.Data)))
-
-			p.Response(res)
+			if p.Response(res) {
+				d.ioUp.Update(len(res.Data))
+				d.c.ioUp.Update(len(res.Data))
+				d.uploaded.Add(int64(len(res.Data)))
+			}
 			proto.PiecePool.Put(res)
 		}
 	}
