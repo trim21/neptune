@@ -81,6 +81,13 @@ jobs:
       - run: go build -o tmp/try.exe
       - run: ./tmp/try.exe --help
 
+  test-pass:
+    needs:
+      - test
+    runs-on: ubuntu-slim
+    steps:
+      - run: echo success
+
   license:
     runs-on: ubuntu-latest
     steps:
