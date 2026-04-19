@@ -32,12 +32,15 @@ linters:
     - mnd
     - nestif
     - nilnil
+    - noctx
+    - noinlineerr
     - nlreturn
     - nonamedreturns
     - paralleltest
     - reassign
     - recvcheck
     - revive
+    - godoclint
     - tagliatelle
     - testpackage
     - thelper
@@ -45,7 +48,9 @@ linters:
     - varnamelen
     - wrapcheck
     - wsl
+    - wsl_v5
     - zerologlint
+    - embeddedstructfieldcheck
   settings:
     depguard:
       rules:
