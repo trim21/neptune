@@ -10,7 +10,7 @@ require (
 	github.com/dustin/go-humanize v1.0.1
 	github.com/go-chi/chi/v5 v5.2.5
 	github.com/go-playground/validator/v10 v10.27.0
-	github.com/go-resty/resty/v2 v2.16.5
+	github.com/go-resty/resty/v2 v2.17.2
 	github.com/gofrs/flock v0.13.0
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/jedib0t/go-pretty/v6 v6.6.8
@@ -18,7 +18,7 @@ require (
 	github.com/karrick/godirwalk v1.17.0
 	github.com/kelindar/bitmap v1.5.5
 	github.com/panjf2000/ants/v2 v2.12.0
-	github.com/pelletier/go-toml/v2 v2.2.4
+	github.com/pelletier/go-toml/v2 v2.3.0
 	github.com/prometheus/client_golang v1.23.0
 	github.com/puzpuzpuz/xsync/v4 v4.1.0
 	github.com/rs/zerolog v1.34.0
@@ -38,7 +38,7 @@ require (
 	go.uber.org/multierr v1.11.0
 	golang.org/x/net v0.47.0
 	golang.org/x/sync v0.20.0
-	golang.org/x/sys v0.41.0
+	golang.org/x/sys v0.43.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 )
 
