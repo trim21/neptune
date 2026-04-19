@@ -5,7 +5,7 @@
 
 package metainfo
 
-// Information specific to a single file inside the MetaInfo structure.
+// FileInfo contains information specific to a single file inside the MetaInfo structure.
 type FileInfo struct {
 	Path []string `bencode:"path"` // BEP3
 	// Unofficial extension by BiglyBT? https://github.com/BiglySoftware/BiglyBT/issues/1274. Might
@@ -23,5 +23,6 @@ func (fi *FileInfo) BestPath() []string {
 	if len(fi.PathUtf8) != 0 {
 		return fi.PathUtf8
 	}
+
 	return fi.Path
 }

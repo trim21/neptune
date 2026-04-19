@@ -32,7 +32,6 @@ linters:
     - mnd
     - nestif
     - nilnil
-    - noctx
     - noinlineerr
     - nlreturn
     - nonamedreturns
@@ -40,7 +39,6 @@ linters:
     - reassign
     - recvcheck
     - revive
-    - godoclint
     - tagliatelle
     - testpackage
     - thelper

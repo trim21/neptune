@@ -52,7 +52,7 @@ func New(cfg config.Config, sessionPath string, debug bool) *Client {
 	//	only 'prefer'(default) 'prefer-not', 'disable' or 'force' are allowed", cfg.App.Crypto))
 	//}
 
-	conn, err := net.ListenPacket("udp", fmt.Sprintf(":%d", cfg.App.P2PPort))
+	conn, err := (&net.ListenConfig{}).ListenPacket(ctx, "udp", fmt.Sprintf(":%d", cfg.App.P2PPort))
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to listen on dht")
 	}
