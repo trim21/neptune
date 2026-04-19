@@ -1,7 +1,7 @@
 merge_queue:
   max_parallel_checks: 1
-  queued_label: 'ci:queued'
-  dequeued_label: 'ci:dequeued'
+  queued_label: "ci:queued"
+  dequeued_label: "ci:dequeued"
 
 queue_rules:
   - name: renovate
@@ -18,7 +18,6 @@ pull_request_rules:
 
   - name: Automatic merge on approval
     conditions:
-      - "#commits-behind=0"
       - or:
           - "#approved-reviews-by>=1"
           - label=ci:auto-merge
