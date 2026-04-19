@@ -107,7 +107,7 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v8
         with:
-          version: v2.1.0
+          version: v2.11.4
 
   dprint:
     runs-on: ubuntu-latest
