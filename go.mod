@@ -11,21 +11,21 @@ require (
 	github.com/go-chi/chi/v5 v5.2.5
 	github.com/go-playground/validator/v10 v10.27.0
 	github.com/go-resty/resty/v2 v2.16.5
-	github.com/gofrs/flock v0.12.1
+	github.com/gofrs/flock v0.13.0
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/jedib0t/go-pretty/v6 v6.6.8
 	github.com/juju/ratelimit v1.0.2
 	github.com/karrick/godirwalk v1.17.0
 	github.com/kelindar/bitmap v1.5.5
-	github.com/panjf2000/ants/v2 v2.11.3
+	github.com/panjf2000/ants/v2 v2.12.0
 	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/prometheus/client_golang v1.23.0
 	github.com/puzpuzpuz/xsync/v4 v4.1.0
 	github.com/rs/zerolog v1.34.0
 	github.com/samber/lo v1.51.0
-	github.com/sourcegraph/conc v0.3.0
-	github.com/spf13/pflag v1.0.7
-	github.com/spf13/viper v1.20.1
+	github.com/sourcegraph/conc v0.3.1-0.20240121214520-5f936abd7ae8
+	github.com/spf13/pflag v1.0.10
+	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.11.1
 	github.com/swaggest/openapi-go v0.2.61
 	github.com/swaggest/usecase v1.3.1
@@ -46,7 +46,7 @@ require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
-	github.com/fsnotify/fsnotify v1.8.0 // indirect
+	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.8 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
@@ -66,12 +66,13 @@ require (
 	github.com/prometheus/procfs v0.16.1 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/rogpeppe/go-internal v1.11.0 // indirect
-	github.com/sagikazarmark/locafero v0.7.0 // indirect
-	github.com/spf13/afero v1.12.0 // indirect
-	github.com/spf13/cast v1.7.1 // indirect
+	github.com/sagikazarmark/locafero v0.11.0 // indirect
+	github.com/spf13/afero v1.15.0 // indirect
+	github.com/spf13/cast v1.10.0 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/swaggest/jsonschema-go v0.3.78 // indirect
 	github.com/swaggest/refl v1.4.0 // indirect
+	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/crypto v0.45.0 // indirect
 	golang.org/x/mod v0.29.0 // indirect
 	golang.org/x/text v0.31.0 // indirect
