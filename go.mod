@@ -1,6 +1,6 @@
 module neptune
 
-go 1.25.0
+go 1.25.3
 
 tool golang.org/x/tools/cmd/stringer
 
