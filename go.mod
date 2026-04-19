@@ -5,7 +5,7 @@ go 1.25.9
 tool golang.org/x/tools/cmd/stringer
 
 require (
-	github.com/KimMachineGun/automemlimit v0.7.4
+	github.com/KimMachineGun/automemlimit v0.7.5
 	github.com/docker/go-units v0.5.0
 	github.com/dustin/go-humanize v1.0.1
 	github.com/go-chi/chi/v5 v5.2.5
@@ -27,7 +27,7 @@ require (
 	github.com/spf13/pflag v1.0.7
 	github.com/spf13/viper v1.20.1
 	github.com/stretchr/testify v1.11.1
-	github.com/swaggest/openapi-go v0.2.59
+	github.com/swaggest/openapi-go v0.2.61
 	github.com/swaggest/usecase v1.3.1
 	github.com/trim21/conntrack v0.0.2
 	github.com/trim21/errgo v0.0.6
@@ -70,8 +70,8 @@ require (
 	github.com/spf13/afero v1.12.0 // indirect
 	github.com/spf13/cast v1.7.1 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
-	github.com/swaggest/jsonschema-go v0.3.74 // indirect
-	github.com/swaggest/refl v1.3.1 // indirect
+	github.com/swaggest/jsonschema-go v0.3.78 // indirect
+	github.com/swaggest/refl v1.4.0 // indirect
 	golang.org/x/crypto v0.45.0 // indirect
 	golang.org/x/mod v0.29.0 // indirect
 	golang.org/x/text v0.31.0 // indirect
