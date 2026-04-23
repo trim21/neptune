@@ -1,0 +1,25 @@
+# Copilot Instructions for Neptune
+- Neptune is a headless BitTorrent client; entrypoint [main.go](../main.go) wires flags/env (via viper), session path, locking, logging, config load, core client start, and JSON-RPC/metrics HTTP server.
+- Session path defaults to `~/.neptune`; directories `torrents`, `resume`, `logs` are created and locked via `.lock` to avoid concurrent runs.
+- Config comes from TOML ([internal/config/config.go](../internal/config/config.go)) merged with flags/env (`NEPTUNE_` prefix, dashes -> underscores). Defaults: download-dir `~/downloads`; max-http-parallel 100; global-connections-limit 50; p2p-port overridden by `--p2p-port`/env; fallocate default false.
+- Web server ([internal/web/web.go](../internal/web/web.go)) listens on `--web` (default 127.0.0.1:8002) with Authorization header token (`--web-secret-token`; auto-generated if empty). Exposes /healthz, /metrics, /debug/version, /debug/neptune, /debug/events, optional pprof under /debug when `--debug`.
+- JSON-RPC lives at POST /json_rpc with methods named in `package web`: system.ping, transfer_summary, torrent.add/get/list/files/peers/trackers/remove, etc. Handlers built with `usecase.NewInteractor`, registered on the shared `jsonrpc.Handler`, validated by go-playground/validator, and secured by auth middleware.
+- When adding RPCs: define request/response structs with json tags, validations; return errors via `CodeError(code, err)` to set AppErrCode; ensure info-hash parsing enforces 40-hex length; register a unique method name with `u.SetName` then `h.Add(u)`.
+- Core client ([internal/core](../internal/core)) manages downloads: `Client` holds `downloadMap` and slices guarded by RWMutex; torrents persist under `{session}/torrents/<ih-prefix>/<hash>.torrent`; resume/state handling uses `resume` directory. `Client.AddTorrent` sorts downloads and spawns `Download.Init`; `RemoveTorrent` saves resume, cancels context, closes peers, optionally deletes data and prunes empty dirs.
+- Download state uses `State` bitmask (Stopped/Downloading/Seeding/Checking/Moving/Error) and monitors per-torrent rate (`flowrate.Monitor`), piece bitmaps (`bm.Bitmap`), peer maps (`xsync.Map`), tracker tiers, and rare-piece heaps; concurrency relies on internal locks/conds and buffered channels for scheduling.
+- Tracker/debug text view is served via `/debug/neptune/{info_hash}`; it prints rates, trackers, peers, bitmaps, and missing pieces.
+- Build/test workflow uses go-task ([taskfile.yaml](../taskfile.yaml)): `task test` runs `go test -count=1 -coverprofile=coverage.txt -covermode=atomic -tags assert ./...`; `task lint` runs `golangci-lint run --fix`; `task dev --watch` builds to dist/dev/neptune.exe and restarts on code change; release tasks build static CGO_ENABLED=0 binaries per platform with `-tags release` and version ldflags.
+- Development requires Go >= 1.22 and go-task installed; no system package installs are allowed in this environment.
+- JSON-RPC OpenAPI docs served at /docs/openapi.json with Swagger UI at /docs/ (description from [internal/web/description.md](../internal/web/description.md)).
+- Example deployment config in [etc/example/docker-compose.yaml](../etc/example/docker-compose.yaml) shows container env vars (NEPTUNE_*), host networking, and token wiring for flood UI.
+- Example config in [etc/example/config.toml](../etc/example/config.toml); missing config file is tolerated and defaults are applied.
+- Logging controlled by flags/env (`log-json`, `log-level`, `log-save-to-file`); when enabled, logs rotate via lumberjack at `{session}/logs/app.log`. Errors wrap stacks using errgo.
+- Metrics use prometheus client; outbound HTTP uses conntrack for tracing; resource limits auto-tune GOMAXPROCS and GOMEMLIMIT on Linux via automaxprocs/automemlimit.
+- Version info comes from [internal/version](../internal/version); `-v/--version` prints `version.Print()` with ref/build date baked in at build time.
+- Testing fixtures for metainfo live under [internal/metainfo/testdata](../internal/metainfo/testdata); keep large binary assets out of repo.
+- When touching torrent storage paths, preserve hash-based sharding (`<ih[:2]>/<ih[2:4]>`) and resume clean-up logic.
+- Prefer existing helpers in `internal/pkg` (bm, flowrate, heap, as, random, gsync) instead of new third-party packages; CGO is disabled in builds.
+- Keep Authorization header name constant (`Authorization`); schema enforces API key security in OpenAPI via header definition.
+- For new config knobs, add to `Application` struct, set sane defaults, and update flag/env wiring in [main.go](../main.go) with viper bindings.
+- Avoid generic HTTP handlers in `web.New`; mount through chi router with middleware and consistent JSON-RPC error envelopes (see [internal/web/error.go](../internal/web/error.go)).
+- Runtime directories and locks are user-writable; do not assume elevated permissions or system-level installs.

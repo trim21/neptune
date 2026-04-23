@@ -32,11 +32,16 @@ func (c *Client) scrape() {
 	defer c.m.RUnlock()
 
 	for h, d := range c.downloadMap {
-		if d.GetState()|Downloading|Seeding == 0 {
+		if d.GetState()&(Downloading|Seeding) == 0 {
 			continue
 		}
 
-		m[d.ScrapeURL()] = append(m[d.ScrapeURL()], h)
+		scrapeURL := d.ScrapeURL()
+		if scrapeURL == "" {
+			continue
+		}
+
+		m[scrapeURL] = append(m[scrapeURL], h)
 	}
 
 	for scrapeURL, hashes := range m {

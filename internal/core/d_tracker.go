@@ -8,8 +8,11 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net/netip"
+	"net/url"
+	"path"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-resty/resty/v2"
@@ -344,15 +347,31 @@ func (t *Tracker) announceStop(d *Download) error {
 
 // ScrapeURL return enabled tracker url for scrape request.
 func (d *Download) ScrapeURL() string {
-	// TODO : todo
-	panic("not implemented")
-	// d.m.RLock()
-	// defer d.m.RUnlock()
+	d.m.RLock()
+	defer d.m.RUnlock()
 
-	// for _, tier := range d.trackers {
-	//	for _, t := range tier.trackers {
-	//}
-	//}
+	for _, tier := range d.trackers {
+		for _, t := range tier.trackers {
+			u, err := url.Parse(t.url)
+			if err != nil {
+				continue
+			}
+
+			parts := strings.Split(u.Path, "/")
+			if len(parts) == 0 {
+				continue
+			}
+
+			last := parts[len(parts)-1]
+			if last == "announce" {
+				parts[len(parts)-1] = "scrape"
+				u.Path = path.Join(parts...)
+				return u.String()
+			}
+		}
+	}
+
+	return ""
 }
 
 type peerWithPriority struct {

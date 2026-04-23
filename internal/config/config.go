@@ -18,6 +18,9 @@ type Application struct {
 	NumWant         uint16 `toml:"num-want"`
 	// hard global connection limit
 	GlobalConnectionLimit uint16 `toml:"global-connections-limit"`
+	// hard global upload slot limit (across all torrents)
+	// 0 means auto (derived from GlobalConnectionLimit).
+	GlobalUploadSlots uint16 `toml:"global-upload-slots"`
 	Fallocate             bool   `toml:"fallocate"`
 }
 
@@ -51,6 +54,17 @@ func LoadFromFile(path string) (Config, error) {
 		}
 
 		cfg.App.DownloadDir = filepath.Join(hd, "downloads")
+	}
+
+	if cfg.App.GlobalUploadSlots == 0 {
+		// Default to a small multiple of connection limit to allow pipelining,
+		// while still providing a hard cap across all torrents.
+		// Min 64 to avoid being too restrictive on small setups.
+		slots := cfg.App.GlobalConnectionLimit * 4
+		if slots < 64 {
+			slots = 64
+		}
+		cfg.App.GlobalUploadSlots = slots
 	}
 
 	return cfg, nil

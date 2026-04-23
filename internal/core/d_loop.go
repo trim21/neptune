@@ -4,8 +4,10 @@
 package core
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/docker/go-units"
@@ -93,12 +95,12 @@ func (d *Download) Init(resumed bool) {
 }
 
 func (d *Download) wait(state State) bool {
-	if d.GetState()|state == 0 {
+	if d.GetState()&state == 0 {
 		select {
 		case <-d.ctx.Done():
 			return false
 		case <-d.stateCond.C:
-			if d.GetState()|state == 0 {
+			if d.GetState()&state == 0 {
 				return false
 			}
 		}
@@ -212,7 +214,21 @@ func (p *PriorityQueue) Pop() Priority {
 }
 
 func (d *Download) openFile(fileIndex int) (*filepool.File, error) {
-	p := filepath.Join(d.basePath, d.info.Files[fileIndex].Path)
+	base := filepath.Clean(d.basePath)
+	pathInTorrent := filepath.Clean(d.info.Files[fileIndex].Path)
+
+	if pathInTorrent == "." || pathInTorrent == "" {
+		return nil, fmt.Errorf("invalid torrent file path")
+	}
+
+	if filepath.IsAbs(pathInTorrent) || filepath.VolumeName(pathInTorrent) != "" || strings.HasPrefix(pathInTorrent, ".."+string(filepath.Separator)) {
+		return nil, fmt.Errorf("torrent file path escapes base: %q", pathInTorrent)
+	}
+
+	p := filepath.Clean(filepath.Join(base, pathInTorrent))
+	if !strings.HasPrefix(p, base+string(filepath.Separator)) && p != base {
+		return nil, fmt.Errorf("torrent file path escapes base: %q", pathInTorrent)
+	}
 
 	file, err := d.c.filePool.Open(p, os.O_RDWR|os.O_CREATE, os.ModePerm, time.Hour)
 	if err == nil {

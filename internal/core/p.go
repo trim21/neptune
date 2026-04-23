@@ -183,16 +183,17 @@ type Peer struct {
 	subExtensions bool
 }
 
-func (p *Peer) Response(res *proto.ChunkResponse) {
+func (p *Peer) Response(res *proto.ChunkResponse) bool {
 	_, ok := p.peerRequests.LoadAndDelete(res.Request())
 	if !ok {
-		panic("send response without request")
+		// Request might be canceled concurrently (Cancel) or already served.
+		return false
 	}
-	p.ioOut.Update(len(res.Data))
 	p.sendEventX(Event{
 		Event: proto.Piece,
 		Res:   res,
 	})
+	return true
 }
 
 func (p *Peer) Request(req proto.ChunkRequest) {
