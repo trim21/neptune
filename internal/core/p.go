@@ -35,10 +35,16 @@ import (
 
 const ourPexExtID proto.ExtensionMessage = 22
 
-const peerIDPrefix = "-NE" +
-	string(version.MAJOR+'0') +
-	string(version.MINOR+'0') +
-	string(version.PATCH+'0') + "0-"
+var peerIDPrefix string
+
+func init() {
+	if peerIDPrefix == "" {
+		peerIDPrefix = "-NE" +
+			string(version.MAJOR+'0') +
+			string(version.MINOR+'0') +
+			string(version.PATCH+'0') + "0-"
+	}
+}
 
 func NewPeerID() (peerID proto.PeerID) {
 	copy(peerID[:], peerIDPrefix)
