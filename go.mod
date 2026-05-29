@@ -17,7 +17,7 @@ require (
 	github.com/juju/ratelimit v1.0.2
 	github.com/karrick/godirwalk v1.17.0
 	github.com/kelindar/bitmap v1.5.5
-	github.com/panjf2000/ants/v2 v2.12.0
+	github.com/panjf2000/ants/v2 v2.12.1
 	github.com/pelletier/go-toml/v2 v2.3.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/puzpuzpuz/xsync/v4 v4.5.0
