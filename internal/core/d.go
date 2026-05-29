@@ -57,6 +57,7 @@ type Download struct {
 	peers                  *xsync.Map[netip.AddrPort, *Peer]
 	connectionHistory      *expirable.LRU[netip.AddrPort, connHistory]
 	bm                     *bm.Bitmap
+	selectedPiecesBm       *bm.Bitmap
 	pendingPeers           *heap.Heap[peerWithPriority]
 	rarePieceQueue         *heap.Heap[pieceRare]
 	buildNetworkPieces     chan empty.Empty
@@ -213,6 +214,7 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 		}
 	}
 	d.selectedSize.Store(d.computeSelectedSize())
+	d.buildSelectedPiecesBm()
 
 	d.stateCond = gsync.NewCond(&d.m)
 
@@ -263,13 +265,44 @@ func (d *Download) computeSelectedSize() int64 {
 	return size
 }
 
+func (d *Download) buildSelectedPiecesBm() {
+	if d.selectedPiecesBm == nil {
+		d.selectedPiecesBm = bm.New(d.info.NumPieces)
+	}
+	if d.selectedFilesSet == nil {
+		d.selectedPiecesBm.Fill()
+		return
+	}
+	d.selectedPiecesBm.Clear()
+	for i := range d.info.NumPieces {
+		if d.hasSelectedFiles(i) {
+			d.selectedPiecesBm.Set(i)
+		}
+	}
+}
+
+func (d *Download) computeCompleted() int64 {
+	if d.selectedFilesSet == nil {
+		done := int64(d.bm.Count()) * d.info.PieceLength
+		if d.bm.Contains(d.info.NumPieces - 1) {
+			done = done - d.info.PieceLength + d.info.LastPieceSize
+		}
+		return done
+	}
+	done := int64(d.bm.WithAnd(d.selectedPiecesBm).Count()) * d.info.PieceLength
+	if d.bm.Contains(d.info.NumPieces-1) && d.selectedPiecesBm.Contains(d.info.NumPieces-1) {
+		done = done - d.info.PieceLength + d.info.LastPieceSize
+	}
+	return done
+}
+
 // markUnselectedPiecesDone marks pieces that only touch unselected files as complete.
 func (d *Download) markUnselectedPiecesDone() {
 	if d.selectedFilesSet == nil {
 		return
 	}
 	for i := range d.info.NumPieces {
-		if !d.hasSelectedFiles(i) {
+		if !d.selectedPiecesBm.Contains(i) {
 			d.bm.Set(i)
 		}
 	}

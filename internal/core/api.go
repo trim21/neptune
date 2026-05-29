@@ -377,7 +377,7 @@ func (c *Client) DebugHandlers() http.Handler {
 			humanize.IBytes(uint64(d.ioUp.Status().CurRate))+"/s",
 		)
 
-		fmt.Fprintf(w, "progress: %6.2f %%\n", float64(d.completed.Load())/float64(d.info.TotalLength)*100)
+		fmt.Fprintf(w, "progress: %6.2f %%\n", float64(d.completed.Load())/float64(d.SelectedSize())*100)
 
 		debugPrintTrackers(w, d)
 		debugPrintPeers(w, d)
