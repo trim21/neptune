@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"net/netip"
 	"net/url"
-	"path"
 	"slices"
 	"strconv"
 	"strings"
@@ -212,8 +211,8 @@ type Tracker struct {
 	failureMessage   string
 	url              string
 	peerCount        int
-	// leechers         int
-	// seeders          int
+	seeders          int
+	leechers         int
 }
 
 func (t *Tracker) req(d *Download) *resty.Request {
@@ -345,33 +344,26 @@ func (t *Tracker) announceStop(d *Download) error {
 	return nil
 }
 
-// ScrapeURL return enabled tracker url for scrape request.
-func (d *Download) ScrapeURL() string {
-	d.m.RLock()
-	defer d.m.RUnlock()
-
-	for _, tier := range d.trackers {
-		for _, t := range tier.trackers {
-			u, err := url.Parse(t.url)
-			if err != nil {
-				continue
-			}
-
-			parts := strings.Split(u.Path, "/")
-			if len(parts) == 0 {
-				continue
-			}
-
-			last := parts[len(parts)-1]
-			if last == "announce" {
-				parts[len(parts)-1] = "scrape"
-				u.Path = path.Join(parts...)
-				return u.String()
-			}
-		}
+// announceToScrape converts an announce URL to a scrape URL per BEP 48.
+// BEP 48 only applies to HTTP trackers.
+func announceToScrape(announceURL string) (string, bool) {
+	u, err := url.Parse(announceURL)
+	if err != nil {
+		return "", false
 	}
 
-	return ""
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return "", false
+	}
+
+	lastSlash := strings.LastIndex(u.Path, "/")
+	lastPart := u.Path[lastSlash+1:]
+	if !strings.HasPrefix(lastPart, "announce") {
+		return "", false
+	}
+
+	u.Path = u.Path[:lastSlash+1] + "scrape" + lastPart[len("announce"):]
+	return u.String(), true
 }
 
 type peerWithPriority struct {

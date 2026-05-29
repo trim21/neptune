@@ -25,23 +25,41 @@ type scrapeResponseFile struct {
 	Incomplete    int         `bencode:"incomplete"`
 }
 
+// trackerRef references a specific tracker within a download.
+type trackerRef struct {
+	download *Download
+	tracker  *Tracker
+}
+
 func (c *Client) scrape() {
-	var m = make(map[string][]metainfo.Hash, 20)
+	// Map from scrape URL to list of (download, tracker) pairs.
+	m := make(map[string][]trackerRef, 20)
+	// Map from scrape URL to list of info_hashes for the HTTP request.
+	hashes := make(map[string][]metainfo.Hash, 20)
 
 	c.m.RLock()
 	defer c.m.RUnlock()
 
-	for h, d := range c.downloadMap {
+	for _, d := range c.downloadMap {
 		if !d.HasState(Downloading | Seeding) {
 			continue
 		}
 
-		m[d.ScrapeURL()] = append(m[d.ScrapeURL()], h)
+		d.m.RLock()
+		for _, tier := range d.trackers {
+			for _, t := range tier.trackers {
+				if scrapeURL, ok := announceToScrape(t.url); ok {
+					m[scrapeURL] = append(m[scrapeURL], trackerRef{download: d, tracker: t})
+					hashes[scrapeURL] = append(hashes[scrapeURL], d.info.Hash)
+				}
+			}
+		}
+		d.m.RUnlock()
 	}
 
-	for scrapeURL, hashes := range m {
+	for scrapeURL, refs := range m {
 		r := c.http.R()
-		r.QueryParam = url.Values{"info_hash": lo.Map(hashes, func(item metainfo.Hash, index int) string {
+		r.QueryParam = url.Values{"info_hash": lo.Map(hashes[scrapeURL], func(item metainfo.Hash, _ int) string {
 			return item.AsString()
 		})}
 
@@ -53,9 +71,17 @@ func (c *Client) scrape() {
 
 		var resp scrapeResponse
 		if err := bencode.Unmarshal(res.Body(), &resp); err != nil {
-			return
+			log.Info().Err(err).Msg("failed to parse scrape response")
+			continue
 		}
 
-		_ = resp
+		for _, ref := range refs {
+			if file, ok := resp.Files[ref.download.info.Hash]; ok {
+				ref.download.trackerMutex.Lock()
+				ref.tracker.seeders = file.Complete
+				ref.tracker.leechers = file.Incomplete
+				ref.download.trackerMutex.Unlock()
+			}
+		}
 	}
 }
