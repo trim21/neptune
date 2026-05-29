@@ -87,6 +87,16 @@ func (c *Client) uploadWorker() {
 				}
 			}
 
+			// Rate limit: block before sending to the network.
+			if err := d.uploadLimiter.Wait(d.ctx, len(res.Data)); err != nil {
+				proto.PiecePool.Put(res)
+				continue
+			}
+			if err := d.c.uploadLimiter.Wait(d.ctx, len(res.Data)); err != nil {
+				proto.PiecePool.Put(res)
+				continue
+			}
+
 			if p.Response(res) {
 				d.ioUp.Update(len(res.Data))
 				d.c.ioUp.Update(len(res.Data))

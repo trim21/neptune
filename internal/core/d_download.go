@@ -98,6 +98,15 @@ func (d *Download) handleRes(res *proto.ChunkResponse) {
 		Uint32("piece", res.PieceIndex).
 		Msg("res received")
 
+	// Rate limit: block until allowed, which backpressures the peer read loop
+	// and ultimately slows TCP reception via flow control.
+	if err := d.downloadLimiter.Wait(d.ctx, len(res.Data)); err != nil {
+		return
+	}
+	if err := d.c.downloadLimiter.Wait(d.ctx, len(res.Data)); err != nil {
+		return
+	}
+
 	d.ioDown.Update(len(res.Data))
 	d.netDown.Update(len(res.Data))
 	d.c.ioDown.Update(len(res.Data))

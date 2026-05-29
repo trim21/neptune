@@ -27,6 +27,7 @@ import (
 	"neptune/internal/pkg/gsync"
 	"neptune/internal/pkg/heap"
 	"neptune/internal/pkg/random"
+	"neptune/internal/pkg/ratelimit"
 	"neptune/internal/proto"
 )
 
@@ -54,6 +55,8 @@ type Download struct {
 	netDown                *flowrate.Monitor
 	ioUp                   *flowrate.Monitor
 	ResChan                chan *proto.ChunkResponse
+	downloadLimiter        *ratelimit.Limiter
+	uploadLimiter          *ratelimit.Limiter
 	peers                  *xsync.Map[netip.AddrPort, *Peer]
 	connectionHistory      *expirable.LRU[netip.AddrPort, connHistory]
 	bm                     *bm.Bitmap
@@ -203,6 +206,9 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 		downloadDir: basePath,
 
 		trackerKey: random.URLSafeStr(16),
+
+		downloadLimiter: ratelimit.New(0),
+		uploadLimiter:   ratelimit.New(0),
 	}
 
 	if selectedFiles != nil {

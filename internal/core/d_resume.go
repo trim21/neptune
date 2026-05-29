@@ -29,11 +29,14 @@ type resume struct {
 	Tags          []string
 	Trackers      [][]string
 	SelectedFiles []int // indices of files selected for download. nil means all files.
-	AddAt         int64
-	CompletedAt   int64
-	Downloaded    int64
-	Uploaded      int64
-	State         State
+	// Per-torrent speed limits in bytes per second. 0 means unlimited.
+	DownloadSpeedLimit int64
+	UploadSpeedLimit   int64
+	AddAt              int64
+	CompletedAt        int64
+	Downloaded         int64
+	Uploaded           int64
+	State              State
 }
 
 func (d *Download) resumeFilePath() (dir, file string) {
@@ -76,16 +79,18 @@ func (d *Download) MarshalBinary() (data []byte, err error) {
 	}
 
 	return bencode.Marshal(resume{
-		BasePath:      d.basePath,
-		Downloaded:    d.downloaded.Load(),
-		Uploaded:      d.uploaded.Load(),
-		Tags:          d.tags,
-		State:         d.GetState(),
-		InfoHash:      d.info.Hash.Hex(),
-		Bitfield:      d.bm.Bitfield(),
-		AddAt:         d.AddAt,
-		CompletedAt:   d.CompletedAt.Load(),
-		SelectedFiles: selectedFiles,
+		BasePath:           d.basePath,
+		Downloaded:         d.downloaded.Load(),
+		Uploaded:           d.uploaded.Load(),
+		Tags:               d.tags,
+		State:              d.GetState(),
+		InfoHash:           d.info.Hash.Hex(),
+		Bitfield:           d.bm.Bitfield(),
+		AddAt:              d.AddAt,
+		CompletedAt:        d.CompletedAt.Load(),
+		SelectedFiles:      selectedFiles,
+		DownloadSpeedLimit: d.downloadLimiter.Rate(),
+		UploadSpeedLimit:   d.uploadLimiter.Rate(),
 		Trackers: lo.Map(d.trackers, func(tier TrackerTier, index int) []string {
 			return lo.Map(tier.trackers, func(tracker *Tracker, index int) string {
 				return tracker.url
@@ -138,6 +143,9 @@ func (c *Client) UnmarshalResume(data []byte) error {
 
 	d.uploaded.Store(r.Uploaded)
 	d.uploadAtStart = r.Uploaded
+
+	d.downloadLimiter.Update(r.DownloadSpeedLimit)
+	d.uploadLimiter.Update(r.UploadSpeedLimit)
 
 	c.m.Lock()
 	defer c.m.Unlock()

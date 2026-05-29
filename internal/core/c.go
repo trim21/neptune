@@ -29,6 +29,7 @@ import (
 	"neptune/internal/pkg/flowrate"
 	"neptune/internal/pkg/global"
 	"neptune/internal/pkg/random"
+	"neptune/internal/pkg/ratelimit"
 	"neptune/internal/pkg/unsafe"
 	"neptune/internal/util"
 )
@@ -76,6 +77,9 @@ func New(cfg config.Config, sessionPath string, debug bool) *Client {
 
 		ioUp:   flowrate.New(time.Second, time.Second),
 		ioDown: flowrate.New(time.Second, time.Second),
+
+		downloadLimiter: ratelimit.New(cfg.App.GlobalDownloadSpeedLimit),
+		uploadLimiter:   ratelimit.New(cfg.App.GlobalUploadSpeedLimit),
 
 		http: resty.NewWithClient(&http.Client{
 			Transport: &http.Transport{
@@ -131,6 +135,9 @@ type Client struct {
 
 	ioDown *flowrate.Monitor
 	ioUp   *flowrate.Monitor
+
+	downloadLimiter *ratelimit.Limiter
+	uploadLimiter   *ratelimit.Limiter
 
 	filePool *filepool.FilePool
 

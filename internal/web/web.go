@@ -109,6 +109,8 @@ func New(c *core.Client, token string, enableDebug bool) http.Handler {
 	removeTags(h, c)
 	resumeTorrent(h, c)
 	setFilePriority(h, c)
+	setSpeedLimit(h, c)
+	setGlobalSpeedLimit(h, c)
 	// MoveTorrent(h, c)
 
 	var auth = func(next http.Handler) http.Handler {
