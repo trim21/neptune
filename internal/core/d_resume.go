@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 
 	"github.com/rs/zerolog/log"
 	"github.com/samber/lo"
@@ -23,17 +22,16 @@ import (
 var _ encoding.BinaryMarshaler = (*Download)(nil)
 
 type resume struct {
-	BasePath      string
-	InfoHash      string
-	Bitfield      []byte
-	Tags          []string
-	Trackers      [][]string
-	SelectedFiles []int // indices of files selected for download. nil means all files.
-	AddAt         int64
-	CompletedAt   int64
-	Downloaded    int64
-	Uploaded      int64
-	State         State
+	BasePath    string
+	InfoHash    string
+	Bitfield    []byte
+	Tags        []string
+	Trackers    [][]string
+	AddAt       int64
+	CompletedAt int64
+	Downloaded  int64
+	Uploaded    int64
+	State       State
 }
 
 func (d *Download) resumeFilePath() (dir, file string) {
@@ -66,26 +64,16 @@ func (d *Download) saveResume() {
 }
 
 func (d *Download) MarshalBinary() (data []byte, err error) {
-	var selectedFiles []int
-	if d.selectedFilesSet != nil {
-		selectedFiles = make([]int, 0, len(d.selectedFilesSet))
-		for idx := range d.selectedFilesSet {
-			selectedFiles = append(selectedFiles, idx)
-		}
-		slices.Sort(selectedFiles)
-	}
-
 	return bencode.Marshal(resume{
-		BasePath:      d.basePath,
-		Downloaded:    d.downloaded.Load(),
-		Uploaded:      d.uploaded.Load(),
-		Tags:          d.tags,
-		State:         d.GetState(),
-		InfoHash:      d.info.Hash.Hex(),
-		Bitfield:      d.bm.Bitfield(),
-		AddAt:         d.AddAt,
-		CompletedAt:   d.CompletedAt.Load(),
-		SelectedFiles: selectedFiles,
+		BasePath:    d.basePath,
+		Downloaded:  d.downloaded.Load(),
+		Uploaded:    d.uploaded.Load(),
+		Tags:        d.tags,
+		State:       d.GetState(),
+		InfoHash:    d.info.Hash.Hex(),
+		Bitfield:    d.bm.Bitfield(),
+		AddAt:       d.AddAt,
+		CompletedAt: d.CompletedAt.Load(),
 		Trackers: lo.Map(d.trackers, func(tier TrackerTier, index int) []string {
 			return lo.Map(tier.trackers, func(tracker *Tracker, index int) string {
 				return tracker.url
@@ -115,18 +103,9 @@ func (c *Client) UnmarshalResume(data []byte) error {
 		return errgo.Wrap(err, "failed to decode torrent data")
 	}
 
-	// backward compatibility: old resume data without SelectedFiles defaults to all files
-	if r.SelectedFiles == nil {
-		r.SelectedFiles = make([]int, len(info.Files))
-		for i := range info.Files {
-			r.SelectedFiles[i] = i
-		}
-	}
-
-	d := c.NewDownload(m, info, r.BasePath, r.Tags, r.SelectedFiles)
+	d := c.NewDownload(m, info, r.BasePath, r.Tags)
 
 	d.bm = bm.FromBitfields(r.Bitfield, d.info.NumPieces)
-	d.markUnselectedPiecesDone()
 	done := int64(d.bm.Count()) * d.info.PieceLength
 	if d.bm.Contains(d.info.NumPieces - 1) {
 		done = done - d.info.PieceLength + d.info.LastPieceSize

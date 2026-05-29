@@ -23,11 +23,10 @@ import (
 )
 
 type AddTorrentRequest struct {
-	TorrentFile   []byte   `description:"base64 encoded torrent file content"                   json:"torrent_file"   required:"true" validate:"required"`
-	DownloadDir   string   `description:"base download dir"                                     json:"download_dir"`
-	Tags          []string `json:"tags"`
-	SelectedFiles []int    `description:"indices of files to download, empty means all"         json:"selected_files"` // if nil, all files are selected.
-	IsBaseDir     bool     `description:"if true, will not append torrent name to download_dir" json:"is_base_dir"`
+	TorrentFile []byte   `description:"base64 encoded torrent file content"                   json:"torrent_file" required:"true" validate:"required"`
+	DownloadDir string   `description:"base download dir"                                     json:"download_dir"`
+	Tags        []string `json:"tags"`
+	IsBaseDir   bool     `description:"if true, will not append torrent name to download_dir" json:"is_base_dir"`
 }
 
 type AddTorrentResponse struct {
@@ -66,15 +65,7 @@ func addTorrent(h *jsonrpc.Handler, c *core.Client) {
 			if req.Tags == nil {
 				req.Tags = []string{}
 			}
-
-			if req.SelectedFiles == nil {
-				req.SelectedFiles = make([]int, len(info.Files))
-				for i := range info.Files {
-					req.SelectedFiles[i] = i
-				}
-			}
-
-			err = c.AddTorrent(req.TorrentFile, m, info, downloadDir, req.Tags, req.SelectedFiles)
+			err = c.AddTorrent(req.TorrentFile, m, info, downloadDir, req.Tags)
 			if err != nil {
 				return CodeError(5, errgo.Wrap(err, "failed to add torrent to download"))
 			}
