@@ -72,7 +72,7 @@ func (c *Client) SetFilePriority(h metainfo.Hash, fileIDs []int, priority int) e
 
 			// Piece touches a changed file and is in bm.
 			// If it doesn't touch any currently-selected file, it was force-done.
-			if d.hasSelectedFiles(pi) {
+			if d.selectedPiecesBm.Contains(pi) {
 				continue
 			}
 
@@ -88,16 +88,13 @@ func (c *Client) SetFilePriority(h metainfo.Hash, fileIDs []int, priority int) e
 			d.selectedFilesSet[id] = struct{}{}
 		}
 	}
+	d.selectedSize.Store(d.computeSelectedSize())
+	d.buildSelectedPiecesBm()
 
 	// Mark pieces that only touch unselected files as done.
 	d.markUnselectedPiecesDone()
 
-	// Recalculate completed bytes from bitmap.
-	done := int64(d.bm.Count()) * d.info.PieceLength
-	if d.bm.Contains(d.info.NumPieces - 1) {
-		done = done - d.info.PieceLength + d.info.LastPieceSize
-	}
-	d.completed.Store(done)
+	d.completed.Store(d.computeCompleted())
 
 	// Transition to Seeding if all pieces are complete.
 	if d.bm.Count() == d.info.NumPieces {
