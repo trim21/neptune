@@ -130,10 +130,10 @@ func (c *Client) UnmarshalResume(data []byte) error {
 
 	d := c.NewDownload(m, info, r.BasePath, r.Tags, r.SelectedFiles)
 
+	// unsafe methods are safe here because d hasn't been shared with other goroutines yet.
 	d.bm = bm.FromBitfields(r.Bitfield, d.info.NumPieces)
-	d.markUnselectedPiecesDone()
-	d.completed.Store(d.computeCompleted())
-
+	d.markUnselectedPiecesDoneUnsafe()
+	d.completed.Store(d.computeCompletedUnsafe())
 	d.state = r.State
 	d.AddAt = r.AddAt
 	d.CompletedAt.Store(d.CompletedAt.Load())
