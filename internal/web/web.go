@@ -105,6 +105,10 @@ func New(c *core.Client, token string, enableDebug bool) http.Handler {
 	addTorrent(h, c)
 	removeTorrent(h, c)
 	getTorrent(h, c)
+	addTags(h, c)
+	removeTags(h, c)
+	resumeTorrent(h, c)
+	setFilePriority(h, c)
 	// MoveTorrent(h, c)
 
 	var auth = func(next http.Handler) http.Handler {
