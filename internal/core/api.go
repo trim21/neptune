@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/dustin/go-humanize"
@@ -117,6 +118,10 @@ func (c *Client) GetTransferSummary() TransferSummary {
 func (c *Client) AddTorrent(raw []byte, m *metainfo.MetaInfo, info meta.Info, downloadPath string, tags []string, selectedFiles []int) error {
 	log.Info().Msgf("try add torrent %s", info.Hash)
 
+	if err := validateTorrentPaths(downloadPath, info); err != nil {
+		return errgo.Wrap(err, "invalid torrent file paths")
+	}
+
 	c.m.RLock()
 	if _, ok := c.downloadMap[info.Hash]; ok {
 		c.m.RUnlock()
@@ -153,6 +158,26 @@ func (c *Client) AddTorrent(raw []byte, m *metainfo.MetaInfo, info meta.Info, do
 
 	go d.Init(false)
 
+	return nil
+}
+
+// validateTorrentPaths checks that all file paths in the torrent
+// are safe and don't escape the download directory.
+func validateTorrentPaths(basePath string, info meta.Info) error {
+	base := filepath.Clean(basePath)
+	for _, f := range info.Files {
+		p := filepath.Clean(f.Path)
+		if p == "." || p == "" {
+			return fmt.Errorf("invalid torrent file path: %q", f.Path)
+		}
+		if filepath.IsAbs(p) || filepath.VolumeName(p) != "" || strings.HasPrefix(p, ".."+string(filepath.Separator)) {
+			return fmt.Errorf("torrent file path escapes base: %q", f.Path)
+		}
+		full := filepath.Clean(filepath.Join(base, p))
+		if !strings.HasPrefix(full, base+string(filepath.Separator)) && full != base {
+			return fmt.Errorf("torrent file path escapes base: %q", f.Path)
+		}
+	}
 	return nil
 }
 
