@@ -11,10 +11,10 @@ import (
 
 func TestAnnounceToScrape(t *testing.T) {
 	tests := []struct {
-		name      string
-		announce  string
-		wantURL   string
-		wantOK    bool
+		name     string
+		announce string
+		wantURL  string
+		wantOK   bool
 	}{
 		{
 			name:     "basic announce",

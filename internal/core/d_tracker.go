@@ -344,7 +344,6 @@ func (t *Tracker) announceStop(d *Download) error {
 	return nil
 }
 
-
 // announceToScrape converts an announce URL to a scrape URL per BEP 48.
 // It replaces "announce" with "scrape" in the last path component.
 func announceToScrape(announceURL string) (string, bool) {
@@ -362,7 +361,6 @@ func announceToScrape(announceURL string) (string, bool) {
 	u.Path = u.Path[:lastSlash+1] + "scrape" + lastPart[len("announce"):]
 	return u.String(), true
 }
-
 
 type peerWithPriority struct {
 	addrPort netip.AddrPort
