@@ -4,6 +4,9 @@
 package core
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"io"
 	"net/netip"
 	"slices"
@@ -21,6 +24,8 @@ type cacheKey struct {
 	hash  metainfo.Hash
 	index uint32
 }
+
+var errUploadPaused = errors.New("upload paused")
 
 const (
 	uploadSlots        = 4 // default number of upload slots
@@ -273,6 +278,53 @@ func (d *Download) readPiece(index uint32, buf []byte) error {
 		n, err := f.File.ReadAt(buf[offset:offset+chunk.length], chunk.offsetOfFile)
 		if err != nil {
 			if int64(n) != chunk.length || err != io.EOF {
+				f.Release()
+				return err
+			}
+		}
+
+		offset += chunk.length
+		f.Release()
+	}
+
+	return nil
+}
+
+// readPieceRangeCtx reads a range of bytes from a piece into dst,
+// checking for context cancellation and download state between chunks.
+func (d *Download) readPieceRangeCtx(ctx context.Context, req proto.ChunkRequest, dst []byte) error {
+	if int(req.Length) != len(dst) {
+		return fmt.Errorf("invalid dst length: req=%d dst=%d", req.Length, len(dst))
+	}
+
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if !d.HasState(Downloading | Seeding) {
+		return errUploadPaused
+	}
+
+	start := int64(req.PieceIndex)*d.info.PieceLength + int64(req.Begin)
+	end := start + int64(req.Length)
+
+	var offset int64
+	for _, chunk := range fileChunks(d.info, start, end) {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if !d.HasState(Downloading | Seeding) {
+			return errUploadPaused
+		}
+
+		f, err := d.openFile(chunk.fileIndex)
+		if err != nil {
+			return err
+		}
+
+		n, err := f.File.ReadAt(dst[offset:offset+chunk.length], chunk.offsetOfFile)
+		if err != nil {
+			if int64(n) != chunk.length || err != io.EOF {
+				f.Release()
 				return err
 			}
 		}
