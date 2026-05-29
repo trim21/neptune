@@ -45,34 +45,29 @@ const (
 // Download manage a download task
 // ctx should be canceled when torrent is removed, not stopped.
 type Download struct {
-	log               zerolog.Logger
-	ctx               context.Context
-	err               error
-	cancel            context.CancelFunc
-	c                 *Client
-	ioDown            *flowrate.Monitor // io rate for network data and disk moving/checking data
-	netDown           *flowrate.Monitor // io rate for network data
-	ioUp              *flowrate.Monitor
-	ResChan           chan *proto.ChunkResponse
-	peers             *xsync.Map[netip.AddrPort, *Peer]
-	connectionHistory *expirable.LRU[netip.AddrPort, connHistory]
-	bm                *bm.Bitmap
-	pendingPeers      *heap.Heap[peerWithPriority]
-	rarePieceQueue    *heap.Heap[pieceRare] // piece index ordered by rare
-
-	// signal to rebuild connected pendingPeers bitmap
-	// should be fired when pendingPeers send bitmap/Have/HaveAll message
-	buildNetworkPieces chan empty.Empty
-
-	// signal to schedule request to pendingPeers
-	// should be fired when pendingPeers finish pieces requests
-	scheduleRequestSignal chan empty.Empty
-
+	log                    zerolog.Logger
+	ctx                    context.Context
+	err                    error
+	cancel                 context.CancelFunc
+	c                      *Client
+	ioDown                 *flowrate.Monitor
+	netDown                *flowrate.Monitor
+	ioUp                   *flowrate.Monitor
+	ResChan                chan *proto.ChunkResponse
+	peers                  *xsync.Map[netip.AddrPort, *Peer]
+	connectionHistory      *expirable.LRU[netip.AddrPort, connHistory]
+	bm                     *bm.Bitmap
+	pendingPeers           *heap.Heap[peerWithPriority]
+	rarePieceQueue         *heap.Heap[pieceRare]
+	buildNetworkPieces     chan empty.Empty
+	scheduleRequestSignal  chan empty.Empty
 	scheduleResponseSignal chan empty.Empty
 	pendingPeersSignal     chan empty.Empty
 	stateCond              *gsync.Cond
 	pexAdd                 chan []pexPeer
 	pexDrop                chan []netip.AddrPort
+	endgameRequested       *xsync.Map[proto.ChunkRequest, empty.Empty]
+	selectedFilesSet       map[int]struct{}
 	basePath               string
 	downloadDir            string
 	trackerKey             string
@@ -80,12 +75,11 @@ type Download struct {
 	tags                   []string
 	pieceInfo              []pieceFileChunks
 	trackers               []TrackerTier
-	pieceRare              []uint32 // mapping from piece index to rare
+	pieceAvailability      []int32
 	chunkMap               bitmap.Bitmap
 	pendingChunksMap       bitmap.Bitmap
 	info                   meta.Info
 	completed              atomic.Int64
-	endGameMode            atomic.Bool
 	AddAt                  int64
 	CompletedAt            atomic.Int64
 	downloaded             atomic.Int64
@@ -93,6 +87,7 @@ type Download struct {
 	uploaded               atomic.Int64
 	uploadAtStart          int64
 	downloadAtStart        int64
+	endGameMode            atomic.Bool
 	seq                    atomic.Bool
 	announcePending        atomic.Bool
 	trackerMutex           sync.RWMutex
@@ -107,25 +102,16 @@ type Download struct {
 }
 
 type pieceRare struct {
-	index uint32
-	rare  uint32
+	index    uint32
+	priority int32
 }
 
 func (p pieceRare) Less(o pieceRare) bool {
-	// ordered by rare 1 < 2 < 0
-	if p.rare == o.rare {
+	if p.priority == o.priority {
 		return p.index < o.index
 	}
-
-	if p.rare == 0 {
-		return false
-	}
-
-	if o.rare == 0 {
-		return true
-	}
-
-	return p.rare < o.rare
+	// higher priority first
+	return p.priority > o.priority
 }
 
 func (d *Download) GetState() State {
@@ -151,7 +137,7 @@ func (c *Client) ScheduleMove(ih metainfo.Hash, targetBasePath string) error {
 	return err
 }
 
-func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath string, tags []string) *Download {
+func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath string, tags []string, selectedFiles []int) *Download {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	if tags == nil {
@@ -185,7 +171,8 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 		peers:             xsync.NewMap[netip.AddrPort, *Peer](),
 		connectionHistory: expirable.NewLRU[netip.AddrPort, connHistory](1024, nil, time.Minute*10),
 
-		chunkMap: make(bitmap.Bitmap, int64(info.NumPieces)*((info.PieceLength+defaultBlockSize-1)/defaultBlockSize)),
+		chunkMap:         make(bitmap.Bitmap, int64(info.NumPieces)*((info.PieceLength+defaultBlockSize-1)/defaultBlockSize)),
+		endgameRequested: xsync.NewMap[proto.ChunkRequest, empty.Empty](),
 
 		pendingPeers: heap.New[peerWithPriority](),
 
@@ -211,6 +198,15 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 		trackerKey: random.URLSafeStr(16),
 	}
 
+	if selectedFiles != nil {
+		d.selectedFilesSet = make(map[int]struct{}, len(selectedFiles))
+		for _, idx := range selectedFiles {
+			if idx >= 0 && idx < len(info.Files) {
+				d.selectedFilesSet[idx] = struct{}{}
+			}
+		}
+	}
+
 	d.stateCond = gsync.NewCond(&d.m)
 
 	d.setAnnounceList(m.UpvertedAnnounceList())
@@ -230,4 +226,29 @@ func (d *Download) setError(err error) {
 	d.err = err
 	d.state = Error
 	d.m.Unlock()
+}
+
+// hasSelectedFiles returns true if the piece touches at least one selected file.
+func (d *Download) hasSelectedFiles(pieceIndex uint32) bool {
+	if d.selectedFilesSet == nil {
+		return true
+	}
+	for _, c := range d.pieceInfo[pieceIndex].fileChunks {
+		if _, ok := d.selectedFilesSet[c.fileIndex]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// markUnselectedPiecesDone marks pieces that only touch unselected files as complete.
+func (d *Download) markUnselectedPiecesDone() {
+	if d.selectedFilesSet == nil {
+		return
+	}
+	for i := range d.info.NumPieces {
+		if !d.hasSelectedFiles(i) {
+			d.bm.Set(i)
+		}
+	}
 }

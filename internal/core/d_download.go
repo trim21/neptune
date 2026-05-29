@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/docker/go-units"
-	"github.com/kelindar/bitmap"
 	"github.com/trim21/errgo"
 
 	"neptune/internal/meta"
@@ -102,6 +101,11 @@ func (d *Download) handleRes(res *proto.ChunkResponse) {
 	d.netDown.Update(len(res.Data))
 	d.c.ioDown.Update(len(res.Data))
 	d.downloaded.Add(int64(len(res.Data)))
+
+	// clear endgame tracking for this chunk
+	if d.endGameMode.Load() {
+		d.endgameRequested.Delete(res.Request())
+	}
 
 	// in endgame mode we may receive duplicated response, just ignore them
 	if d.bm.Contains(res.PieceIndex) {
@@ -357,38 +361,45 @@ func (d *Download) checkDone() {
 	d.announce(EventCompleted)
 }
 
+// piecePriority computes a priority score for a piece, inspired by libtorrent:
+// priority = (availability + 1) * 3 + state_adjustment
+// Higher priority means more urgent to download.
+func piecePriority(availability int32, hasPendingChunks bool) int32 {
+	p := (availability + 1) * 3
+	if hasPendingChunks {
+		p += 1 // boost partially downloaded pieces
+	}
+	return p
+}
+
 func (d *Download) updateRarePieces() {
 	d.ratePieceMutex.Lock()
 	defer d.ratePieceMutex.Unlock()
 
-	if len(d.pieceRare) == 0 {
-		d.pieceRare = make([]uint32, d.info.NumPieces)
+	if len(d.pieceAvailability) == 0 {
+		d.pieceAvailability = make([]int32, d.info.NumPieces)
 	} else {
-		clear(d.pieceRare)
+		clear(d.pieceAvailability)
 	}
 
-	var requested = make(bitmap.Bitmap, d.bitfieldSize)
-
-	var baseRare uint32
+	var baseAvail int32
 	d.peers.Range(func(addr netip.AddrPort, p *Peer) bool {
-		requested.Or(p.Requested)
 		if p.peerChoking.Load() {
 			p.allowFast.Range(func(u uint32) {
 				if p.Bitmap.Contains(u) {
-					d.pieceRare[u]++
+					d.pieceAvailability[u]++
 				}
 			})
 			return true
 		}
 
-		// doesn't contribute to rare
 		if p.Bitmap.Count() == d.info.NumPieces {
-			baseRare++
+			baseAvail++
 			return true
 		}
 
 		p.Bitmap.Range(func(u uint32) {
-			d.pieceRare[u]++
+			d.pieceAvailability[u]++
 		})
 
 		return true
@@ -396,20 +407,35 @@ func (d *Download) updateRarePieces() {
 
 	var queue = make([]pieceRare, 0, d.info.NumPieces)
 
-	for index, rare := range d.pieceRare {
+	for index, avail := range d.pieceAvailability {
 		if d.bm.Contains(uint32(index)) {
 			continue
 		}
 
-		if requested.Contains(uint32(index)) {
+		totalAvail := avail + baseAvail
+		if totalAvail == 0 {
 			continue
 		}
 
-		if rare+baseRare == 0 {
+		if !d.hasSelectedFiles(uint32(index)) {
 			continue
 		}
 
-		queue = append(queue, pieceRare{rare: rare + baseRare, index: uint32(index)})
+		// check if piece has pending chunks (partially downloaded)
+		pieceStart := uint32(index) * d.normalChunkLen
+		pieceEnd := pieceStart + uint32(pieceChunksCount(d.info, uint32(index)))
+		hasPending := false
+		for c := pieceStart; c < pieceEnd; c++ {
+			if d.chunkMap.Contains(c) {
+				hasPending = true
+				break
+			}
+		}
+
+		priority := piecePriority(totalAvail, hasPending)
+		if priority > 0 {
+			queue = append(queue, pieceRare{priority: priority, index: uint32(index)})
+		}
 	}
 
 	d.rarePieceQueue = heap.FromSlice(queue)
@@ -427,60 +453,147 @@ func (d *Download) scheduleSeq() {
 		return
 	}
 
+	// Phase 1: prioritize partial pieces (already partially downloaded)
+	d.schedulePartialPieces()
+
+	// Phase 2: rarest-first for remaining capacity
+	d.scheduleRarePieces()
+}
+
+// schedulePartialPieces assigns pieces that are already partially downloaded.
+// This reduces memory usage and completes work-in-progress faster.
+func (d *Download) schedulePartialPieces() {
+	type partialPiece struct {
+		index    uint32
+		progress int // number of chunks already downloaded
+	}
+
+	var partials []partialPiece
+
+	for i := range d.info.NumPieces {
+		if d.bm.Contains(i) {
+			continue
+		}
+		if !d.hasSelectedFiles(i) {
+			continue
+		}
+
+		pieceStart := i * d.normalChunkLen
+		pieceEnd := pieceStart + uint32(pieceChunksCount(d.info, i))
+		downloaded := 0
+		for c := pieceStart; c < pieceEnd; c++ {
+			if d.chunkMap.Contains(c) {
+				downloaded++
+			}
+		}
+
+		if downloaded > 0 {
+			partials = append(partials, partialPiece{index: i, progress: downloaded})
+		}
+	}
+
+	if len(partials) == 0 {
+		return
+	}
+
+	// sort by progress descending (almost-done pieces first)
+	slices.SortFunc(partials, func(a, b partialPiece) int {
+		return cmp.Compare(b.progress, a.progress)
+	})
+
+	d.assignPiecesToPeers(func() (uint32, bool) {
+		if len(partials) == 0 {
+			return 0, false
+		}
+		p := partials[0]
+		partials = partials[1:]
+		return p.index, true
+	})
+}
+
+// scheduleRarePieces assigns pieces using rarest-first strategy.
+func (d *Download) scheduleRarePieces() {
 	d.updateRarePieces()
-	var peers = make([]*Peer, 0, d.peers.Size())
-
-	d.peers.Range(func(addr netip.AddrPort, p *Peer) bool {
-		peers = append(peers, p)
-		return true
-	})
-
-	slices.SortFunc(peers, func(a, b *Peer) int {
-		return cmp.Compare(a.ioIn.Status().CurRate, b.ioIn.Status().CurRate)
-	})
 
 	d.ratePieceMutex.Lock()
 	q := d.rarePieceQueue
 	d.rarePieceQueue = heap.New[pieceRare]()
 	d.ratePieceMutex.Unlock()
 
-PIECE:
-	for q.Len() > 0 {
-		piece := q.Pop()
-
-		if piece.rare == 0 {
-			return
+	d.assignPiecesToPeers(func() (uint32, bool) {
+		if q.Len() == 0 {
+			return 0, false
 		}
+		piece := q.Pop()
+		if piece.priority <= 0 {
+			return 0, false
+		}
+		return piece.index, true
+	})
+}
 
-		for _, p := range peers {
-			if p.closed.Load() {
-				// peer closed, re-scheduler
+// assignPiecesToPeers assigns pieces from the iterator to peers.
+// Peers are sorted by speed (fastest first) and get pieces proportional to their pipeline capacity.
+func (d *Download) assignPiecesToPeers(nextPiece func() (uint32, bool)) {
+	type peerInfo struct {
+		peer     *Peer
+		capacity int // how many more pieces this peer can handle
+	}
+
+	var peers []peerInfo
+	d.peers.Range(func(addr netip.AddrPort, p *Peer) bool {
+		if p.closed.Load() {
+			return true
+		}
+		queueSize := int(p.desiredQueueSize.Load())
+		pending := p.myRequests.Size()
+		// rough estimate: each piece has multiple chunks, divide by avg chunks
+		pendingPieces := 0
+		if pending > 0 {
+			pendingPieces = max(pending/int(d.normalChunkLen), 1)
+		}
+		avail := queueSize - pendingPieces
+		if avail > 0 {
+			peers = append(peers, peerInfo{peer: p, capacity: avail})
+		}
+		return true
+	})
+
+	if len(peers) == 0 {
+		return
+	}
+
+	// sort by download rate descending (fastest peer first)
+	slices.SortFunc(peers, func(a, b peerInfo) int {
+		return cmp.Compare(b.peer.ioIn.Status().CurRate, a.peer.ioIn.Status().CurRate)
+	})
+
+	for _, pi := range peers {
+		for pi.capacity > 0 {
+			pieceIndex, ok := nextPiece()
+			if !ok {
 				return
 			}
 
-			if p.peerChoking.Load() {
-				if !p.allowFast.Contains(piece.index) {
-					continue
-				}
-
-				select {
-				case p.ourPieceRequests <- piece.index:
-					p.Requested.Set(piece.index)
-				default:
-				}
-
+			if !d.hasSelectedFiles(pieceIndex) {
 				continue
 			}
 
-			if !p.Bitmap.Contains(piece.index) {
+			if pi.peer.peerChoking.Load() {
+				if !pi.peer.allowFast.Contains(pieceIndex) {
+					continue
+				}
+			} else if !pi.peer.Bitmap.Contains(pieceIndex) {
 				continue
 			}
 
 			select {
-			case p.ourPieceRequests <- piece.index:
-				p.Requested.Set(piece.index)
-				continue PIECE
+			case pi.peer.ourPieceRequests <- pieceIndex:
+				pi.peer.Requested.Set(pieceIndex)
+				pi.capacity--
 			default:
+				// channel full, move to next peer
+				break
 			}
 		}
 	}
@@ -494,7 +607,14 @@ func (d *Download) scheduleSeqEndGame() {
 
 	d.peers.Range(func(addr netip.AddrPort, p *Peer) bool {
 		for _, u := range s {
+			if !d.hasSelectedFiles(u) {
+				continue
+			}
 			if p.Bitmap.Contains(u) {
+				// check if this peer has any unrequested chunks for this piece
+				if !d.hasUnrequestedEndgameChunks(u) {
+					continue
+				}
 				select {
 				case <-p.ctx.Done():
 					return true
@@ -506,6 +626,24 @@ func (d *Download) scheduleSeqEndGame() {
 
 		return true
 	})
+}
+
+// hasUnrequestedEndgameChunks returns true if the piece has chunks not yet requested in endgame mode.
+func (d *Download) hasUnrequestedEndgameChunks(pieceIndex uint32) bool {
+	if !d.endGameMode.Load() {
+		return true
+	}
+	pieceStart := pieceIndex * d.normalChunkLen
+	pieceEnd := pieceStart + uint32(pieceChunksCount(d.info, pieceIndex))
+	for c := pieceStart; c < pieceEnd; c++ {
+		if !d.chunkMap.Contains(c) {
+			req := pieceChunk(d.info, pieceIndex, int(c-pieceStart))
+			if _, requested := d.endgameRequested.Load(req); !requested {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func pieceChunksCount(info meta.Info, index uint32) int64 {

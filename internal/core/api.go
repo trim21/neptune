@@ -114,7 +114,7 @@ func (c *Client) GetTransferSummary() TransferSummary {
 	}
 }
 
-func (c *Client) AddTorrent(raw []byte, m *metainfo.MetaInfo, info meta.Info, downloadPath string, tags []string) error {
+func (c *Client) AddTorrent(raw []byte, m *metainfo.MetaInfo, info meta.Info, downloadPath string, tags []string, selectedFiles []int) error {
 	log.Info().Msgf("try add torrent %s", info.Hash)
 
 	c.m.RLock()
@@ -140,7 +140,7 @@ func (c *Client) AddTorrent(raw []byte, m *metainfo.MetaInfo, info meta.Info, do
 	c.m.Lock()
 	defer c.m.Unlock()
 
-	d := c.NewDownload(m, info, downloadPath, tags)
+	d := c.NewDownload(m, info, downloadPath, tags, selectedFiles)
 
 	c.downloads = append(c.downloads, d)
 

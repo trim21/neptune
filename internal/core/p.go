@@ -88,9 +88,12 @@ func newPeer(
 		peerChoking:    *atomic.NewBool(true),
 		peerInterested: *atomic.NewBool(false),
 
-		ourPieceRequests: make(chan uint32, 1),
+		ourPieceRequests: make(chan uint32, 20),
 
-		UserAgent: *atomic.NewPointer[string](&ua),
+		pieceDone:        make(chan struct{}, 1),
+		desiredQueueSize: *atomic.NewInt32(1),
+
+		UserAgent: *atomic.NewPointer(&ua),
 
 		Requested: make(bitmap.Bitmap, d.bitfieldSize),
 
@@ -129,58 +132,51 @@ func newPeer(
 var ErrPeerSendInvalidData = errors.New("addrPort send invalid data")
 
 type Peer struct {
-	log      zerolog.Logger
-	ctx      context.Context
-	Conn     net.Conn
-	lastSend atomic.Time
-	r        *bufio.Reader
-	w        *bufio.Writer
-	d        *Download
-	cancel   context.CancelFunc
-	Bitmap   *bm.Bitmap
-
+	log              zerolog.Logger
+	ctx              context.Context
+	Conn             net.Conn
+	lastSend         atomic.Time
+	snubbedAt        atomic.Time
+	peerRequests     *xsync.Map[proto.ChunkRequest, empty.Empty]
+	ioIn             *flowrate.Monitor
+	Bitmap           *bm.Bitmap
 	myRequests       *xsync.Map[proto.ChunkRequest, time.Time]
 	myRequestHistory *xsync.Map[proto.ChunkRequest, empty.Empty]
-
-	peerRequests *xsync.Map[proto.ChunkRequest, empty.Empty]
-
-	Rejected  *xsync.Map[proto.ChunkRequest, empty.Empty]
-	allowFast *bm.Bitmap
-	ioOut     *flowrate.Monitor
-	ioIn      *flowrate.Monitor
-	UserAgent atomic.Pointer[string]
-
-	ourPieceRequests chan uint32 // our requests for peer chan
-
-	responseCond *gsync.Cond
-	peerID       atomic.Pointer[proto.PeerID]
-	Address      netip.AddrPort
-
-	Requested bitmap.Bitmap
-
-	rttAverage sizedSlice[time.Duration]
-
-	peerChoking    atomic.Bool // peer is choking us
-	peerInterested atomic.Bool
-	ourChoking     atomic.Bool
-	ourInterested  atomic.Bool
-	QueueLimit     atomic.Uint32
-	closed         atomic.Bool
-
-	rttMutex sync.RWMutex
-
-	wm sync.Mutex
-
-	extDontHaveID gsync.AtomicUint[proto.ExtensionMessage]
-	extPexID      gsync.AtomicUint[proto.ExtensionMessage]
-
-	writeBuf [4]byte // buffer for reading message size and event id
-	readBuf  [4]byte // buffer for reading message size and event id
-	Incoming bool
-
-	fastExtension bool
-	dhtEnabled    bool
-	subExtensions bool
+	d                *Download
+	Rejected         *xsync.Map[proto.ChunkRequest, empty.Empty]
+	allowFast        *bm.Bitmap
+	ioOut            *flowrate.Monitor
+	cancel           context.CancelFunc
+	UserAgent        atomic.Pointer[string]
+	ourPieceRequests chan uint32
+	responseCond     *gsync.Cond
+	peerID           atomic.Pointer[proto.PeerID]
+	pieceDone        chan struct{}
+	w                *bufio.Writer
+	r                *bufio.Reader
+	Address          netip.AddrPort
+	Requested        bitmap.Bitmap
+	rttAverage       sizedSlice[time.Duration]
+	slowStart        atomic.Bool
+	QueueLimit       atomic.Uint32
+	lastRate         atomic.Int64
+	desiredQueueSize atomic.Int32
+	ourInterested    atomic.Bool
+	snubbed          atomic.Bool
+	closed           atomic.Bool
+	peerChoking      atomic.Bool
+	peerInterested   atomic.Bool
+	ourChoking       atomic.Bool
+	rttMutex         sync.RWMutex
+	wm               sync.Mutex
+	extDontHaveID    gsync.AtomicUint[proto.ExtensionMessage]
+	extPexID         gsync.AtomicUint[proto.ExtensionMessage]
+	readBuf          [4]byte
+	writeBuf         [4]byte
+	Incoming         bool
+	fastExtension    bool
+	dhtEnabled       bool
+	subExtensions    bool
 }
 
 func (p *Peer) Response(res *proto.ChunkResponse) {
@@ -232,32 +228,173 @@ func (p *Peer) close() {
 }
 
 func (p *Peer) ourRequestHandle() {
+	p.ourRequestHandleLoop()
+}
+
+func (p *Peer) ourRequestHandleLoop() {
+	pending := make(map[uint32]struct{})
+	sem := make(chan struct{}, 20)
+	p.slowStart.Store(true)
+
+	for {
+		// update desired queue size
+		var queueSize int
+		if p.snubbed.Load() {
+			queueSize = 1
+		} else if p.slowStart.Load() {
+			// slow start: use current desired size, will grow on piece completion
+			queueSize = int(p.desiredQueueSize.Load())
+		} else {
+			// rate-based: keep 3s of pipeline
+			queueSize = int(3*p.ioIn.Status().CurRate) / int(defaultBlockSize)
+		}
+		queueSize = max(queueSize, 1)
+		queueSize = min(queueSize, 20)
+		p.desiredQueueSize.Store(int32(queueSize))
+		limit := queueSize
+
+		// drain channel into pending while we have capacity
+		for len(pending) < limit {
+			select {
+			case <-p.ctx.Done():
+				return
+			case index := <-p.ourPieceRequests:
+				pending[index] = struct{}{}
+			default:
+				break
+			}
+		}
+
+		if len(pending) == 0 {
+			// wait for new piece, piece completion, or context cancellation
+			select {
+			case <-p.ctx.Done():
+				return
+			case index := <-p.ourPieceRequests:
+				pending[index] = struct{}{}
+			case <-p.pieceDone:
+				p.handleSlowStart()
+			}
+			continue
+		}
+
+		// also handle pieceDone non-blocking to react to completions
+		select {
+		case <-p.pieceDone:
+			p.handleSlowStart()
+		default:
+		}
+
+		// start downloading pieces concurrently
+		for index := range pending {
+			sem <- struct{}{} // acquire slot
+			delete(pending, index)
+			go func(pieceIdx uint32) {
+				defer func() {
+					<-sem // release slot
+					select {
+					case p.pieceDone <- struct{}{}:
+					default:
+					}
+				}()
+				p.downloadPieceChunks(pieceIdx)
+			}(index)
+		}
+	}
+}
+
+// handleSlowStart updates the desired queue size during slow start mode.
+// It doubles the queue size when download rate is still growing,
+// and exits slow start when rate plateaus.
+func (p *Peer) handleSlowStart() {
+	if !p.slowStart.Load() {
+		return
+	}
+
+	currentRate := p.ioIn.Status().CurRate
+	lastRate := p.lastRate.Load()
+	p.lastRate.Store(currentRate)
+
+	// if rate is still growing (with some tolerance), double the queue
+	if lastRate > 0 && currentRate > lastRate*95/100 {
+		old := p.desiredQueueSize.Load()
+		newSize := min(old*2, 20)
+		p.desiredQueueSize.Store(newSize)
+		p.log.Trace().Int32("old", old).Int32("new", newSize).Msg("slow start: growing pipeline")
+	} else if lastRate > 0 {
+		// rate stopped growing, exit slow start
+		p.slowStart.Store(false)
+		p.log.Info().Int64("rate", currentRate).Msg("slow start: exited, switching to rate-based")
+	}
+}
+
+// downloadPieceChunks requests all chunks of a piece from this peer.
+func (p *Peer) downloadPieceChunks(index uint32) {
+	chunkLen := int(pieceChunksCount(p.d.info, index))
+	for i := range chunkLen {
+		if p.closed.Load() {
+			return
+		}
+
+		chunk := pieceChunk(p.d.info, index, i)
+
+		// in endgame mode, skip chunks already requested by other peers
+		if p.d.endGameMode.Load() {
+			if _, already := p.d.endgameRequested.Load(chunk); already {
+				continue
+			}
+			p.d.endgameRequested.Store(chunk, empty.Empty{})
+		}
+
+		// wait if peer's request queue is full
+		for p.myRequests.Size() >= min(int(p.QueueLimit.Load())-10, 300) {
+			select {
+			case <-p.ctx.Done():
+				return
+			case <-p.responseCond.C:
+			}
+		}
+
+		if !p.peerChoking.Load() {
+			p.Request(chunk)
+		}
+	}
+}
+
+func (p *Peer) checkRequestTimeouts() {
+	const pieceTimeout = 30 * time.Second
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
 	for {
 		select {
 		case <-p.ctx.Done():
 			return
-		case index := <-p.ourPieceRequests:
-			chunkLen := int(pieceChunksCount(p.d.info, index))
-			for i := range chunkLen {
-				if p.closed.Load() {
-					return
+		case <-ticker.C:
+			now := time.Now()
+			timedOut := false
+			p.myRequests.Range(func(req proto.ChunkRequest, reqTime time.Time) bool {
+				if now.Sub(reqTime) > pieceTimeout {
+					timedOut = true
+					return false // stop iterating
 				}
+				return true
+			})
 
-				// 10 is a magic number to avoid peer reject our requests
-				for p.myRequests.Size() >= min(int(p.QueueLimit.Load())-10, 300) {
-					select {
-					case <-p.ctx.Done():
-						return
-					case <-p.responseCond.C:
-					}
-				}
+			if timedOut && !p.snubbed.Load() {
+				p.snubbed.Store(true)
+				p.snubbedAt.Store(now)
+				p.log.Warn().Msg("peer snubbed: request timeout")
 
-				if !p.peerChoking.Load() {
-					p.Request(pieceChunk(p.d.info, index, i))
+				// release requested pieces so other peers can pick them up
+				p.Requested.Clear()
+
+				// trigger reschedule
+				select {
+				case p.d.scheduleRequestSignal <- empty.Empty{}:
+				default:
 				}
 			}
-
-			p.d.scheduleRequestSignal <- empty.Empty{}
 		}
 	}
 }
@@ -341,6 +478,7 @@ func (p *Peer) start(skipHandshake bool) {
 	}
 
 	go p.ourRequestHandle()
+	go p.checkRequestTimeouts()
 
 	for {
 		if p.ctx.Err() != nil {
@@ -394,6 +532,7 @@ func (p *Peer) start(skipHandshake bool) {
 				if p.fastExtension {
 					go p.sendEventX(Event{Req: event.Req, Event: proto.Reject})
 				}
+				break
 			}
 
 			p.peerRequests.Store(event.Req, empty.Empty{})
