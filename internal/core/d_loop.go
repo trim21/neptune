@@ -94,13 +94,13 @@ func (d *Download) Init(resumed bool) {
 	d.saveResume()
 }
 
-func (d *Download) wait(state State) bool {
-	if d.GetState()|state == 0 {
+func (d *Download) wait(states State) bool {
+	if !d.HasState(states) {
 		select {
 		case <-d.ctx.Done():
 			return false
 		case <-d.stateCond.C:
-			if d.GetState()|state == 0 {
+			if !d.HasState(states) {
 				return false
 			}
 		}

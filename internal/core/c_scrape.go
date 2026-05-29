@@ -32,7 +32,7 @@ func (c *Client) scrape() {
 	defer c.m.RUnlock()
 
 	for h, d := range c.downloadMap {
-		if d.GetState()|Downloading|Seeding == 0 {
+		if !d.HasState(Downloading | Seeding) {
 			continue
 		}
 

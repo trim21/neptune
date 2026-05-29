@@ -121,6 +121,11 @@ func (d *Download) GetState() State {
 	return s
 }
 
+// HasState returns true if the download is in any of the given states.
+func (d *Download) HasState(state State) bool {
+	return d.GetState()&state != 0
+}
+
 var ErrTorrentNotFound = errors.New("torrent not found")
 
 func (c *Client) ScheduleMove(ih metainfo.Hash, targetBasePath string) error {
