@@ -411,8 +411,8 @@ func debugPrintTrackers(w io.Writer, d *Download) {
 			t.AppendRow(table.Row{
 				iterIndex,
 				lo.Ellipsis(tracker.url, 40),
-				0,
-				0,
+				tracker.seeders,
+				tracker.leechers,
 				tracker.lastAnnounceTime.Format(time.RFC3339),
 				tracker.nextAnnounce.Format(time.RFC3339),
 				tracker.peerCount,
