@@ -219,8 +219,8 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 			}
 		}
 	}
-	d.selectedSize.Store(d.computeSelectedSize())
-	d.buildSelectedPiecesBm()
+	d.selectedSize.Store(d.computeSelectedSizeUnsafe())
+	d.buildSelectedPiecesBmUnsafe()
 
 	d.stateCond = gsync.NewCond(&d.m)
 
@@ -243,8 +243,8 @@ func (d *Download) setError(err error) {
 	d.m.Unlock()
 }
 
-// hasSelectedFiles returns true if the piece touches at least one selected file.
-func (d *Download) hasSelectedFiles(pieceIndex uint32) bool {
+// hasSelectedFilesUnsafe returns true if the piece touches at least one selected file.
+func (d *Download) hasSelectedFilesUnsafe(pieceIndex uint32) bool {
 	if d.selectedFilesSet == nil {
 		return true
 	}
@@ -260,7 +260,7 @@ func (d *Download) SelectedSize() int64 {
 	return d.selectedSize.Load()
 }
 
-func (d *Download) computeSelectedSize() int64 {
+func (d *Download) computeSelectedSizeUnsafe() int64 {
 	if d.selectedFilesSet == nil {
 		return d.info.TotalLength
 	}
@@ -271,7 +271,7 @@ func (d *Download) computeSelectedSize() int64 {
 	return size
 }
 
-func (d *Download) buildSelectedPiecesBm() {
+func (d *Download) buildSelectedPiecesBmUnsafe() {
 	if d.selectedPiecesBm == nil {
 		d.selectedPiecesBm = bm.New(d.info.NumPieces)
 	}
@@ -281,13 +281,13 @@ func (d *Download) buildSelectedPiecesBm() {
 	}
 	d.selectedPiecesBm.Clear()
 	for i := range d.info.NumPieces {
-		if d.hasSelectedFiles(i) {
+		if d.hasSelectedFilesUnsafe(i) {
 			d.selectedPiecesBm.Set(i)
 		}
 	}
 }
 
-func (d *Download) computeCompleted() int64 {
+func (d *Download) computeCompletedUnsafe() int64 {
 	if d.selectedFilesSet == nil {
 		done := int64(d.bm.Count()) * d.info.PieceLength
 		if d.bm.Contains(d.info.NumPieces - 1) {
@@ -302,8 +302,8 @@ func (d *Download) computeCompleted() int64 {
 	return done
 }
 
-// markUnselectedPiecesDone marks pieces that only touch unselected files as complete.
-func (d *Download) markUnselectedPiecesDone() {
+// markUnselectedPiecesDoneUnsafe marks pieces that only touch unselected files as complete.
+func (d *Download) markUnselectedPiecesDoneUnsafe() {
 	if d.selectedFilesSet == nil {
 		return
 	}

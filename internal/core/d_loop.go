@@ -63,8 +63,9 @@ func (d *Download) Init(resumed bool) {
 			d.setError(err)
 			d.log.Err(err).Msg("failed to initCheck torrent data")
 		}
-		d.markUnselectedPiecesDone()
-		d.completed.Store(d.computeCompleted())
+		// unsafe methods are safe here because d hasn't been shared with other goroutines yet.
+		d.markUnselectedPiecesDoneUnsafe()
+		d.completed.Store(d.computeCompletedUnsafe())
 		d.ioDown.Reset()
 
 		d.log.Debug().Msgf("done size %s", humanize.IBytes(uint64(d.bm.Count())*uint64(d.info.PieceLength)))

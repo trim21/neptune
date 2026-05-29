@@ -46,7 +46,7 @@ func (c *Client) SetFilePriority(h metainfo.Hash, fileIDs []int, priority int) e
 	}
 
 	// When un-skipping files (priority=1), pieces that were force-marked done
-	// by markUnselectedPiecesDone need to be cleared so they get re-downloaded.
+	// by markUnselectedPiecesDoneUnsafe need to be cleared so they get re-downloaded.
 	// A piece was force-done if it's in bm but doesn't touch any selected file.
 	if priority == 1 {
 		fileIDSet := make(map[int]struct{}, len(fileIDs))
@@ -88,13 +88,13 @@ func (c *Client) SetFilePriority(h metainfo.Hash, fileIDs []int, priority int) e
 			d.selectedFilesSet[id] = struct{}{}
 		}
 	}
-	d.selectedSize.Store(d.computeSelectedSize())
-	d.buildSelectedPiecesBm()
+	d.selectedSize.Store(d.computeSelectedSizeUnsafe())
+	d.buildSelectedPiecesBmUnsafe()
 
 	// Mark pieces that only touch unselected files as done.
-	d.markUnselectedPiecesDone()
+	d.markUnselectedPiecesDoneUnsafe()
 
-	d.completed.Store(d.computeCompleted())
+	d.completed.Store(d.computeCompletedUnsafe())
 
 	// Transition to Seeding if all pieces are complete.
 	if d.bm.Count() == d.info.NumPieces {

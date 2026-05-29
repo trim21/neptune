@@ -18,12 +18,12 @@ func (c *Client) Shutdown() {
 	c.m.RLock()
 	defer c.m.RUnlock()
 
-	c.saveSession()
+	c.saveSessionUnsafe()
 
 	c.cancel()
 }
 
-func (c *Client) saveSession() *panics.Recovered {
+func (c *Client) saveSessionUnsafe() *panics.Recovered {
 	var w = conc.NewWaitGroup()
 
 	var sem = semaphore.NewWeighted(5)
