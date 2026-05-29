@@ -345,10 +345,14 @@ func (t *Tracker) announceStop(d *Download) error {
 }
 
 // announceToScrape converts an announce URL to a scrape URL per BEP 48.
-// It replaces "announce" with "scrape" in the last path component.
+// BEP 48 only applies to HTTP trackers.
 func announceToScrape(announceURL string) (string, bool) {
 	u, err := url.Parse(announceURL)
 	if err != nil {
+		return "", false
+	}
+
+	if u.Scheme != "http" && u.Scheme != "https" {
 		return "", false
 	}
 

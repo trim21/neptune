@@ -52,6 +52,24 @@ func TestAnnounceToScrape(t *testing.T) {
 			wantURL:  "",
 			wantOK:   false,
 		},
+		{
+			name:     "announce.php extension",
+			announce: "http://tracker.example.com/announce.php",
+			wantURL:  "http://tracker.example.com/scrape.php",
+			wantOK:   true,
+		},
+		{
+			name:     "https announce",
+			announce: "https://tracker.example.com/announce",
+			wantURL:  "https://tracker.example.com/scrape",
+			wantOK:   true,
+		},
+		{
+			name:     "udp tracker not supported per BEP 48",
+			announce: "udp://tracker.example.com:6969/announce",
+			wantURL:  "",
+			wantOK:   false,
+		},
 	}
 
 	for _, tt := range tests {
