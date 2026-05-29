@@ -25,11 +25,6 @@ type cacheKey struct {
 	index uint32
 }
 
-type uploadReq struct {
-	peer *Peer
-	req  proto.ChunkRequest
-}
-
 var errUploadPaused = errors.New("upload paused")
 
 const (
@@ -283,6 +278,7 @@ func (d *Download) readPiece(index uint32, buf []byte) error {
 		n, err := f.File.ReadAt(buf[offset:offset+chunk.length], chunk.offsetOfFile)
 		if err != nil {
 			if int64(n) != chunk.length || err != io.EOF {
+				f.Release()
 				return err
 			}
 		}
@@ -294,6 +290,8 @@ func (d *Download) readPiece(index uint32, buf []byte) error {
 	return nil
 }
 
+// readPieceRangeCtx reads a range of bytes from a piece into dst,
+// checking for context cancellation and download state between chunks.
 func (d *Download) readPieceRangeCtx(ctx context.Context, req proto.ChunkRequest, dst []byte) error {
 	if int(req.Length) != len(dst) {
 		return fmt.Errorf("invalid dst length: req=%d dst=%d", req.Length, len(dst))
@@ -325,8 +323,8 @@ func (d *Download) readPieceRangeCtx(ctx context.Context, req proto.ChunkRequest
 
 		n, err := f.File.ReadAt(dst[offset:offset+chunk.length], chunk.offsetOfFile)
 		if err != nil {
-			f.Release()
 			if int64(n) != chunk.length || err != io.EOF {
+				f.Release()
 				return err
 			}
 		}
