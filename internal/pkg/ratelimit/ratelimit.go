@@ -93,8 +93,14 @@ func (l *Limiter) Wait(ctx context.Context, n int) error {
 	defer timer.Stop()
 
 	for {
+		r := float64(l.rate.Load())
+		if r <= 0 {
+			l.mu.Unlock()
+			return nil
+		}
+
 		deficit := float64(n) - l.tokens
-		wait := max(time.Duration(deficit/float64(l.rate.Load())*float64(time.Second)), time.Millisecond)
+		wait := max(time.Duration(deficit/r*float64(time.Second)), time.Millisecond)
 
 		if !timer.Stop() {
 			select {

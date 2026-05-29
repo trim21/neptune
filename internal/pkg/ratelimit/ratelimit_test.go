@@ -95,3 +95,24 @@ func TestLimiterContextCancel(t *testing.T) {
 		t.Fatalf("expected context.Canceled, got %v", err)
 	}
 }
+
+func TestUpdateToUnlimitedWhileWaiting(t *testing.T) {
+	l := New(1)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- l.Wait(context.Background(), 256*1024+1)
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	l.Update(0)
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("expected nil, got %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Wait did not return after Update(0)")
+	}
+}

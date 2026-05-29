@@ -17,9 +17,9 @@ import (
 )
 
 type setSpeedLimitRequest struct {
-	InfoHash      string `description:"torrent file hash"                            json:"info_hash"      required:"true"`
-	DownloadLimit int64  `description:"download speed limit in bytes/s, 0=unlimited" json:"download_limit"`
-	UploadLimit   int64  `description:"upload speed limit in bytes/s, 0=unlimited"   json:"upload_limit"`
+	InfoHash      string `description:"torrent file hash"                              json:"info_hash"      required:"true"`
+	DownloadLimit int64  `description:"download speed limit in bytes/s, <=0=unlimited" json:"download_limit"`
+	UploadLimit   int64  `description:"upload speed limit in bytes/s, <=0=unlimited"   json:"upload_limit"`
 }
 
 type setSpeedLimitResponse struct{}
@@ -49,8 +49,8 @@ func setSpeedLimit(h *jsonrpc.Handler, c *core.Client) {
 }
 
 type setGlobalSpeedLimitRequest struct {
-	DownloadLimit int64 `description:"global download speed limit in bytes/s, 0=no change, -1=unlimited" json:"download_limit"`
-	UploadLimit   int64 `description:"global upload speed limit in bytes/s, 0=no change, -1=unlimited"   json:"upload_limit"`
+	DownloadLimit int64 `description:"global download speed limit in bytes/s, 0=unlimited" json:"download_limit"`
+	UploadLimit   int64 `description:"global upload speed limit in bytes/s, 0=unlimited"   json:"upload_limit"`
 }
 
 type setGlobalSpeedLimitResponse struct{}
