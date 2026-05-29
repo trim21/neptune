@@ -16,52 +16,111 @@ import (
 	"neptune/internal/web/jsonrpc"
 )
 
-type setSpeedLimitRequest struct {
-	InfoHash      string `description:"torrent file hash"                              json:"info_hash"      required:"true"`
-	DownloadLimit int64  `description:"download speed limit in bytes/s, <=0=unlimited" json:"download_limit"`
-	UploadLimit   int64  `description:"upload speed limit in bytes/s, <=0=unlimited"   json:"upload_limit"`
+func checkInfoHash(infoHash string) (metainfo.Hash, error) {
+	if len(infoHash) != sha1.Size*2 {
+		return metainfo.Hash{}, errInvalidInfoHash
+	}
+
+	raw, err := hex.DecodeString(infoHash)
+	if err != nil {
+		return metainfo.Hash{}, errInvalidInfoHash
+	}
+
+	return metainfo.Hash(raw), nil
 }
 
-type setSpeedLimitResponse struct{}
+// torrent.set_download_limit
 
-func setSpeedLimit(h *jsonrpc.Handler, c *core.Client) {
-	u := usecase.NewInteractor[*setSpeedLimitRequest, setSpeedLimitResponse](
-		func(ctx context.Context, req *setSpeedLimitRequest, res *setSpeedLimitResponse) error {
-			if len(req.InfoHash) != sha1.Size*2 {
-				return errInvalidInfoHash
+type setDownloadLimitRequest struct {
+	InfoHash string `description:"torrent file hash"                              json:"info_hash" required:"true"`
+	Limit    int64  `description:"download speed limit in bytes/s, <=0=unlimited" json:"limit"`
+}
+
+type setDownloadLimitResponse struct{}
+
+func setDownloadLimit(h *jsonrpc.Handler, c *core.Client) {
+	u := usecase.NewInteractor(
+		func(ctx context.Context, req *setDownloadLimitRequest, res *setDownloadLimitResponse) error {
+			h, err := checkInfoHash(req.InfoHash)
+			if err != nil {
+				return err
 			}
 
-			raw, err := hex.DecodeString(req.InfoHash)
+			err = c.SetDownloadLimit(h, req.Limit)
 			if err != nil {
-				return errInvalidInfoHash
-			}
-
-			err = c.SetSpeedLimit(metainfo.Hash(raw), req.DownloadLimit, req.UploadLimit)
-			if err != nil {
-				return CodeError(1, errgo.Wrap(err, "failed to set speed limit"))
+				return CodeError(1, errgo.Wrap(err, "failed to set download limit"))
 			}
 
 			return nil
 		},
 	)
-	u.SetName("torrent.set_speed_limit")
+	u.SetName("torrent.set_download_limit")
 	h.Add(u)
 }
 
-type setGlobalSpeedLimitRequest struct {
-	DownloadLimit int64 `description:"global download speed limit in bytes/s, 0=unlimited" json:"download_limit"`
-	UploadLimit   int64 `description:"global upload speed limit in bytes/s, 0=unlimited"   json:"upload_limit"`
+// torrent.set_upload_limit
+
+type setUploadLimitRequest struct {
+	InfoHash string `description:"torrent file hash"                            json:"info_hash" required:"true"`
+	Limit    int64  `description:"upload speed limit in bytes/s, <=0=unlimited" json:"limit"`
 }
 
-type setGlobalSpeedLimitResponse struct{}
+type setUploadLimitResponse struct{}
 
-func setGlobalSpeedLimit(h *jsonrpc.Handler, c *core.Client) {
-	u := usecase.NewInteractor[*setGlobalSpeedLimitRequest, setGlobalSpeedLimitResponse](
-		func(ctx context.Context, req *setGlobalSpeedLimitRequest, res *setGlobalSpeedLimitResponse) error {
-			c.SetGlobalSpeedLimit(req.DownloadLimit, req.UploadLimit)
+func setUploadLimit(h *jsonrpc.Handler, c *core.Client) {
+	u := usecase.NewInteractor(
+		func(ctx context.Context, req *setUploadLimitRequest, res *setUploadLimitResponse) error {
+			h, err := checkInfoHash(req.InfoHash)
+			if err != nil {
+				return err
+			}
+
+			err = c.SetUploadLimit(h, req.Limit)
+			if err != nil {
+				return CodeError(1, errgo.Wrap(err, "failed to set upload limit"))
+			}
+
 			return nil
 		},
 	)
-	u.SetName("system.set_speed_limit")
+	u.SetName("torrent.set_upload_limit")
+	h.Add(u)
+}
+
+// client.set_download_limit
+
+type setGlobalDownloadLimitRequest struct {
+	Limit int64 `description:"global download speed limit in bytes/s, <=0=unlimited" json:"limit"`
+}
+
+type setGlobalDownloadLimitResponse struct{}
+
+func setGlobalDownloadLimit(h *jsonrpc.Handler, c *core.Client) {
+	u := usecase.NewInteractor(
+		func(ctx context.Context, req *setGlobalDownloadLimitRequest, res *setGlobalDownloadLimitResponse) error {
+			c.SetGlobalDownloadLimit(req.Limit)
+			return nil
+		},
+	)
+	u.SetName("client.set_download_limit")
+	h.Add(u)
+}
+
+// client.set_upload_limit
+
+type setGlobalUploadLimitRequest struct {
+	Limit int64 `description:"global upload speed limit in bytes/s, <=0=unlimited" json:"limit"`
+}
+
+type setGlobalUploadLimitResponse struct{}
+
+func setGlobalUploadLimit(h *jsonrpc.Handler, c *core.Client) {
+	u := usecase.NewInteractor(
+		func(ctx context.Context, req *setGlobalUploadLimitRequest, res *setGlobalUploadLimitResponse) error {
+			c.SetGlobalUploadLimit(req.Limit)
+			return nil
+		},
+	)
+	u.SetName("client.set_upload_limit")
 	h.Add(u)
 }
