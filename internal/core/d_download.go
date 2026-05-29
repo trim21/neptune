@@ -154,7 +154,9 @@ func (d *Download) handleRes(res *proto.ChunkResponse) {
 	defer pieceChunksPool.Put(mergedChunk)
 	mergedChunk.Reset()
 
+	d.chunkMapMutex.Lock()
 	d.chunkMap.Set(headPi)
+	d.chunkMapMutex.Unlock()
 
 	headPiece := head.res.PieceIndex
 	tailPiece := headPiece
@@ -179,7 +181,9 @@ func (d *Download) handleRes(res *proto.ChunkResponse) {
 		tailPi++
 		tailPiece = peak.res.PieceIndex
 
+		d.chunkMapMutex.Lock()
 		d.chunkMap.Set(tailPi)
+		d.chunkMapMutex.Unlock()
 
 		mergedChunk.Write(peak.res.Data)
 
@@ -262,7 +266,9 @@ func (d *Download) handlePieceFromHeap(index uint32) {
 	for chunks.Len() != 0 {
 		chunk := chunks.Pop()
 		buf.Write(chunk.res.Data)
+		d.chunkMapMutex.Lock()
 		d.chunkMap.Set(chunk.pi)
+		d.chunkMapMutex.Unlock()
 		proto.PiecePool.Put(chunk.res)
 	}
 
@@ -284,6 +290,9 @@ func (d *Download) handlePieceFromHeap(index uint32) {
 func (d *Download) checkPieceBitmapDone(index uint32) bool {
 	pieceCidStart := index * d.normalChunkLen
 	pieceCidEnd := pieceCidStart + uint32(pieceChunksCount(d.info, index))
+
+	d.chunkMapMutex.RLock()
+	defer d.chunkMapMutex.RUnlock()
 
 	for i := pieceCidStart; i < pieceCidEnd; i++ {
 		if !d.chunkMap.Contains(i) {
@@ -372,9 +381,11 @@ func (d *Download) checkPiece(pieceIndex uint32) error {
 		d.corrupted.Add(d.info.PieceLength)
 		start := pieceIndex * d.normalChunkLen
 		end := start + uint32(pieceChunksCount(d.info, pieceIndex))
+		d.chunkMapMutex.Lock()
 		for i := start; i < end; i++ {
 			d.chunkMap.Remove(i)
 		}
+		d.chunkMapMutex.Unlock()
 		return nil
 	}
 
@@ -474,12 +485,14 @@ func (d *Download) updateRarePieces() {
 		pieceStart := uint32(index) * d.normalChunkLen
 		pieceEnd := pieceStart + uint32(pieceChunksCount(d.info, uint32(index)))
 		hasPending := false
+		d.chunkMapMutex.RLock()
 		for c := pieceStart; c < pieceEnd; c++ {
 			if d.chunkMap.Contains(c) {
 				hasPending = true
 				break
 			}
 		}
+		d.chunkMapMutex.RUnlock()
 
 		priority := piecePriority(totalAvail, hasPending)
 		if priority > 0 {
@@ -530,11 +543,13 @@ func (d *Download) schedulePartialPieces() {
 		pieceStart := i * d.normalChunkLen
 		pieceEnd := pieceStart + uint32(pieceChunksCount(d.info, i))
 		downloaded := 0
+		d.chunkMapMutex.RLock()
 		for c := pieceStart; c < pieceEnd; c++ {
 			if d.chunkMap.Contains(c) {
 				downloaded++
 			}
 		}
+		d.chunkMapMutex.RUnlock()
 
 		if downloaded > 0 {
 			partials = append(partials, partialPiece{index: i, progress: downloaded})
@@ -684,6 +699,8 @@ func (d *Download) hasUnrequestedEndgameChunks(pieceIndex uint32) bool {
 	}
 	pieceStart := pieceIndex * d.normalChunkLen
 	pieceEnd := pieceStart + uint32(pieceChunksCount(d.info, pieceIndex))
+	d.chunkMapMutex.RLock()
+	defer d.chunkMapMutex.RUnlock()
 	for c := pieceStart; c < pieceEnd; c++ {
 		if !d.chunkMap.Contains(c) {
 			req := pieceChunk(d.info, pieceIndex, int(c-pieceStart))

@@ -268,7 +268,9 @@ func (p *PriorityQueue) Pop() Priority {
 }
 
 func (d *Download) openFile(fileIndex int) (*filepool.File, error) {
+	d.m.RLock()
 	p := filepath.Join(d.basePath, d.info.Files[fileIndex].Path)
+	d.m.RUnlock()
 
 	file, err := d.c.filePool.Open(p, os.O_RDWR|os.O_CREATE, os.ModePerm, time.Hour)
 	if err == nil {

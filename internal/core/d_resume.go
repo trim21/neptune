@@ -69,6 +69,8 @@ func (d *Download) saveResume() {
 }
 
 func (d *Download) MarshalBinary() (data []byte, err error) {
+	d.m.RLock()
+	defer d.m.RUnlock()
 	var selectedFiles []int
 	if d.selectedFilesSet != nil {
 		selectedFiles = make([]int, 0, len(d.selectedFilesSet))
@@ -77,9 +79,10 @@ func (d *Download) MarshalBinary() (data []byte, err error) {
 		}
 		slices.Sort(selectedFiles)
 	}
+	basePath := d.basePath
 
 	return bencode.Marshal(resume{
-		BasePath:           d.basePath,
+		BasePath:           basePath,
 		Downloaded:         d.downloaded.Load(),
 		Uploaded:           d.uploaded.Load(),
 		Tags:               d.tags,

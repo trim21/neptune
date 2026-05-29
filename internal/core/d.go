@@ -81,6 +81,7 @@ type Download struct {
 	trackers               []TrackerTier
 	pieceAvailability      []int32
 	chunkMap               bitmap.Bitmap
+	chunkMapMutex          sync.RWMutex
 	pendingChunksMap       bitmap.Bitmap
 	info                   meta.Info
 	completed              atomic.Int64
