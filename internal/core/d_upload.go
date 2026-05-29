@@ -302,7 +302,7 @@ func (d *Download) readPieceRangeCtx(ctx context.Context, req proto.ChunkRequest
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
-	if d.GetState()&(Downloading|Seeding) == 0 {
+	if !d.HasState(Downloading | Seeding) {
 		return errUploadPaused
 	}
 
@@ -314,7 +314,7 @@ func (d *Download) readPieceRangeCtx(ctx context.Context, req proto.ChunkRequest
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		if d.GetState()&(Downloading|Seeding) == 0 {
+		if !d.HasState(Downloading | Seeding) {
 			return errUploadPaused
 		}
 
