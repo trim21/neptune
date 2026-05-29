@@ -75,14 +75,11 @@ type Download struct {
 	basePath               string
 	downloadDir            string
 	trackerKey             string
-	chunkHeap              heap.Heap[responseChunk]
+	chunk                  chunkState
 	tags                   []string
 	pieceInfo              []pieceFileChunks
 	trackers               []TrackerTier
 	pieceAvailability      []int32
-	chunkMap               bitmap.Bitmap
-	chunkMapMutex          sync.RWMutex
-	pendingChunksMap       bitmap.Bitmap
 	info                   meta.Info
 	completed              atomic.Int64
 	selectedSize           atomic.Int64
@@ -118,6 +115,13 @@ func (p pieceRare) Less(o pieceRare) bool {
 	}
 	// higher priority first
 	return p.priority > o.priority
+}
+
+type chunkState struct {
+	mu      sync.RWMutex
+	heap    heap.Heap[responseChunk]
+	done    bitmap.Bitmap
+	pending bitmap.Bitmap
 }
 
 func (d *Download) GetState() State {
@@ -182,7 +186,9 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 		peers:             xsync.NewMap[netip.AddrPort, *Peer](),
 		connectionHistory: expirable.NewLRU[netip.AddrPort, connHistory](1024, nil, time.Minute*10),
 
-		chunkMap:         make(bitmap.Bitmap, int64(info.NumPieces)*((info.PieceLength+defaultBlockSize-1)/defaultBlockSize)),
+		chunk: chunkState{
+			done: make(bitmap.Bitmap, int64(info.NumPieces)*((info.PieceLength+defaultBlockSize-1)/defaultBlockSize)),
+		},
 		endgameRequested: xsync.NewMap[proto.ChunkRequest, empty.Empty](),
 
 		pendingPeers: heap.New[peerWithPriority](),
