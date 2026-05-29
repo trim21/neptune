@@ -132,11 +132,7 @@ func (c *Client) UnmarshalResume(data []byte) error {
 
 	d.bm = bm.FromBitfields(r.Bitfield, d.info.NumPieces)
 	d.markUnselectedPiecesDone()
-	done := int64(d.bm.Count()) * d.info.PieceLength
-	if d.bm.Contains(d.info.NumPieces - 1) {
-		done = done - d.info.PieceLength + d.info.LastPieceSize
-	}
-	d.completed.Store(done)
+	d.completed.Store(d.computeCompleted())
 
 	d.state = r.State
 	d.AddAt = r.AddAt

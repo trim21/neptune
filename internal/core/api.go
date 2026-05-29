@@ -47,6 +47,7 @@ type MainDataTorrent struct {
 	ConnectionCount int      `json:"connection_count"`
 	Completed       int64    `json:"completed"`
 	TotalLength     int64    `json:"total_length"`
+	SelectedSize    int64    `json:"selected_size"`
 	AddedAt         int64    `json:"add_at"`
 	Private         bool     `json:"private"`
 }
@@ -79,6 +80,7 @@ func (c *Client) GetTorrentList() TorrentList {
 			UploadTotal:     d.uploaded.Load(),
 			Completed:       d.completed.Load(),
 			TotalLength:     d.info.TotalLength,
+			SelectedSize:    d.SelectedSize(),
 			Comment:         d.info.Comment,
 			AddedAt:         d.AddAt,
 			DirectoryBase:   d.downloadDir,
@@ -375,7 +377,7 @@ func (c *Client) DebugHandlers() http.Handler {
 			humanize.IBytes(uint64(d.ioUp.Status().CurRate))+"/s",
 		)
 
-		fmt.Fprintf(w, "progress: %6.2f %%\n", float64(d.completed.Load())/float64(d.info.TotalLength)*100)
+		fmt.Fprintf(w, "progress: %6.2f %%\n", float64(d.completed.Load())/float64(d.SelectedSize())*100)
 
 		debugPrintTrackers(w, d)
 		debugPrintPeers(w, d)

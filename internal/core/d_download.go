@@ -462,7 +462,7 @@ func (d *Download) updateRarePieces() {
 			continue
 		}
 
-		if !d.hasSelectedFiles(uint32(index)) {
+		if !d.selectedPiecesBm.Contains(uint32(index)) {
 			continue
 		}
 
@@ -492,7 +492,7 @@ func (d *Download) scheduleSeq() {
 		return
 	}
 
-	if d.info.TotalLength-d.completed.Load() <= units.MiB*100 {
+	if d.SelectedSize()-d.completed.Load() <= units.MiB*100 {
 		d.endGameMode.Store(true)
 		d.scheduleSeqEndGame()
 		return
@@ -519,7 +519,7 @@ func (d *Download) schedulePartialPieces() {
 		if d.bm.Contains(i) {
 			continue
 		}
-		if !d.hasSelectedFiles(i) {
+		if !d.selectedPiecesBm.Contains(i) {
 			continue
 		}
 
@@ -620,7 +620,7 @@ func (d *Download) assignPiecesToPeers(nextPiece func() (uint32, bool)) {
 				return
 			}
 
-			if !d.hasSelectedFiles(pieceIndex) {
+			if !d.selectedPiecesBm.Contains(pieceIndex) {
 				continue
 			}
 
@@ -652,7 +652,7 @@ func (d *Download) scheduleSeqEndGame() {
 
 	d.peers.Range(func(addr netip.AddrPort, p *Peer) bool {
 		for _, u := range s {
-			if !d.hasSelectedFiles(u) {
+			if !d.selectedPiecesBm.Contains(u) {
 				continue
 			}
 			if p.Bitmap.Contains(u) {
