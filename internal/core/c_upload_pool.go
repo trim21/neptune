@@ -87,6 +87,10 @@ func (c *Client) uploadWorker() {
 				}
 			}
 
+			// Rate limit: block before sending to the network.
+			_ = d.uploadLimiter.Wait(d.ctx, len(res.Data))
+			_ = d.c.uploadLimiter.Wait(d.ctx, len(res.Data))
+
 			if p.Response(res) {
 				d.ioUp.Update(len(res.Data))
 				d.c.ioUp.Update(len(res.Data))

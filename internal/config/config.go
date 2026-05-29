@@ -21,7 +21,11 @@ type Application struct {
 	// hard global upload slot limit (across all torrents)
 	// 0 means auto (derived from GlobalConnectionLimit).
 	GlobalUploadSlots uint16 `toml:"global-upload-slots"`
-	Fallocate         bool   `toml:"fallocate"`
+	// Global download speed limit in bytes per second. 0 means unlimited.
+	GlobalDownloadSpeedLimit int64 `toml:"global-download-speed-limit"`
+	// Global upload speed limit in bytes per second. 0 means unlimited.
+	GlobalUploadSpeedLimit int64 `toml:"global-upload-speed-limit"`
+	Fallocate              bool  `toml:"fallocate"`
 }
 
 type Config struct {
