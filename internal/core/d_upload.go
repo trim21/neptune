@@ -6,12 +6,13 @@ package core
 import (
 	"io"
 	"net/netip"
+	"slices"
+	"time"
 
 	"github.com/sourcegraph/conc"
 
 	"neptune/internal/metainfo"
 	"neptune/internal/pkg/empty"
-	"neptune/internal/pkg/heap"
 	"neptune/internal/pkg/mempool"
 	"neptune/internal/proto"
 )
@@ -21,10 +22,119 @@ type cacheKey struct {
 	index uint32
 }
 
-func (d *Download) backgroundReqHandler() {
-	var reqPieceCount = make(map[uint32]uint32, d.info.NumPieces)
-	var peers []*Peer
+const (
+	uploadSlots        = 4 // default number of upload slots
+	optimisticUnchokeN = 1 // number of optimistic unchoke slots
+	unchokeInterval    = 10 * time.Second
+)
 
+// unchokeLoop periodically selects which peers get upload slots.
+// Based on libtorrent's choking algorithm:
+// - Sort interested peers by upload rate (descending)
+// - Unchoke top N peers
+// - Reserve 1 slot for optimistic unchoke (round-robin).
+func (d *Download) unchokeLoop() {
+	timer := time.NewTimer(unchokeInterval)
+	defer timer.Stop()
+
+	optimisticIdx := 0
+
+	for {
+		select {
+		case <-d.ctx.Done():
+			return
+		case <-timer.C:
+			timer.Reset(unchokeInterval)
+
+			if !d.wait(Downloading | Seeding) {
+				continue
+			}
+
+			d.recalculateUnchokeSlots(&optimisticIdx)
+		}
+	}
+}
+
+func (d *Download) recalculateUnchokeSlots(optimisticIdx *int) {
+	type peerRate struct {
+		peer *Peer
+		rate int64
+	}
+
+	var candidates []peerRate
+	var unchokable []*Peer
+
+	d.peers.Range(func(addr netip.AddrPort, p *Peer) bool {
+		if p.closed.Load() {
+			return true
+		}
+		if p.peerInterested.Load() {
+			candidates = append(candidates, peerRate{
+				peer: p,
+				rate: p.ioOut.Status().CurRate,
+			})
+		}
+		if !p.peerInterested.Load() || p.snubbed.Load() {
+			// choke peers that are not interested or snubbed
+			if !p.ourChoking.CompareAndSwap(false, true) {
+				go p.sendEventX(Event{Event: proto.Choke})
+			}
+		}
+		return true
+	})
+
+	// sort by upload rate descending (fastest first)
+	slices.SortFunc(candidates, func(a, b peerRate) int {
+		if a.rate > b.rate {
+			return -1
+		}
+		if a.rate < b.rate {
+			return 1
+		}
+		return 0
+	})
+
+	// unchoke top-N peers by rate
+	normalSlots := uploadSlots - optimisticUnchokeN
+	for i, c := range candidates {
+		if i >= normalSlots {
+			break
+		}
+		unchokable = append(unchokable, c.peer)
+	}
+
+	// optimistic unchoke: pick the peer that has been waiting longest
+	if len(candidates) > normalSlots {
+		// rotate through candidates beyond the normal slots
+		if *optimisticIdx >= len(candidates)-normalSlots {
+			*optimisticIdx = 0
+		}
+		if normalSlots+*optimisticIdx < len(candidates) {
+			unchokable = append(unchokable, candidates[normalSlots+*optimisticIdx].peer)
+			*optimisticIdx++
+		}
+	}
+
+	// apply: unchoke selected peers, choke the rest
+	for _, p := range unchokable {
+		if p.ourChoking.CompareAndSwap(true, false) {
+			go p.sendEventX(Event{Event: proto.Unchoke})
+		}
+	}
+
+	// trigger response scheduling for newly unchoked peers
+	select {
+	case d.scheduleResponseSignal <- empty.Empty{}:
+	default:
+	}
+}
+
+// backgroundReqHandler processes upload requests from peers in FIFO order.
+// Unlike the previous implementation, it:
+// - Respects choking (only serves unchoked peers)
+// - Processes multiple pieces per cycle
+// - Uses piece caching to avoid redundant disk reads.
+func (d *Download) backgroundReqHandler() {
 	for {
 		select {
 		case <-d.ctx.Done():
@@ -34,84 +144,123 @@ func (d *Download) backgroundReqHandler() {
 				continue
 			}
 
-			clear(reqPieceCount)
-			clear(peers)
-			peers = peers[:0]
-
-			d.peers.Range(func(addr netip.AddrPort, p *Peer) bool {
-				if p.peerInterested.Load() {
-					if p.ourChoking.CompareAndSwap(true, false) {
-						p.Unchoke()
-					}
-				}
-
-				if p.peerRequests.Size() != 0 {
-					peers = append(peers, p)
-				}
-				return true
-			})
-
-			var s = make([]pieceRare, 0, len(reqPieceCount))
-
-			for _, peer := range peers {
-				peer.peerRequests.Range(func(key proto.ChunkRequest, _ empty.Empty) bool {
-					reqPieceCount[key.PieceIndex]++
-					return true
-				})
-			}
-
-			for index, rare := range reqPieceCount {
-				s = append(s, pieceRare{
-					index: index,
-					rare:  rare,
-				})
-			}
-
-			if len(s) == 0 {
-				continue
-			}
-
-			h := heap.FromSlice(s)
-
-			pieceReq := h.Pop()
-
-			var buf *mempool.Buffer
-
-			buf = mempool.GetWithCap(int(d.pieceLength(pieceReq.index)))
-
-			err := d.readPiece(pieceReq.index, buf.B)
-			if err != nil {
-				mempool.Put(buf)
-				d.setError(err)
-				continue
-			}
-
-			var g conc.WaitGroup
-
-			for _, p := range peers {
-				p.peerRequests.Range(func(key proto.ChunkRequest, _ empty.Empty) bool {
-					if key.PieceIndex == pieceReq.index {
-						d.ioUp.Update(int(key.Length))
-						d.c.ioUp.Update(int(key.Length))
-						d.uploaded.Add(int64(key.Length))
-						g.Go(func() {
-							p.Response(&proto.ChunkResponse{
-								Data:       buf.B[key.Begin : key.Begin+key.Length],
-								Begin:      key.Begin,
-								PieceIndex: pieceReq.index,
-							})
-						})
-					}
-					return true
-				})
-			}
-
-			g.Wait()
+			d.processUploadRequests()
 		}
 	}
 }
 
-// buf must be bigger enough to read whole piece.
+func (d *Download) processUploadRequests() {
+	// collect all requests from unchoked, interested peers
+	type peerRequest struct {
+		peer  *Peer
+		req   proto.ChunkRequest
+		order int // FIFO order
+	}
+
+	var requests []peerRequest
+	order := 0
+
+	d.peers.Range(func(addr netip.AddrPort, p *Peer) bool {
+		if p.closed.Load() {
+			return true
+		}
+		// only serve unchoked peers
+		if p.ourChoking.Load() {
+			return true
+		}
+		p.peerRequests.Range(func(req proto.ChunkRequest, _ empty.Empty) bool {
+			requests = append(requests, peerRequest{peer: p, req: req, order: order})
+			order++
+			return true
+		})
+		return true
+	})
+
+	if len(requests) == 0 {
+		return
+	}
+
+	// sort by FIFO order (first requested, first served)
+	slices.SortFunc(requests, func(a, b peerRequest) int {
+		return a.order - b.order
+	})
+
+	// group by piece for efficient disk reads
+	type pieceRequest struct {
+		requests []peerRequest
+		index    uint32
+	}
+
+	pieceMap := make(map[uint32]*pieceRequest)
+	var pieceOrder []uint32
+	for _, r := range requests {
+		idx := r.req.PieceIndex
+		if _, ok := pieceMap[idx]; !ok {
+			pieceMap[idx] = &pieceRequest{index: idx}
+			pieceOrder = append(pieceOrder, idx)
+		}
+		pieceMap[idx].requests = append(pieceMap[idx].requests, r)
+	}
+
+	// process pieces in FIFO order (by first request arrival)
+	var cachedPieceIdx uint32
+	var cachedBuf *mempool.Buffer
+	cachedPieceIdx = ^uint32(0) // invalid sentinel
+
+	defer func() {
+		if cachedBuf != nil {
+			mempool.Put(cachedBuf)
+		}
+	}()
+
+	for _, pieceIdx := range pieceOrder {
+		pr := pieceMap[pieceIdx]
+
+		// read piece (use cache if same piece requested consecutively)
+		if cachedPieceIdx != pieceIdx || cachedBuf == nil {
+			if cachedBuf != nil {
+				mempool.Put(cachedBuf)
+			}
+			cachedBuf = mempool.GetWithCap(int(d.pieceLength(pieceIdx)))
+			cachedBuf.Reset()
+
+			if err := d.readPiece(pieceIdx, cachedBuf.B); err != nil {
+				d.setError(err)
+				mempool.Put(cachedBuf)
+				cachedBuf = nil
+				continue
+			}
+			cachedPieceIdx = pieceIdx
+		}
+
+		// serve all requests for this piece
+		var g conc.WaitGroup
+		for _, r := range pr.requests {
+			p := r.peer
+			req := r.req
+
+			// verify request is still valid
+			if _, ok := p.peerRequests.LoadAndDelete(req); !ok {
+				continue // already served or cancelled
+			}
+
+			d.ioUp.Update(int(req.Length))
+			d.c.ioUp.Update(int(req.Length))
+			d.uploaded.Add(int64(req.Length))
+
+			g.Go(func() {
+				p.Response(&proto.ChunkResponse{
+					Data:       cachedBuf.B[req.Begin : req.Begin+req.Length],
+					Begin:      req.Begin,
+					PieceIndex: pieceIdx,
+				})
+			})
+		}
+		g.Wait()
+	}
+}
+
+// buf must be big enough to read whole piece.
 func (d *Download) readPiece(index uint32, buf []byte) error {
 	pieces := d.pieceInfo[index]
 	var offset int64 = 0

@@ -46,6 +46,11 @@ func (d *Download) move(ctx context.Context, target string) error {
 	originalBasePath := d.basePath
 
 	for index := range d.info.Files {
+		if d.selectedFilesSet != nil {
+			if _, ok := d.selectedFilesSet[index]; !ok {
+				continue
+			}
+		}
 		err := d.moveFile(ctx, target, uint32(index))
 		if err != nil {
 			return err

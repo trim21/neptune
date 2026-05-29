@@ -4,6 +4,7 @@
 package core
 
 import (
+	"net/netip"
 	"os"
 	"path/filepath"
 	"time"
@@ -62,6 +63,7 @@ func (d *Download) Init(resumed bool) {
 			d.setError(err)
 			d.log.Err(err).Msg("failed to initCheck torrent data")
 		}
+		d.markUnselectedPiecesDone()
 		d.ioDown.Reset()
 
 		d.log.Debug().Msgf("done size %s", humanize.IBytes(uint64(d.bm.Count())*uint64(d.info.PieceLength)))
@@ -128,6 +130,7 @@ func (d *Download) startBackground() {
 
 	// upload
 	go d.backgroundReqHandler()
+	go d.unchokeLoop()
 
 	go d.backgroundTrackerHandler()
 
@@ -178,6 +181,57 @@ func (d *Download) startBackground() {
 			}
 		}
 	}()
+
+	// optimistic unchoke: periodically reset a random peer's Requested bitmap
+	// to discover new fast peers and prevent stale assignments
+	go d.optimisticUnchokeLoop()
+}
+
+// optimisticUnchokeLoop periodically picks a random peer and clears its Requested
+// bitmap, giving it a chance to receive new piece assignments from the scheduler.
+// This helps discover fast peers that may have been overlooked.
+func (d *Download) optimisticUnchokeLoop() {
+	const interval = 30 * time.Second
+	timer := time.NewTimer(interval)
+	defer timer.Stop()
+
+	for {
+		select {
+		case <-d.ctx.Done():
+			return
+		case <-timer.C:
+			timer.Reset(interval)
+
+			if !d.wait(Downloading | Seeding) {
+				continue
+			}
+
+			// collect all peers
+			var peers []*Peer
+			d.peers.Range(func(addr netip.AddrPort, p *Peer) bool {
+				if !p.closed.Load() && !p.snubbed.Load() {
+					peers = append(peers, p)
+				}
+				return true
+			})
+
+			if len(peers) == 0 {
+				continue
+			}
+
+			// pick a random peer
+			idx := int(time.Now().UnixNano()) % len(peers)
+			p := peers[idx]
+			p.Requested.Clear()
+			d.log.Debug().Stringer("addr", p.Address).Msg("optimistic unchoke: cleared peer Requested")
+
+			// trigger reschedule
+			select {
+			case d.scheduleRequestSignal <- empty.Empty{}:
+			default:
+			}
+		}
+	}
 }
 
 type Priority struct {
