@@ -80,6 +80,7 @@ type Download struct {
 	pendingChunksMap       bitmap.Bitmap
 	info                   meta.Info
 	completed              atomic.Int64
+	selectedSize           atomic.Int64
 	AddAt                  int64
 	CompletedAt            atomic.Int64
 	downloaded             atomic.Int64
@@ -211,6 +212,7 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 			}
 		}
 	}
+	d.selectedSize.Store(d.computeSelectedSize())
 
 	d.stateCond = gsync.NewCond(&d.m)
 
@@ -244,6 +246,21 @@ func (d *Download) hasSelectedFiles(pieceIndex uint32) bool {
 		}
 	}
 	return false
+}
+
+func (d *Download) SelectedSize() int64 {
+	return d.selectedSize.Load()
+}
+
+func (d *Download) computeSelectedSize() int64 {
+	if d.selectedFilesSet == nil {
+		return d.info.TotalLength
+	}
+	var size int64
+	for idx := range d.selectedFilesSet {
+		size += d.info.Files[idx].Length
+	}
+	return size
 }
 
 // markUnselectedPiecesDone marks pieces that only touch unselected files as complete.

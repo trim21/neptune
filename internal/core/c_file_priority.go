@@ -88,6 +88,7 @@ func (c *Client) SetFilePriority(h metainfo.Hash, fileIDs []int, priority int) e
 			d.selectedFilesSet[id] = struct{}{}
 		}
 	}
+	d.selectedSize.Store(d.computeSelectedSize())
 
 	// Mark pieces that only touch unselected files as done.
 	d.markUnselectedPiecesDone()
