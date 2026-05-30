@@ -93,6 +93,7 @@ type Download struct {
 	endGameMode            atomic.Bool
 	seq                    atomic.Bool
 	announcePending        atomic.Bool
+	state                  atomic.Uint32
 	trackerMutex           sync.RWMutex
 	m                      sync.RWMutex
 	ratePieceMutex         sync.Mutex
@@ -100,7 +101,6 @@ type Download struct {
 	normalChunkLen         uint32
 	bitfieldSize           uint32
 	peerID                 proto.PeerID
-	state                  atomic.Uint32
 	private                bool
 }
 
@@ -118,10 +118,10 @@ func (p pieceRare) Less(o pieceRare) bool {
 }
 
 type chunkState struct {
-	mu      sync.RWMutex
 	heap    heap.Heap[responseChunk]
 	done    bitmap.Bitmap
 	pending bitmap.Bitmap
+	mu      sync.RWMutex
 }
 
 func (d *Download) GetState() State {
