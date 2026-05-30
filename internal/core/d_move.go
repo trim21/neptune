@@ -5,10 +5,10 @@ package core
 
 import (
 	"context"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
-
-	"github.com/karrick/godirwalk"
 
 	"neptune/internal/pkg/gfs"
 )
@@ -92,34 +92,38 @@ func (d *Download) moveFile(ctx context.Context, target string, originalBasePath
 }
 
 func pruneEmptyDirectories(osDirname string) error {
-	err := godirwalk.Walk(osDirname, &godirwalk.Options{
-		Unsorted: true,
-		Callback: func(_ string, _ *godirwalk.Dirent) error {
-			// no-op while diving in; all the fun happens in PostChildrenCallback
+	return pruneEmptyDir(osDirname)
+}
+
+func pruneEmptyDir(dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+
+	for _, e := range entries {
+		if e.IsDir() {
+			sub := filepath.Join(dir, e.Name())
+			if err := pruneEmptyDir(sub); err != nil {
+				if errors.Is(err, fs.ErrNotExist) {
+					continue
+				}
+				return err
+			}
+		}
+	}
+
+	entries, err = os.ReadDir(dir)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
 			return nil
-		},
-		PostChildrenCallback: func(osPathname string, _ *godirwalk.Dirent) error {
-			s, err := godirwalk.NewScanner(osPathname)
-			if err != nil {
-				return err
-			}
+		}
+		return err
+	}
 
-			// Attempt to read only the first directory entry. Remember that
-			// Scan skips both "." and ".." entries.
-			hasAtLeastOneChild := s.Scan()
+	if len(entries) > 0 {
+		return nil
+	}
 
-			// If error reading from directory, wrap up and return.
-			if err := s.Err(); err != nil {
-				return err
-			}
-
-			if hasAtLeastOneChild {
-				return nil // do not remove directory with at least one child
-			}
-
-			return os.Remove(osPathname)
-		},
-	})
-
-	return err
+	return os.Remove(dir)
 }
