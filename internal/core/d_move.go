@@ -104,11 +104,12 @@ func pruneEmptyDir(dir string) error {
 	for _, e := range entries {
 		if e.IsDir() {
 			sub := filepath.Join(dir, e.Name())
-			if err := pruneEmptyDir(sub); err != nil {
-				if errors.Is(err, fs.ErrNotExist) {
+			subErr := pruneEmptyDir(sub)
+			if subErr != nil {
+				if errors.Is(subErr, fs.ErrNotExist) {
 					continue
 				}
-				return err
+				return subErr
 			}
 		}
 	}
