@@ -73,11 +73,14 @@ func (d *Download) Init(resumed bool) {
 
 	d.backgroundWg.Go(func() {
 		d.announce(EventStarted)
+		ticker := time.NewTicker(time.Second * 5)
+		defer ticker.Stop()
 		for {
-			if d.ctx.Err() != nil {
+			select {
+			case <-d.ctx.Done():
 				return
+			case <-ticker.C:
 			}
-			time.Sleep(time.Second * 5)
 			d.TryAnnounce()
 		}
 	})
