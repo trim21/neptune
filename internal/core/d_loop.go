@@ -19,21 +19,17 @@ import (
 const defaultBlockSize = units.KiB * 16
 
 func (d *Download) Start() {
-	d.m.Lock()
 	if d.bm.Count() == d.info.NumPieces {
-		d.state = Seeding
+		d.state.Store(uint32(Seeding))
 	} else {
-		d.state = Downloading
+		d.state.Store(uint32(Downloading))
 	}
-	d.m.Unlock()
 
 	d.stateCond.Broadcast()
 }
 
 func (d *Download) Stop() {
-	d.m.Lock()
-	d.state = Stopped
-	d.m.Unlock()
+	d.state.Store(uint32(Stopped))
 
 	d.stateCond.Broadcast()
 
@@ -41,10 +37,8 @@ func (d *Download) Stop() {
 }
 
 func (d *Download) Check() {
-	d.m.Lock()
-	d.state = Checking
+	d.state.Store(uint32(Checking))
 	d.bm.Clear()
-	d.m.Unlock()
 
 	d.stateCond.Broadcast()
 }
@@ -54,9 +48,7 @@ func (d *Download) Init(resumed bool) {
 	if !resumed {
 		d.log.Debug().Msg("initializing download")
 
-		d.m.Lock()
-		d.state = Checking
-		d.m.Unlock()
+		d.state.Store(uint32(Checking))
 
 		err := d.initCheck()
 		if err != nil {
@@ -70,13 +62,11 @@ func (d *Download) Init(resumed bool) {
 
 		d.log.Debug().Msgf("done size %s", humanize.IBytes(uint64(d.bm.Count())*uint64(d.info.PieceLength)))
 
-		d.m.Lock()
 		if d.bm.Count() == d.info.NumPieces {
-			d.state = Seeding
+			d.state.Store(uint32(Seeding))
 		} else {
-			d.state = Downloading
+			d.state.Store(uint32(Downloading))
 		}
-		d.m.Unlock()
 	}
 
 	go d.startBackground()
@@ -268,7 +258,9 @@ func (p *PriorityQueue) Pop() Priority {
 }
 
 func (d *Download) openFile(fileIndex int) (*filepool.File, error) {
+	d.m.RLock()
 	p := filepath.Join(d.basePath, d.info.Files[fileIndex].Path)
+	d.m.RUnlock()
 
 	file, err := d.c.filePool.Open(p, os.O_RDWR|os.O_CREATE, os.ModePerm, time.Hour)
 	if err == nil {

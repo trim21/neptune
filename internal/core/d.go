@@ -48,7 +48,7 @@ const (
 type Download struct {
 	log                    zerolog.Logger
 	ctx                    context.Context
-	err                    error
+	err                    atomic.Pointer[error]
 	cancel                 context.CancelFunc
 	c                      *Client
 	ioDown                 *flowrate.Monitor
@@ -75,13 +75,11 @@ type Download struct {
 	basePath               string
 	downloadDir            string
 	trackerKey             string
-	chunkHeap              heap.Heap[responseChunk]
+	chunk                  chunkState
 	tags                   []string
 	pieceInfo              []pieceFileChunks
 	trackers               []TrackerTier
 	pieceAvailability      []int32
-	chunkMap               bitmap.Bitmap
-	pendingChunksMap       bitmap.Bitmap
 	info                   meta.Info
 	completed              atomic.Int64
 	selectedSize           atomic.Int64
@@ -95,6 +93,7 @@ type Download struct {
 	endGameMode            atomic.Bool
 	seq                    atomic.Bool
 	announcePending        atomic.Bool
+	state                  atomic.Uint32
 	trackerMutex           sync.RWMutex
 	m                      sync.RWMutex
 	ratePieceMutex         sync.Mutex
@@ -102,7 +101,6 @@ type Download struct {
 	normalChunkLen         uint32
 	bitfieldSize           uint32
 	peerID                 proto.PeerID
-	state                  State
 	private                bool
 }
 
@@ -119,11 +117,15 @@ func (p pieceRare) Less(o pieceRare) bool {
 	return p.priority > o.priority
 }
 
+type chunkState struct {
+	heap    heap.Heap[responseChunk]
+	done    bitmap.Bitmap
+	pending bitmap.Bitmap
+	mu      sync.RWMutex
+}
+
 func (d *Download) GetState() State {
-	d.m.RLock()
-	s := d.state
-	d.m.RUnlock()
-	return s
+	return State(d.state.Load())
 }
 
 // HasState returns true if the download is in any of the given states.
@@ -132,6 +134,13 @@ func (d *Download) HasState(state State) bool {
 }
 
 var ErrTorrentNotFound = errors.New("torrent not found")
+
+func (d *Download) ErrorMsg() string {
+	if e := d.err.Load(); e != nil {
+		return (*e).Error()
+	}
+	return ""
+}
 
 func (c *Client) ScheduleMove(ih metainfo.Hash, targetBasePath string) error {
 	c.m.RLock()
@@ -161,7 +170,6 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 		info:     info,
 		c:        c,
 		log:      log.With().Stringer("info_hash", info.Hash).Logger(),
-		state:    Checking,
 		peerID:   NewPeerID(),
 		tags:     tags,
 		basePath: basePath,
@@ -181,7 +189,9 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 		peers:             xsync.NewMap[netip.AddrPort, *Peer](),
 		connectionHistory: expirable.NewLRU[netip.AddrPort, connHistory](1024, nil, time.Minute*10),
 
-		chunkMap:         make(bitmap.Bitmap, int64(info.NumPieces)*((info.PieceLength+defaultBlockSize-1)/defaultBlockSize)),
+		chunk: chunkState{
+			done: make(bitmap.Bitmap, int64(info.NumPieces)*((info.PieceLength+defaultBlockSize-1)/defaultBlockSize)),
+		},
 		endgameRequested: xsync.NewMap[proto.ChunkRequest, empty.Empty](),
 
 		pendingPeers: heap.New[peerWithPriority](),
@@ -211,6 +221,8 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 		uploadLimiter:   ratelimit.New(0),
 	}
 
+	d.state.Store(uint32(Checking))
+
 	if selectedFiles != nil {
 		d.selectedFilesSet = make(map[int]struct{}, len(selectedFiles))
 		for _, idx := range selectedFiles {
@@ -222,7 +234,7 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 	d.selectedSize.Store(d.computeSelectedSizeUnsafe())
 	d.buildSelectedPiecesBmUnsafe()
 
-	d.stateCond = gsync.NewCond(&d.m)
+	d.stateCond = gsync.NewCond(&gsync.EmptyLock{})
 
 	d.setAnnounceList(m.UpvertedAnnounceList())
 
@@ -237,10 +249,8 @@ func (d *Download) setError(err error) {
 		panic("unexpected EOF error")
 	}
 
-	d.m.Lock()
-	d.err = err
-	d.state = Error
-	d.m.Unlock()
+	d.err.Store(&err)
+	d.state.Store(uint32(Error))
 }
 
 // hasSelectedFilesUnsafe returns true if the piece touches at least one selected file.

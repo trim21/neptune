@@ -68,7 +68,7 @@ func (r responseChunk) Less(o responseChunk) bool {
 }
 
 func (d *Download) backgroundResHandler() {
-	d.chunkHeap = heap.Heap[responseChunk]{}
+	d.chunk.heap = heap.Heap[responseChunk]{}
 	for {
 		select {
 		case <-d.ctx.Done():
@@ -132,14 +132,14 @@ func (d *Download) handleRes(res *proto.ChunkResponse) {
 		pi:  res.Begin/defaultBlockSize + res.PieceIndex*d.normalChunkLen,
 	}
 
-	d.chunkHeap.Push(c)
-	d.pendingChunksMap.Set(c.pi)
+	d.chunk.heap.Push(c)
+	d.chunk.pending.Set(c.pi)
 
-	if d.chunkHeap.Len() < defaultChunkHeapSizeLimit {
+	if d.chunk.heap.Len() < defaultChunkHeapSizeLimit {
 		piecePiStart := res.Begin/defaultBlockSize + res.PieceIndex*d.normalChunkLen
 		piecePiEnd := piecePiStart + uint32(pieceChunksCount(d.info, res.PieceIndex))
 		for i := piecePiStart; i < piecePiEnd; i++ {
-			if !d.pendingChunksMap.Contains(c.pi) {
+			if !d.chunk.pending.Contains(c.pi) {
 				return
 			}
 		}
@@ -147,14 +147,16 @@ func (d *Download) handleRes(res *proto.ChunkResponse) {
 		return
 	}
 
-	head := d.chunkHeap.Pop()
+	head := d.chunk.heap.Pop()
 	headPi := head.pi
 
 	mergedChunk := pieceChunksPool.Get()
 	defer pieceChunksPool.Put(mergedChunk)
 	mergedChunk.Reset()
 
-	d.chunkMap.Set(headPi)
+	d.chunk.mu.Lock()
+	d.chunk.done.Set(headPi)
+	d.chunk.mu.Unlock()
 
 	headPiece := head.res.PieceIndex
 	tailPiece := headPiece
@@ -166,8 +168,8 @@ func (d *Download) handleRes(res *proto.ChunkResponse) {
 
 	proto.PiecePool.Put(head.res)
 
-	for d.chunkHeap.Len() != 0 {
-		peak := d.chunkHeap.Peek()
+	for d.chunk.heap.Len() != 0 {
+		peak := d.chunk.heap.Peek()
 		if tailPi+1 != peak.pi {
 			break
 		}
@@ -179,11 +181,13 @@ func (d *Download) handleRes(res *proto.ChunkResponse) {
 		tailPi++
 		tailPiece = peak.res.PieceIndex
 
-		d.chunkMap.Set(tailPi)
+		d.chunk.mu.Lock()
+		d.chunk.done.Set(tailPi)
+		d.chunk.mu.Unlock()
 
 		mergedChunk.Write(peak.res.Data)
 
-		d.chunkHeap.Pop()
+		d.chunk.heap.Pop()
 		proto.PiecePool.Put(peak.res)
 	}
 
@@ -209,16 +213,16 @@ func (d *Download) handleRes(res *proto.ChunkResponse) {
 }
 
 func (d *Download) handleResEndgame(res *proto.ChunkResponse) {
-	d.chunkHeap.Push(responseChunk{
+	d.chunk.heap.Push(responseChunk{
 		res: res,
 		pi:  res.Begin/defaultBlockSize + res.PieceIndex*d.normalChunkLen,
 	})
 
-	for d.chunkHeap.Len() != 0 {
-		chunk := d.chunkHeap.Pop()
+	for d.chunk.heap.Len() != 0 {
+		chunk := d.chunk.heap.Pop()
 		index := chunk.res.PieceIndex
 		err := d.writeChunkToDist(int64(index)*d.info.PieceLength+int64(chunk.res.Begin), chunk.res.Data)
-		d.chunkMap.Set(chunk.pi)
+		d.chunk.done.Set(chunk.pi)
 		proto.PiecePool.Put(chunk.res)
 
 		if err != nil {
@@ -241,7 +245,7 @@ func (d *Download) handleResEndgame(res *proto.ChunkResponse) {
 // find all chunks from chunkHeap and write them to disk.
 func (d *Download) handlePieceFromHeap(index uint32) {
 	chunks := heap.New[responseChunk]()
-	for _, chunk := range d.chunkHeap.Data {
+	for _, chunk := range d.chunk.heap.Data {
 		if chunk.res.PieceIndex == index {
 			chunks.Push(chunk)
 		}
@@ -252,7 +256,7 @@ func (d *Download) handlePieceFromHeap(index uint32) {
 	}
 
 	for _, chunk := range chunks.Data {
-		d.chunkHeap.Data = gslice.Remove(d.chunkHeap.Data, chunk)
+		d.chunk.heap.Data = gslice.Remove(d.chunk.heap.Data, chunk)
 	}
 
 	buf := mempool.GetWithCap(int(d.pieceLength(index)))
@@ -262,7 +266,9 @@ func (d *Download) handlePieceFromHeap(index uint32) {
 	for chunks.Len() != 0 {
 		chunk := chunks.Pop()
 		buf.Write(chunk.res.Data)
-		d.chunkMap.Set(chunk.pi)
+		d.chunk.mu.Lock()
+		d.chunk.done.Set(chunk.pi)
+		d.chunk.mu.Unlock()
 		proto.PiecePool.Put(chunk.res)
 	}
 
@@ -285,8 +291,11 @@ func (d *Download) checkPieceBitmapDone(index uint32) bool {
 	pieceCidStart := index * d.normalChunkLen
 	pieceCidEnd := pieceCidStart + uint32(pieceChunksCount(d.info, index))
 
+	d.chunk.mu.RLock()
+	defer d.chunk.mu.RUnlock()
+
 	for i := pieceCidStart; i < pieceCidEnd; i++ {
-		if !d.chunkMap.Contains(i) {
+		if !d.chunk.done.Contains(i) {
 			return false
 		}
 	}
@@ -372,9 +381,11 @@ func (d *Download) checkPiece(pieceIndex uint32) error {
 		d.corrupted.Add(d.info.PieceLength)
 		start := pieceIndex * d.normalChunkLen
 		end := start + uint32(pieceChunksCount(d.info, pieceIndex))
+		d.chunk.mu.Lock()
 		for i := start; i < end; i++ {
-			d.chunkMap.Remove(i)
+			d.chunk.done.Remove(i)
 		}
+		d.chunk.mu.Unlock()
 		return nil
 	}
 
@@ -394,10 +405,8 @@ func (d *Download) checkDone() {
 		return
 	}
 
-	d.m.Lock()
-	d.state = Seeding
+	d.state.Store(uint32(Seeding))
 	d.ioDown.Reset()
-	d.m.Unlock()
 
 	d.peers.Range(func(addr netip.AddrPort, p *Peer) bool {
 		if p.Bitmap.Count() == d.info.NumPieces {
@@ -474,12 +483,14 @@ func (d *Download) updateRarePieces() {
 		pieceStart := uint32(index) * d.normalChunkLen
 		pieceEnd := pieceStart + uint32(pieceChunksCount(d.info, uint32(index)))
 		hasPending := false
+		d.chunk.mu.RLock()
 		for c := pieceStart; c < pieceEnd; c++ {
-			if d.chunkMap.Contains(c) {
+			if d.chunk.done.Contains(c) {
 				hasPending = true
 				break
 			}
 		}
+		d.chunk.mu.RUnlock()
 
 		priority := piecePriority(totalAvail, hasPending)
 		if priority > 0 {
@@ -530,11 +541,13 @@ func (d *Download) schedulePartialPieces() {
 		pieceStart := i * d.normalChunkLen
 		pieceEnd := pieceStart + uint32(pieceChunksCount(d.info, i))
 		downloaded := 0
+		d.chunk.mu.RLock()
 		for c := pieceStart; c < pieceEnd; c++ {
-			if d.chunkMap.Contains(c) {
+			if d.chunk.done.Contains(c) {
 				downloaded++
 			}
 		}
+		d.chunk.mu.RUnlock()
 
 		if downloaded > 0 {
 			partials = append(partials, partialPiece{index: i, progress: downloaded})
@@ -684,8 +697,10 @@ func (d *Download) hasUnrequestedEndgameChunks(pieceIndex uint32) bool {
 	}
 	pieceStart := pieceIndex * d.normalChunkLen
 	pieceEnd := pieceStart + uint32(pieceChunksCount(d.info, pieceIndex))
+	d.chunk.mu.RLock()
+	defer d.chunk.mu.RUnlock()
 	for c := pieceStart; c < pieceEnd; c++ {
-		if !d.chunkMap.Contains(c) {
+		if !d.chunk.done.Contains(c) {
 			req := pieceChunk(d.info, pieceIndex, int(c-pieceStart))
 			if _, requested := d.endgameRequested.Load(req); !requested {
 				return true
