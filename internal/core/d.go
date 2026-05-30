@@ -135,6 +135,13 @@ func (d *Download) HasState(state State) bool {
 
 var ErrTorrentNotFound = errors.New("torrent not found")
 
+func (d *Download) ErrorMsg() string {
+	if e := d.err.Load(); e != nil {
+		return (*e).Error()
+	}
+	return ""
+}
+
 func (c *Client) ScheduleMove(ih metainfo.Hash, targetBasePath string) error {
 	c.m.RLock()
 	d, ok := c.downloadMap[ih]

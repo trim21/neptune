@@ -65,10 +65,7 @@ func (c *Client) GetTorrentList() TorrentList {
 	for i, d := range c.downloads {
 		d.m.RLock()
 
-		msg := ""
-		if e := d.err.Load(); e != nil {
-			msg = (*e).Error()
-		}
+		msg := d.ErrorMsg()
 
 		torrents[i] = MainDataTorrent{
 			InfoHash:        d.info.Hash.Hex(),
