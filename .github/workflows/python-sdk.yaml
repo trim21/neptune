@@ -1,0 +1,41 @@
+name: python-sdk
+
+on:
+  push:
+    paths:
+      - "sdk/python/**"
+    branches:
+      - master
+  pull_request:
+    paths:
+      - "sdk/python/**"
+    branches:
+      - master
+
+concurrency:
+  group: "${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdk/python
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: astral-sh/setup-uv@v8.0.0
+        with:
+          activate-environment: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: uv sync --group dev
+
+      - run: uv run ruff format --check src/ tests/
+      - run: uv run ruff check src/ tests/
+      - run: uv run ty check src/
+      - run: uv run pytest tests/ -q
