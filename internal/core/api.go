@@ -32,6 +32,8 @@ import (
 	"neptune/internal/pkg/gslice"
 )
 
+const colAddress = "address"
+
 type MainDataTorrent struct {
 	InfoHash        string   `json:"hash"`
 	Name            string   `json:"name"`
@@ -430,7 +432,7 @@ func debugPrintTrackers(w io.Writer, d *Download) {
 func debugPrintPeers(w io.Writer, d *Download) {
 	t := table.NewWriter()
 
-	t.AppendHeader(table.Row{"address", "down rate", "up rate", "our req",
+	t.AppendHeader(table.Row{colAddress, "down rate", "up rate", "our req",
 		"queue piece", "client", "progress",
 		"peer choke", "peer interest", "our choke", "our interest", "fast", "peer req", "peer id"})
 
@@ -455,7 +457,7 @@ func debugPrintPeers(w io.Writer, d *Download) {
 		return true
 	})
 
-	t.SortBy([]table.SortBy{{Name: "address"}})
+	t.SortBy([]table.SortBy{{Name: colAddress}})
 
 	_, _ = io.WriteString(w, t.Render())
 	_, _ = fmt.Fprintln(w)
@@ -466,8 +468,8 @@ func debugPrintPendingPeers(w io.Writer, d *Download) {
 	defer d.pendingPeersMutex.Unlock()
 
 	t := table.NewWriter()
-	t.AppendHeader(table.Row{"address"})
-	t.SortBy([]table.SortBy{{Name: "address"}})
+	t.AppendHeader(table.Row{colAddress})
+	t.SortBy([]table.SortBy{{Name: colAddress}})
 
 	for _, item := range d.pendingPeers.Data {
 		t.AppendRow(table.Row{item.addrPort.String()})

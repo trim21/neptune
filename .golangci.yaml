@@ -25,6 +25,7 @@ linters:
     - gocritic
     - gocyclo
     - godox
+    - gomodguard
     - gosec
     - ireturn
     - lll
