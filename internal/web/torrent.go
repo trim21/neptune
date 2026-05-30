@@ -35,7 +35,7 @@ type AddTorrentResponse struct {
 }
 
 func addTorrent(h *jsonrpc.Handler, c *core.Client) {
-	u := usecase.NewInteractor[*AddTorrentRequest, AddTorrentResponse](
+	u := usecase.NewInteractor(
 		func(ctx context.Context, req *AddTorrentRequest, res *AddTorrentResponse) error {
 			m, err := metainfo.Load(req.TorrentFile)
 			if err != nil {
@@ -98,7 +98,7 @@ type GetTorrentResponse struct {
 }
 
 func getTorrent(h *jsonrpc.Handler, c *core.Client) {
-	u := usecase.NewInteractor[*GetTorrentRequest, GetTorrentResponse](
+	u := usecase.NewInteractor(
 		func(ctx context.Context, req *GetTorrentRequest, res *GetTorrentResponse) error {
 			r, err := hex.DecodeString(req.InfoHash)
 			if err != nil || len(r) != 20 {
@@ -136,7 +136,7 @@ type MoveTorrentResponse struct {
 }
 
 func MoveTorrent(h *jsonrpc.Handler, c *core.Client) {
-	u := usecase.NewInteractor[*MoveTorrentRequest, MoveTorrentResponse](
+	u := usecase.NewInteractor(
 		func(ctx context.Context, req *MoveTorrentRequest, res *MoveTorrentResponse) error {
 			ih, err := hex.DecodeString(req.InfoHash)
 			if err != nil || len(ih) != 20 {
@@ -164,7 +164,7 @@ type listTorrentResponse struct {
 }
 
 func listTorrent(h *jsonrpc.Handler, c *core.Client) {
-	u := usecase.NewInteractor[*listTorrentRequest, listTorrentResponse](
+	u := usecase.NewInteractor(
 		func(ctx context.Context, req *listTorrentRequest, res *listTorrentResponse) error {
 			res.TorrentList = c.GetTorrentList()
 			return nil
@@ -203,7 +203,7 @@ type listTorrentFilesResponse struct {
 }
 
 func listTorrentFiles(h *jsonrpc.Handler, c *core.Client) {
-	u := usecase.NewInteractor[*listTorrentFilesRequest, listTorrentFilesResponse](
+	u := usecase.NewInteractor(
 		func(ctx context.Context, req *listTorrentFilesRequest, res *listTorrentFilesResponse) error {
 			if len(req.InfoHash) != sha1.Size*2 {
 				return errInvalidInfoHash
@@ -232,7 +232,7 @@ type listTorrentPeersResponse struct {
 }
 
 func listTorrentPeers(h *jsonrpc.Handler, c *core.Client) {
-	u := usecase.NewInteractor[*listTorrentPeersRequest, listTorrentPeersResponse](
+	u := usecase.NewInteractor(
 		func(ctx context.Context, req *listTorrentPeersRequest, res *listTorrentPeersResponse) error {
 			if len(req.InfoHash) != sha1.Size*2 {
 				return errInvalidInfoHash
@@ -261,7 +261,7 @@ type listTorrentTrackersResponse struct {
 }
 
 func listTorrentTrackers(h *jsonrpc.Handler, c *core.Client) {
-	u := usecase.NewInteractor[*listTorrentTrackersRequest, listTorrentTrackersResponse](
+	u := usecase.NewInteractor(
 		func(ctx context.Context, req *listTorrentTrackersRequest, res *listTorrentTrackersResponse) error {
 			if len(req.InfoHash) != sha1.Size*2 {
 				return errInvalidInfoHash

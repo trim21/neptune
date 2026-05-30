@@ -3,7 +3,12 @@
 
 package web
 
+import "errors"
+
 func CodeError(code int, err error) error {
+	if err == nil {
+		err = errors.New("unknown error")
+	}
 	return resError{error: err, code: code}
 }
 
