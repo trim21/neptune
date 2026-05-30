@@ -405,10 +405,8 @@ func (d *Download) checkDone() {
 		return
 	}
 
-	d.m.Lock()
-	d.state = Seeding
+	d.state.Store(uint32(Seeding))
 	d.ioDown.Reset()
-	d.m.Unlock()
 
 	d.peers.Range(func(addr netip.AddrPort, p *Peer) bool {
 		if p.Bitmap.Count() == d.info.NumPieces {

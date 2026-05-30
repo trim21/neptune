@@ -17,15 +17,15 @@ func (d *Download) Move(target string) error {
 	ctx, cancel := context.WithCancel(d.ctx)
 	defer cancel()
 
-	d.m.Lock()
-	originalState := d.state
+	originalState := State(d.state.Load())
 
 	if originalState == Moving || originalState == Checking {
-		d.m.Unlock()
 		return nil
 	}
 
-	d.state = Moving
+	d.state.Store(uint32(Moving))
+
+	d.m.Lock()
 	originalBasePath := d.basePath
 
 	var selectedFilesSet map[int]struct{}
@@ -45,8 +45,9 @@ func (d *Download) Move(target string) error {
 
 	d.m.Lock()
 	d.basePath = target
-	d.state = originalState
 	d.m.Unlock()
+
+	d.state.Store(uint32(originalState))
 
 	return nil
 }

@@ -137,7 +137,7 @@ func (c *Client) UnmarshalResume(data []byte) error {
 	d.bm = bm.FromBitfields(r.Bitfield, d.info.NumPieces)
 	d.markUnselectedPiecesDoneUnsafe()
 	d.completed.Store(d.computeCompletedUnsafe())
-	d.state = r.State
+	d.state.Store(uint32(r.State))
 	d.AddAt = r.AddAt
 	d.CompletedAt.Store(d.CompletedAt.Load())
 

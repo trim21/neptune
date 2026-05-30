@@ -48,7 +48,7 @@ const (
 type Download struct {
 	log                    zerolog.Logger
 	ctx                    context.Context
-	err                    error
+	err                    atomic.Value
 	cancel                 context.CancelFunc
 	c                      *Client
 	ioDown                 *flowrate.Monitor
@@ -100,7 +100,7 @@ type Download struct {
 	normalChunkLen         uint32
 	bitfieldSize           uint32
 	peerID                 proto.PeerID
-	state                  State
+	state                  atomic.Uint32
 	private                bool
 }
 
@@ -125,10 +125,7 @@ type chunkState struct {
 }
 
 func (d *Download) GetState() State {
-	d.m.RLock()
-	s := d.state
-	d.m.RUnlock()
-	return s
+	return State(d.state.Load())
 }
 
 // HasState returns true if the download is in any of the given states.
@@ -166,7 +163,6 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 		info:     info,
 		c:        c,
 		log:      log.With().Stringer("info_hash", info.Hash).Logger(),
-		state:    Checking,
 		peerID:   NewPeerID(),
 		tags:     tags,
 		basePath: basePath,
@@ -218,6 +214,8 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 		uploadLimiter:   ratelimit.New(0),
 	}
 
+	d.state.Store(uint32(Checking))
+
 	if selectedFiles != nil {
 		d.selectedFilesSet = make(map[int]struct{}, len(selectedFiles))
 		for _, idx := range selectedFiles {
@@ -229,7 +227,7 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 	d.selectedSize.Store(d.computeSelectedSizeUnsafe())
 	d.buildSelectedPiecesBmUnsafe()
 
-	d.stateCond = gsync.NewCond(&d.m)
+	d.stateCond = gsync.NewCond(&gsync.EmptyLock{})
 
 	d.setAnnounceList(m.UpvertedAnnounceList())
 
@@ -244,10 +242,8 @@ func (d *Download) setError(err error) {
 		panic("unexpected EOF error")
 	}
 
-	d.m.Lock()
-	d.err = err
-	d.state = Error
-	d.m.Unlock()
+	d.err.Store(err)
+	d.state.Store(uint32(Error))
 }
 
 // hasSelectedFilesUnsafe returns true if the piece touches at least one selected file.
