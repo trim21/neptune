@@ -108,6 +108,8 @@ func New(c *core.Client, token string, enableDebug bool) http.Handler {
 	addTags(h, c)
 	removeTags(h, c)
 	resumeTorrent(h, c)
+	startTorrent(h, c)
+	stopTorrent(h, c)
 	setFilePriority(h, c)
 	setDownloadLimit(h, c)
 	setUploadLimit(h, c)
