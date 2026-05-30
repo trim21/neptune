@@ -71,17 +71,19 @@ func (d *Download) Init(resumed bool) {
 
 	go d.startBackground()
 
-	go func() {
+	d.backgroundWg.Go(func() {
 		d.announce(EventStarted)
+		ticker := time.NewTicker(time.Second * 5)
+		defer ticker.Stop()
 		for {
-			// download removed from application, stop goroutine
-			if d.ctx.Err() != nil {
+			select {
+			case <-d.ctx.Done():
 				return
+			case <-ticker.C:
 			}
-			time.Sleep(time.Second * 5)
 			d.TryAnnounce()
 		}
-	}()
+	})
 
 	d.saveResume()
 }
@@ -115,18 +117,14 @@ func (d *Download) handleConnectionChange() {
 func (d *Download) startBackground() {
 	d.log.Trace().Msg("start goroutine")
 
-	// download
-	go d.backgroundResHandler()
-	go d.backgroundReqScheduler()
-	go d.handleConnectionChange()
+	d.goBackground(d.backgroundResHandler)
+	d.goBackground(d.backgroundReqScheduler)
+	d.goBackground(d.handleConnectionChange)
+	d.goBackground(d.backgroundReqHandler)
+	d.goBackground(d.unchokeLoop)
+	d.goBackground(d.backgroundTrackerHandler)
 
-	// upload
-	go d.backgroundReqHandler()
-	go d.unchokeLoop()
-
-	go d.backgroundTrackerHandler()
-
-	go func() {
+	d.goBackground(func() {
 		for {
 			select {
 			case <-d.ctx.Done():
@@ -139,9 +137,9 @@ func (d *Download) startBackground() {
 				d.connectToPeers()
 			}
 		}
-	}()
+	})
 
-	go func() {
+	d.goBackground(func() {
 		for {
 			select {
 			case <-d.ctx.Done():
@@ -169,14 +167,21 @@ func (d *Download) startBackground() {
 
 				d.pendingPeersMutex.Unlock()
 
-				d.pendingPeersSignal <- empty.Empty{}
+				select {
+				case d.pendingPeersSignal <- empty.Empty{}:
+				case <-d.ctx.Done():
+				}
 			}
 		}
-	}()
+	})
 
-	// optimistic unchoke: periodically reset a random peer's Requested bitmap
-	// to discover new fast peers and prevent stale assignments
-	go d.optimisticUnchokeLoop()
+	d.goBackground(d.optimisticUnchokeLoop)
+}
+
+func (d *Download) goBackground(fn func()) {
+	d.backgroundWg.Go(func() {
+		fn()
+	})
 }
 
 // optimisticUnchokeLoop periodically picks a random peer and clears its Requested

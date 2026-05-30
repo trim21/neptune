@@ -12,7 +12,7 @@ import (
 // ErrWithAppCode exposes application error code.
 type ErrWithAppCode interface {
 	error
-	AppErrCode() ErrorCode
+	AppErrCode() int
 }
 
 // ValidationErrors is a list of validation errors.

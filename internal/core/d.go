@@ -96,6 +96,7 @@ type Download struct {
 	state                  atomic.Uint32
 	trackerMutex           sync.RWMutex
 	m                      sync.RWMutex
+	backgroundWg           sync.WaitGroup
 	ratePieceMutex         sync.Mutex
 	pendingPeersMutex      sync.Mutex
 	normalChunkLen         uint32

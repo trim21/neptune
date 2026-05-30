@@ -312,6 +312,8 @@ func (c *Client) RemoveTorrent(h metainfo.Hash, removeData bool) error {
 
 	d.cancel()
 
+	d.backgroundWg.Wait()
+
 	d.peers.Range(func(key netip.AddrPort, p *Peer) bool {
 		p.close()
 		return true

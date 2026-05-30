@@ -288,7 +288,7 @@ func (h *Handler) errResp(resp *Response, msg string, code ErrorCode, err error)
 
 	//goland:noinspection GoTypeAssertionOnErrors
 	if e, ok := err.(ErrWithAppCode); ok {
-		resp.Error.Code = e.AppErrCode()
+		resp.Error.Code = ErrorCode(e.AppErrCode())
 		resp.Error.Message = err.Error()
 		return
 	}

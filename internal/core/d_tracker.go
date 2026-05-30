@@ -5,6 +5,7 @@ package core
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"fmt"
 	"net/netip"
@@ -24,7 +25,6 @@ import (
 
 	"neptune/internal/metainfo"
 	"neptune/internal/pkg/empty"
-	"neptune/internal/pkg/global"
 )
 
 type AnnounceEvent string
@@ -36,27 +36,6 @@ const (
 )
 
 func (d *Download) setAnnounceList(trackers metainfo.AnnounceList) {
-	if global.Dev {
-		go func() {
-			for {
-				d.pendingPeersMutex.Lock()
-				for i, s := range []string{
-					// "192.168.1.3:50025",
-					"192.168.1.3:6885",
-					// "127.0.0.1:51343",
-				} {
-					d.pendingPeers.Push(peerWithPriority{
-						addrPort: netip.MustParseAddrPort(s),
-						priority: uint32(i),
-					})
-				}
-				d.pendingPeersMutex.Unlock()
-				d.pendingPeersSignal <- empty.Empty{}
-				time.Sleep(60 * time.Second)
-			}
-		}()
-	}
-
 	for _, tier := range trackers {
 		mutable.Shuffle(tier)
 		t := TrackerTier{trackers: lo.Map(tier, func(item string, index int) *Tracker {
@@ -85,7 +64,10 @@ func (d *Download) TryAnnounce() {
 	if d.announcePending.CompareAndSwap(false, true) {
 		defer d.announcePending.Store(false)
 		d.announce("")
-		d.pendingPeersSignal <- empty.Empty{}
+		select {
+		case d.pendingPeersSignal <- empty.Empty{}:
+		case <-d.ctx.Done():
+		}
 	}
 }
 
@@ -112,7 +94,10 @@ func (d *Download) announce(event AnnounceEvent) {
 				})
 			}
 			d.pendingPeersMutex.Unlock()
-			d.pendingPeersSignal <- empty.Empty{}
+			select {
+			case d.pendingPeersSignal <- empty.Empty{}:
+			case <-d.ctx.Done():
+			}
 		}
 		return
 	}
@@ -217,6 +202,7 @@ type Tracker struct {
 
 func (t *Tracker) req(d *Download) *resty.Request {
 	req := d.c.http.R().
+		SetContext(d.ctx).
 		SetQueryParam("info_hash", d.info.Hash.AsString()).
 		SetQueryParam("peer_id", d.peerID.AsString()).
 		SetQueryParam("port", strconv.FormatUint(uint64(d.c.Config.App.P2PPort), 10)).
@@ -242,7 +228,10 @@ const defaultTrackerInterval = time.Minute * 30
 func (t *Tracker) announce(d *Download, event AnnounceEvent) AnnounceResult {
 	d.log.Trace().Str("url", t.url).Msg("announce to tracker")
 
-	req := t.req(d)
+	ctx, cancel := context.WithTimeout(d.ctx, 15*time.Second)
+	defer cancel()
+
+	req := t.req(d).SetContext(ctx)
 
 	if event != "" {
 		req = req.SetQueryParam("event", string(event))
@@ -334,7 +323,10 @@ func (t *Tracker) announce(d *Download, event AnnounceEvent) AnnounceResult {
 func (t *Tracker) announceStop(d *Download) error {
 	d.log.Trace().Str("url", t.url).Msg("announce to tracker")
 
-	_, err := t.req(d).
+	ctx, cancel := context.WithTimeout(d.ctx, 15*time.Second)
+	defer cancel()
+
+	_, err := t.req(d).SetContext(ctx).
 		SetQueryParam("event", string(EventStopped)).
 		Get(t.url)
 	if err != nil {
