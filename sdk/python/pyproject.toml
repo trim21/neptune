@@ -1,0 +1,33 @@
+[build-system]
+requires = ["pdm-backend"]
+build-backend = "pdm.backend"
+
+[project]
+name = "neptune-sdk"
+version = "0.1.0"
+description = "Python SDK for Neptune BitTorrent client JSON-RPC API"
+requires-python = ">=3.10"
+license = "GPL-3.0-only"
+dependencies = [
+  "httpx>=0.27",
+  "pydantic>=2",
+]
+
+[dependency-groups]
+dev = [
+  "pytest>=8",
+  "respx>=0.22",
+  "ruff>=0.11",
+  "ty>=0.0.40",
+]
+
+[tool.pdm.build]
+package-dir = "src"
+
+[tool.pytest.ini_options]
+
+[tool.ruff]
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "TCH"]
