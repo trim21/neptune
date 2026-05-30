@@ -184,6 +184,15 @@ def test_torrent_remove(mock_api, client):
     assert payload["params"]["delete_data"] is True
 
 
+def test_torrent_move(mock_api, client):
+    mock_api.post("/json_rpc").mock(return_value=_ok(None))
+    client.torrent_move("aabb", "/new/path")
+    payload = json.loads(mock_api.calls.last.request.content)
+    assert payload["method"] == "torrent.move"
+    assert payload["params"]["info_hash"] == "aabb"
+    assert payload["params"]["target_base_path"] == "/new/path"
+
+
 def test_torrent_resume(mock_api, client):
     mock_api.post("/json_rpc").mock(return_value=_ok(None))
     client.torrent_resume("aabb")

@@ -17,6 +17,7 @@ from .models import (
     AddTorrentRequest,
     AddTorrentResponse,
     InfoHashRequest,
+    MoveTorrentRequest,
     RemoveTorrentRequest,
     SetFilePriorityRequest,
     SetGlobalSpeedLimitRequest,
@@ -168,6 +169,13 @@ class NeptuneClient:
     def torrent_add(self, req: AddTorrentRequest) -> AddTorrentResponse:
         """Add a torrent from raw .torrent bytes."""
         return _validate(AddTorrentResponse, self._call("torrent.add", req))
+
+    def torrent_move(self, info_hash: str, target_base_path: str) -> None:
+        """Move torrent data to a new directory."""
+        self._call(
+            "torrent.move",
+            MoveTorrentRequest(info_hash=info_hash, target_base_path=target_base_path),
+        )
 
     def torrent_remove(
         self, info_hash: str, *, delete_data: bool = False

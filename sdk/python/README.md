@@ -1,6 +1,6 @@
 # neptune-sdk
 
-Async Python SDK for the [Neptune](https://github.com/jesec/neptune) BitTorrent client JSON-RPC API.
+Python SDK for the [Neptune](https://github.com/jesec/neptune) BitTorrent client JSON-RPC API.
 
 Built with [httpx](https://github.com/encode/httpx).
 
@@ -13,29 +13,25 @@ pip install neptune-sdk
 ## Quick start
 
 ```python
-import asyncio
 from neptune_sdk import NeptuneClient, AddTorrentRequest
 
-async def main():
-    async with NeptuneClient("http://127.0.0.1:8002", token="your-token") as client:
-        # health check
-        await client.ping()
+with NeptuneClient("http://127.0.0.1:8002", token="your-token") as client:
+    # health check
+    client.ping()
 
-        # global transfer stats
-        summary = await client.transfer_summary()
-        print(f"↓ {summary.download_rate} B/s  ↑ {summary.upload_rate} B/s")
+    # global transfer stats
+    summary = client.transfer_summary()
+    print(f"↓ {summary.download_rate} B/s  ↑ {summary.upload_rate} B/s")
 
-        # list torrents
-        result = await client.torrent_list()
-        for t in result.torrents:
-            print(f"{t.name}  [{t.state}]  {t.completed}/{t.total_length}")
+    # list torrents
+    result = client.torrent_list()
+    for t in result.torrents:
+        print(f"{t.name}  [{t.state}]  {t.completed}/{t.total_length}")
 
-        # add a torrent
-        torrent_bytes = open("example.torrent", "rb").read()
-        resp = await client.torrent_add(AddTorrentRequest(torrent_file=torrent_bytes))
-        print(f"added: {resp.info_hash}")
-
-asyncio.run(main())
+    # add a torrent
+    torrent_bytes = open("example.torrent", "rb").read()
+    resp = client.torrent_add(AddTorrentRequest(torrent_file=torrent_bytes))
+    print(f"added: {resp.info_hash}")
 ```
 
 ## API reference
@@ -52,6 +48,7 @@ Every JSON-RPC method maps 1:1 to an async client method:
 | `torrent.peers` | `torrent_peers(info_hash)` |
 | `torrent.trackers` | `torrent_trackers(info_hash)` |
 | `torrent.add` | `torrent_add(AddTorrentRequest)` |
+| `torrent.move` | `torrent_move(info_hash, target_base_path)` |
 | `torrent.remove` | `torrent_remove(info_hash, delete_data=False)` |
 | `torrent.resume` | `torrent_resume(info_hash)` |
 | `torrent.start` | `torrent_start(info_hash)` |

@@ -98,6 +98,14 @@ class InfoHashRequest:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class MoveTorrentRequest:
+    """Parameters for torrent.move."""
+
+    info_hash: str
+    target_base_path: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class RemoveTorrentRequest:
     """Parameters for torrent.remove."""
 
