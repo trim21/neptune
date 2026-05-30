@@ -20,6 +20,12 @@ import (
 	"neptune/internal/web"
 )
 
+const (
+	keyInfoHash = "info_hash"
+	keyTags     = "tags"
+	keyLimit    = "limit"
+)
+
 type jsonrpcReq struct {
 	Params  any    `json:"params,omitempty"`
 	JSONRPC string `json:"jsonrpc"`
@@ -151,13 +157,13 @@ func TestE2E(t *testing.T) {
 	t.Run("torrent.add", func(t *testing.T) {
 		resp := makeJSONRPCRequest(t, url, token, "torrent.add", map[string]any{
 			"torrent_file": torrentData,
-			"tags":         []string{"test", "e2e"},
+			keyTags:        []string{"test", "e2e"},
 		})
 		requireNoRPCError(t, resp)
 
 		var r map[string]string
 		require.NoError(t, json.Unmarshal(resp.Result, &r))
-		infoHash = r["info_hash"]
+		infoHash = r[keyInfoHash]
 		require.Len(t, infoHash, 40)
 	})
 
@@ -169,14 +175,14 @@ func TestE2E(t *testing.T) {
 	// ---------------------------------------------------------------------------
 	t.Run("torrent.get", func(t *testing.T) {
 		resp := makeJSONRPCRequest(t, url, token, "torrent.get", map[string]string{
-			"info_hash": infoHash,
+			keyInfoHash: infoHash,
 		})
 		requireNoRPCError(t, resp)
 
 		var r map[string]any
 		require.NoError(t, json.Unmarshal(resp.Result, &r))
 		require.Equal(t, "archlinux-2011.08.19-netinstall-i686.iso", r["name"])
-		require.NotNil(t, r["tags"])
+		require.NotNil(t, r[keyTags])
 	})
 
 	// ---------------------------------------------------------------------------
@@ -199,7 +205,7 @@ func TestE2E(t *testing.T) {
 	// ---------------------------------------------------------------------------
 	t.Run("torrent.files", func(t *testing.T) {
 		resp := makeJSONRPCRequest(t, url, token, "torrent.files", map[string]string{
-			"info_hash": infoHash,
+			keyInfoHash: infoHash,
 		})
 		requireNoRPCError(t, resp)
 	})
@@ -209,7 +215,7 @@ func TestE2E(t *testing.T) {
 	// ---------------------------------------------------------------------------
 	t.Run("torrent.peers", func(t *testing.T) {
 		resp := makeJSONRPCRequest(t, url, token, "torrent.peers", map[string]string{
-			"info_hash": infoHash,
+			keyInfoHash: infoHash,
 		})
 		requireNoRPCError(t, resp)
 	})
@@ -219,7 +225,7 @@ func TestE2E(t *testing.T) {
 	// ---------------------------------------------------------------------------
 	t.Run("torrent.trackers", func(t *testing.T) {
 		resp := makeJSONRPCRequest(t, url, token, "torrent.trackers", map[string]string{
-			"info_hash": infoHash,
+			keyInfoHash: infoHash,
 		})
 		requireNoRPCError(t, resp)
 	})
@@ -229,19 +235,19 @@ func TestE2E(t *testing.T) {
 	// ---------------------------------------------------------------------------
 	t.Run("torrent.add_tags", func(t *testing.T) {
 		resp := makeJSONRPCRequest(t, url, token, "torrent.add_tags", map[string]any{
-			"info_hash": infoHash,
-			"tags":      []string{"added"},
+			keyInfoHash: infoHash,
+			keyTags:     []string{"added"},
 		})
 		requireNoRPCError(t, resp)
 
 		// Verify tag was added
 		resp = makeJSONRPCRequest(t, url, token, "torrent.get", map[string]string{
-			"info_hash": infoHash,
+			keyInfoHash: infoHash,
 		})
 		requireNoRPCError(t, resp)
 		var r map[string]any
 		require.NoError(t, json.Unmarshal(resp.Result, &r))
-		tags, ok := r["tags"].([]any)
+		tags, ok := r[keyTags].([]any)
 		require.True(t, ok)
 		require.Contains(t, tags, "added")
 	})
@@ -251,19 +257,19 @@ func TestE2E(t *testing.T) {
 	// ---------------------------------------------------------------------------
 	t.Run("torrent.remove_tags", func(t *testing.T) {
 		resp := makeJSONRPCRequest(t, url, token, "torrent.remove_tags", map[string]any{
-			"info_hash": infoHash,
-			"tags":      []string{"added"},
+			keyInfoHash: infoHash,
+			keyTags:     []string{"added"},
 		})
 		requireNoRPCError(t, resp)
 
 		// Verify tag was removed
 		resp = makeJSONRPCRequest(t, url, token, "torrent.get", map[string]string{
-			"info_hash": infoHash,
+			keyInfoHash: infoHash,
 		})
 		requireNoRPCError(t, resp)
 		var r map[string]any
 		require.NoError(t, json.Unmarshal(resp.Result, &r))
-		tags, ok := r["tags"].([]any)
+		tags, ok := r[keyTags].([]any)
 		require.True(t, ok)
 		require.NotContains(t, tags, "added")
 	})
@@ -273,7 +279,7 @@ func TestE2E(t *testing.T) {
 	// ---------------------------------------------------------------------------
 	t.Run("torrent.set_file_priority", func(t *testing.T) {
 		resp := makeJSONRPCRequest(t, url, token, "torrent.set_file_priority", map[string]any{
-			"info_hash": infoHash,
+			keyInfoHash: infoHash,
 			"file_ids":  []int{0},
 			"priority":  0,
 		})
@@ -285,8 +291,8 @@ func TestE2E(t *testing.T) {
 	// ---------------------------------------------------------------------------
 	t.Run("torrent.set_download_limit", func(t *testing.T) {
 		resp := makeJSONRPCRequest(t, url, token, "torrent.set_download_limit", map[string]any{
-			"info_hash": infoHash,
-			"limit":     int64(1024 * 1024),
+			keyInfoHash: infoHash,
+			keyLimit:    int64(1024 * 1024),
 		})
 		requireNoRPCError(t, resp)
 	})
@@ -296,8 +302,8 @@ func TestE2E(t *testing.T) {
 	// ---------------------------------------------------------------------------
 	t.Run("torrent.set_upload_limit", func(t *testing.T) {
 		resp := makeJSONRPCRequest(t, url, token, "torrent.set_upload_limit", map[string]any{
-			"info_hash": infoHash,
-			"limit":     int64(512 * 1024),
+			keyInfoHash: infoHash,
+			keyLimit:    int64(512 * 1024),
 		})
 		requireNoRPCError(t, resp)
 	})
@@ -307,7 +313,7 @@ func TestE2E(t *testing.T) {
 	// ---------------------------------------------------------------------------
 	t.Run("torrent.stop", func(t *testing.T) {
 		resp := makeJSONRPCRequest(t, url, token, "torrent.stop", map[string]string{
-			"info_hash": infoHash,
+			keyInfoHash: infoHash,
 		})
 		requireNoRPCError(t, resp)
 	})
@@ -317,7 +323,7 @@ func TestE2E(t *testing.T) {
 	// ---------------------------------------------------------------------------
 	t.Run("torrent.start", func(t *testing.T) {
 		resp := makeJSONRPCRequest(t, url, token, "torrent.start", map[string]string{
-			"info_hash": infoHash,
+			keyInfoHash: infoHash,
 		})
 		requireNoRPCError(t, resp)
 	})
@@ -327,7 +333,7 @@ func TestE2E(t *testing.T) {
 	// ---------------------------------------------------------------------------
 	t.Run("torrent.stop_before_resume", func(t *testing.T) {
 		resp := makeJSONRPCRequest(t, url, token, "torrent.stop", map[string]string{
-			"info_hash": infoHash,
+			keyInfoHash: infoHash,
 		})
 		requireNoRPCError(t, resp)
 	})
@@ -337,7 +343,7 @@ func TestE2E(t *testing.T) {
 	// ---------------------------------------------------------------------------
 	t.Run("torrent.resume", func(t *testing.T) {
 		resp := makeJSONRPCRequest(t, url, token, "torrent.resume", map[string]string{
-			"info_hash": infoHash,
+			keyInfoHash: infoHash,
 		})
 		requireNoRPCError(t, resp)
 	})
@@ -347,7 +353,7 @@ func TestE2E(t *testing.T) {
 	// ---------------------------------------------------------------------------
 	t.Run("client.set_download_limit", func(t *testing.T) {
 		resp := makeJSONRPCRequest(t, url, token, "client.set_download_limit", map[string]any{
-			"limit": int64(2048 * 1024),
+			keyLimit: int64(2048 * 1024),
 		})
 		requireNoRPCError(t, resp)
 	})
@@ -357,7 +363,7 @@ func TestE2E(t *testing.T) {
 	// ---------------------------------------------------------------------------
 	t.Run("client.set_upload_limit", func(t *testing.T) {
 		resp := makeJSONRPCRequest(t, url, token, "client.set_upload_limit", map[string]any{
-			"limit": int64(1024 * 1024),
+			keyLimit: int64(1024 * 1024),
 		})
 		requireNoRPCError(t, resp)
 	})
@@ -367,7 +373,7 @@ func TestE2E(t *testing.T) {
 	// ---------------------------------------------------------------------------
 	t.Run("torrent.remove", func(t *testing.T) {
 		resp := makeJSONRPCRequest(t, url, token, "torrent.remove", map[string]any{
-			"info_hash":   infoHash,
+			keyInfoHash:   infoHash,
 			"delete_data": true,
 		})
 		requireNoRPCError(t, resp)
@@ -407,7 +413,7 @@ func TestE2E(t *testing.T) {
 	// ---------------------------------------------------------------------------
 	t.Run("error_invalid_infohash", func(t *testing.T) {
 		resp := makeJSONRPCRequest(t, url, token, "torrent.get", map[string]string{
-			"info_hash": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+			keyInfoHash: "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
 		})
 		requireRPCError(t, resp, 1)
 	})
