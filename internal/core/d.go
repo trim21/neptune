@@ -48,7 +48,7 @@ const (
 type Download struct {
 	log                    zerolog.Logger
 	ctx                    context.Context
-	err                    atomic.Value
+	err                    atomic.Pointer[error]
 	cancel                 context.CancelFunc
 	c                      *Client
 	ioDown                 *flowrate.Monitor
@@ -242,7 +242,7 @@ func (d *Download) setError(err error) {
 		panic("unexpected EOF error")
 	}
 
-	d.err.Store(err)
+	d.err.Store(&err)
 	d.state.Store(uint32(Error))
 }
 

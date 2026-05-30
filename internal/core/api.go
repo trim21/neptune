@@ -67,7 +67,7 @@ func (c *Client) GetTorrentList() TorrentList {
 
 		msg := ""
 		if e := d.err.Load(); e != nil {
-			msg = e.(error).Error()
+			msg = (*e).Error()
 		}
 
 		torrents[i] = MainDataTorrent{
