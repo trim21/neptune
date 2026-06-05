@@ -16,6 +16,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"runtime/debug"
 	"slices"
 	"strings"
 	"syscall"
@@ -79,6 +80,9 @@ func main() {
 	}
 
 	initResourceLimit()
+
+	softMemLimit := resolveSoftMemoryLimit(cfg.App.SoftMemoryLimit)
+	cfg.App.SoftMemoryLimit = softMemLimit
 
 	var lc net.ListenConfig
 	listener, err := lc.Listen(context.Background(), "tcp", address)
@@ -388,4 +392,22 @@ func initResourceLimit() {
 			_, _ = fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		}
 	}
+}
+
+// resolveSoftMemoryLimit computes the soft memory limit in bytes.
+// If configured > 0, use the user-configured value directly.
+// Otherwise, use 80% of the current GOMEMLIMIT (set by automemlimit or env).
+// Returns 0 if no limit is available (soft memory limiting disabled).
+func resolveSoftMemoryLimit(configured int64) int64 {
+	if configured > 0 {
+		return configured
+	}
+
+	goMemLimit := debug.SetMemoryLimit(-1)
+	if goMemLimit <= 0 {
+		return 0
+	}
+
+	// Use 80% of GOMEMLIMIT as the soft limit.
+	return int64(float64(goMemLimit) * 0.8)
 }
