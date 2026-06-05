@@ -253,6 +253,10 @@ func (d *Download) dispatchCachedPiece(index uint32, reqs []uploadReq, responses
 	}
 
 	for _, item := range reqs {
+		dataSize := int64(item.req.Length)
+		if !d.c.memBudget.TryAcquire(dataSize) {
+			break
+		}
 		data := make([]byte, item.req.Length)
 		copy(data, buf.B[item.req.Begin:item.req.Begin+item.req.Length])
 		if !d.dispatchUploadWithData(item, data, responses, maxResponses) {

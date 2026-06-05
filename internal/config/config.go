@@ -25,7 +25,11 @@ type Application struct {
 	GlobalDownloadSpeedLimit int64 `toml:"global-download-speed-limit"`
 	// Global upload speed limit in bytes per second. 0 means unlimited.
 	GlobalUploadSpeedLimit int64 `toml:"global-upload-speed-limit"`
-	Fallocate              bool  `toml:"fallocate"`
+	// Soft memory limit in bytes. When process memory approaches this limit,
+	// the client will reduce connections and upload slots to relieve pressure.
+	// 0 means auto (80% of GOMEMLIMIT set by automemlimit/cgroup).
+	SoftMemoryLimit int64 `toml:"soft-memory-limit"`
+	Fallocate       bool  `toml:"fallocate"`
 }
 
 type Config struct {

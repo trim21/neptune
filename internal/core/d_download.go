@@ -134,8 +134,9 @@ func (d *Download) handleRes(res *proto.ChunkResponse) {
 
 	d.chunk.heap.Push(c)
 	d.chunk.pending.Set(c.pi)
+	d.c.memBudget.ForceAcquire(int64(len(res.Data)))
 
-	if d.chunk.heap.Len() < defaultChunkHeapSizeLimit {
+	if d.chunk.heap.Len() < defaultChunkHeapSizeLimit && d.c.memBudget.Available() {
 		piecePiStart := res.Begin/defaultBlockSize + res.PieceIndex*d.normalChunkLen
 		piecePiEnd := piecePiStart + uint32(pieceChunksCount(d.info, res.PieceIndex))
 		for i := piecePiStart; i < piecePiEnd; i++ {
@@ -166,6 +167,7 @@ func (d *Download) handleRes(res *proto.ChunkResponse) {
 
 	mergedChunk.Write(head.res.Data)
 
+	d.c.memBudget.Release(int64(len(head.res.Data)))
 	proto.PiecePool.Put(head.res)
 
 	for d.chunk.heap.Len() != 0 {
@@ -188,6 +190,7 @@ func (d *Download) handleRes(res *proto.ChunkResponse) {
 		mergedChunk.Write(peak.res.Data)
 
 		d.chunk.heap.Pop()
+		d.c.memBudget.Release(int64(len(peak.res.Data)))
 		proto.PiecePool.Put(peak.res)
 	}
 
@@ -213,6 +216,7 @@ func (d *Download) handleRes(res *proto.ChunkResponse) {
 }
 
 func (d *Download) handleResEndgame(res *proto.ChunkResponse) {
+	d.c.memBudget.ForceAcquire(int64(len(res.Data)))
 	d.chunk.heap.Push(responseChunk{
 		res: res,
 		pi:  res.Begin/defaultBlockSize + res.PieceIndex*d.normalChunkLen,
@@ -223,6 +227,7 @@ func (d *Download) handleResEndgame(res *proto.ChunkResponse) {
 		index := chunk.res.PieceIndex
 		err := d.writeChunkToDist(int64(index)*d.info.PieceLength+int64(chunk.res.Begin), chunk.res.Data)
 		d.chunk.done.Set(chunk.pi)
+		d.c.memBudget.Release(int64(len(chunk.res.Data)))
 		proto.PiecePool.Put(chunk.res)
 
 		if err != nil {
@@ -269,6 +274,7 @@ func (d *Download) handlePieceFromHeap(index uint32) {
 		d.chunk.mu.Lock()
 		d.chunk.done.Set(chunk.pi)
 		d.chunk.mu.Unlock()
+		d.c.memBudget.Release(int64(len(chunk.res.Data)))
 		proto.PiecePool.Put(chunk.res)
 	}
 

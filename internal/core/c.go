@@ -101,6 +101,9 @@ func New(cfg config.Config, sessionPath string, debug bool) *Client {
 		ipv4:    *atomic.NewPointer(v4),
 		ipv6:    *atomic.NewPointer(v6),
 		debug:   debug,
+
+		softMemoryLimit: cfg.App.SoftMemoryLimit,
+		memBudget:       newMemoryBudget(cfg.App.SoftMemoryLimit),
 	}
 
 	c.startUploadPool()
@@ -116,6 +119,17 @@ func (c *Client) initMetrics() {
 	}, func() float64 {
 		return float64(c.connectionCount.Load())
 	}))
+
+	prometheus.MustRegister(prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+		Name: "neptune_cache_memory_used_bytes",
+		Help: "Current cache memory budget usage in bytes",
+	}, func() float64 {
+		if c.memBudget == nil {
+			return 0
+		}
+
+		return float64(c.memBudget.Used())
+	}))
 }
 
 type incomingConn struct {
@@ -124,39 +138,32 @@ type incomingConn struct {
 }
 
 type Client struct {
-	ctx         context.Context
-	http        *resty.Client
-	cancel      context.CancelFunc
-	downloadMap map[metainfo.Hash]*Download
-	connChan    chan incomingConn
-	sem         *semaphore.Weighted
-	uploadQ     chan uploadTask
-	fh          map[string]*os.File
-
-	ioDown *flowrate.Monitor
-	ioUp   *flowrate.Monitor
-
+	ctx             context.Context
+	ipv6            atomic.Pointer[netip.Addr]
 	downloadLimiter *ratelimit.Limiter
+	downloadMap     map[metainfo.Hash]*Download
+	connChan        chan incomingConn
+	sem             *semaphore.Weighted
+	uploadQ         chan uploadTask
+	fh              map[string]*os.File
+	ioDown          *flowrate.Monitor
+	ioUp            *flowrate.Monitor
+	ipv4            atomic.Pointer[netip.Addr]
 	uploadLimiter   *ratelimit.Limiter
-
-	filePool *filepool.FilePool
-
-	ipv4 atomic.Pointer[netip.Addr]
-	ipv6 atomic.Pointer[netip.Addr]
-
-	dht *dht.DHT
-
-	resumePath  string
-	torrentPath string
-
-	infoHashes []metainfo.Hash
-	downloads  []*Download
-	checkQueue []metainfo.Hash
-
-	randKey []byte
-
+	dht             *dht.DHT
+	cancel          context.CancelFunc
+	memBudget       *memoryBudget
+	filePool        *filepool.FilePool
+	http            *resty.Client
+	torrentPath     string
+	resumePath      string
+	checkQueue      []metainfo.Hash
+	downloads       []*Download
+	randKey         []byte
+	infoHashes      []metainfo.Hash
 	Config          config.Config
 	connectionCount atomic.Uint32
+	softMemoryLimit int64
 	m               sync.RWMutex
 	debug           bool
 }
