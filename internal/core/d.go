@@ -254,6 +254,14 @@ func (d *Download) setError(err error) {
 	d.state.Store(uint32(Error))
 }
 
+func (d *Download) isFileSelected(fileIndex int) bool {
+	if d.selectedFilesSet == nil {
+		return true
+	}
+	_, ok := d.selectedFilesSet[fileIndex]
+	return ok
+}
+
 // hasSelectedFilesUnsafe returns true if the piece touches at least one selected file.
 func (d *Download) hasSelectedFilesUnsafe(pieceIndex uint32) bool {
 	if d.selectedFilesSet == nil {
