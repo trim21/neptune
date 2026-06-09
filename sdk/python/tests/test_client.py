@@ -104,7 +104,9 @@ def test_torrent_list(mock_api, client):
 
 def test_torrent_get(mock_api, client):
     mock_api.post("/json_rpc").mock(
-        return_value=_ok({"name": "my_torrent", "tags": ["a", "b"], "custom": {"key1": "val1"}})
+        return_value=_ok(
+            {"name": "my_torrent", "tags": ["a", "b"], "custom": {"key1": "val1"}}
+        )
     )
     result = client.torrent_get("aabb")
     assert result.name == "my_torrent"

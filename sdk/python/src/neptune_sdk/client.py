@@ -217,9 +217,7 @@ class NeptuneClient:
             SetCustomRequest(info_hash=info_hash, key=key, value=value),
         )
 
-    def torrent_custom_update(
-        self, info_hash: str, custom: dict[str, str]
-    ) -> None:
+    def torrent_custom_update(self, info_hash: str, custom: dict[str, str]) -> None:
         """Update multiple custom key-value pairs on a torrent."""
         self._call(
             "torrent.custom.update",
