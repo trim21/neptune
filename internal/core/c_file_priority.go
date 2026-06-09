@@ -5,9 +5,12 @@ package core
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"neptune/internal/metainfo"
 	"neptune/internal/pkg/empty"
+	"neptune/internal/pkg/fallocate"
 )
 
 // SetFilePriority sets the download priority for the given files.
@@ -80,12 +83,28 @@ func (c *Client) SetFilePriority(h metainfo.Hash, fileIDs []int, priority int) e
 		}
 	}
 
-	// Update selectedFilesSet.
+	// Update selectedFilesSet and handle disk allocation.
 	for _, id := range fileIDs {
+		tf := d.info.Files[id]
+		filePath := filepath.Join(d.basePath, tf.Path)
+
 		if priority == 0 {
 			delete(d.selectedFilesSet, id)
+			if d.c.Config.App.Fallocate {
+				if f, err := os.OpenFile(filePath, os.O_WRONLY, 0); err == nil {
+					_ = f.Truncate(0)
+					_ = f.Truncate(tf.Length)
+					f.Close()
+				}
+			}
 		} else {
 			d.selectedFilesSet[id] = struct{}{}
+			if d.c.Config.App.Fallocate {
+				if f, err := os.OpenFile(filePath, os.O_WRONLY, 0); err == nil {
+					_ = fallocate.Fallocate(f, 0, tf.Length)
+					f.Close()
+				}
+			}
 		}
 	}
 	d.selectedSize.Store(d.computeSelectedSizeUnsafe())

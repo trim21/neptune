@@ -36,7 +36,7 @@ func (d *Download) initCheck() error {
 	var efs = make(map[int]*existingFile, len(d.info.Files)+1)
 	for i, tf := range d.info.Files {
 		p := tf.Path
-		f, e := tryAllocFile(i, filepath.Join(d.basePath, p), tf.Length, d.c.Config.App.Fallocate)
+		f, e := tryAllocFile(i, filepath.Join(d.basePath, p), tf.Length, d.c.Config.App.Fallocate, d.isFileSelected(i))
 		if e != nil {
 			return e
 		}
@@ -126,15 +126,11 @@ func (d *Download) buildPieceToCheck(efs map[int]*existingFile) []uint32 {
 	return r
 }
 
-func tryAllocFile(index int, path string, size int64, doAlloc bool) (*existingFile, error) {
+func tryAllocFile(index int, path string, size int64, doAlloc bool, selected bool) (*existingFile, error) {
 	f, err := os.OpenFile(path, os.O_WRONLY, 0)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			return nil, err
-		}
-
-		if !doAlloc {
-			return nil, nil
 		}
 
 		if err = os.MkdirAll(filepath.Dir(path), os.ModePerm); err != nil {
@@ -146,7 +142,12 @@ func tryAllocFile(index int, path string, size int64, doAlloc bool) (*existingFi
 			return nil, err
 		}
 		defer f.Close()
-		return nil, fallocate.Fallocate(f, 0, size)
+
+		if doAlloc && selected {
+			return nil, fallocate.Fallocate(f, 0, size)
+		}
+
+		return nil, f.Truncate(size)
 	}
 
 	defer f.Close()
@@ -161,7 +162,7 @@ func tryAllocFile(index int, path string, size int64, doAlloc bool) (*existingFi
 		ef = &existingFile{index: index, size: fs}
 	}
 
-	if doAlloc {
+	if doAlloc && selected {
 		if fs != size {
 			return nil, errgo.Wrap(fallocate.Fallocate(f, fs, size-fs), "failed to alloc file")
 		}
