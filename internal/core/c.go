@@ -162,8 +162,9 @@ type Client struct {
 }
 
 type DownloadInfo struct {
-	Name string
-	Tags []string
+	Name   string
+	Tags   []string
+	Custom map[string]string
 }
 
 func (c *Client) GetTorrent(h metainfo.Hash) (DownloadInfo, error) {
@@ -176,8 +177,9 @@ func (c *Client) GetTorrent(h metainfo.Hash) (DownloadInfo, error) {
 	}
 
 	return DownloadInfo{
-		Name: d.info.Name,
-		Tags: d.tags,
+		Name:   d.info.Name,
+		Tags:   d.tags,
+		Custom: d.custom,
 	}, nil
 }
 

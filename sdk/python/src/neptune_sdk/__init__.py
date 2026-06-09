@@ -5,11 +5,14 @@ from .exceptions import NeptuneConnectionError, NeptuneError, NeptuneRPCError
 from .models import (
     AddTorrentRequest,
     AddTorrentResponse,
+    DelCustomRequest,
     InfoHashRequest,
+    ListTorrentRequest,
     MainDataTorrent,
     MoveTorrentRequest,
     Peer,
     RemoveTorrentRequest,
+    SetCustomRequest,
     SetFilePriorityRequest,
     SetGlobalSpeedLimitRequest,
     SetSpeedLimitRequest,
@@ -22,6 +25,7 @@ from .models import (
     TorrentTrackersResponse,
     Tracker,
     TransferSummary,
+    UpdateCustomRequest,
 )
 
 __all__ = [
@@ -31,18 +35,23 @@ __all__ = [
     "NeptuneError",
     "NeptuneRPCError",
     "NeptuneConnectionError",
-    # models
+    # request models
     "AddTorrentRequest",
-    "AddTorrentResponse",
+    "DelCustomRequest",
     "InfoHashRequest",
-    "MainDataTorrent",
+    "ListTorrentRequest",
     "MoveTorrentRequest",
-    "Peer",
     "RemoveTorrentRequest",
+    "SetCustomRequest",
     "SetFilePriorityRequest",
     "SetGlobalSpeedLimitRequest",
     "SetSpeedLimitRequest",
     "TagsRequest",
+    "UpdateCustomRequest",
+    # response / domain models
+    "AddTorrentResponse",
+    "MainDataTorrent",
+    "Peer",
     "TorrentFile",
     "TorrentFilesResponse",
     "TorrentInfo",

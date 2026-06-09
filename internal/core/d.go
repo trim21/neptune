@@ -77,6 +77,7 @@ type Download struct {
 	trackerKey             string
 	chunk                  chunkState
 	tags                   []string
+	custom                 map[string]string
 	pieceInfo              []pieceFileChunks
 	trackers               []TrackerTier
 	pieceAvailability      []int32
@@ -157,11 +158,15 @@ func (c *Client) ScheduleMove(ih metainfo.Hash, targetBasePath string) error {
 	return err
 }
 
-func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath string, tags []string, selectedFiles []int) *Download {
+func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath string, tags []string, custom map[string]string, selectedFiles []int) *Download {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	if tags == nil {
 		tags = []string{}
+	}
+
+	if custom == nil {
+		custom = make(map[string]string)
 	}
 
 	d := &Download{
@@ -173,6 +178,7 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 		log:      log.With().Stringer("info_hash", info.Hash).Logger(),
 		peerID:   NewPeerID(),
 		tags:     tags,
+		custom:   custom,
 		basePath: basePath,
 
 		normalChunkLen: as.Uint32((info.PieceLength + defaultBlockSize - 1) / defaultBlockSize),

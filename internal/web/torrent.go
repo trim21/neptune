@@ -23,11 +23,12 @@ import (
 )
 
 type AddTorrentRequest struct {
-	TorrentFile   []byte   `description:"base64 encoded torrent file content"                   json:"torrent_file"   required:"true" validate:"required"`
-	DownloadDir   string   `description:"base download dir"                                     json:"download_dir"`
-	Tags          []string `json:"tags"`
-	SelectedFiles []int    `description:"indices of files to download, empty means all"         json:"selected_files"` // if nil, all files are selected.
-	IsBaseDir     bool     `description:"if true, will not append torrent name to download_dir" json:"is_base_dir"`
+	TorrentFile   []byte            `description:"base64 encoded torrent file content"                   json:"torrent_file"   required:"true" validate:"required"`
+	DownloadDir   string            `description:"base download dir"                                     json:"download_dir"`
+	Tags          []string          `json:"tags"`
+	Custom        map[string]string `json:"custom"`
+	SelectedFiles []int             `description:"indices of files to download, empty means all"         json:"selected_files"` // if nil, all files are selected.
+	IsBaseDir     bool              `description:"if true, will not append torrent name to download_dir" json:"is_base_dir"`
 }
 
 type AddTorrentResponse struct {
@@ -74,7 +75,7 @@ func addTorrent(h *jsonrpc.Handler, c *core.Client) {
 				}
 			}
 
-			err = c.AddTorrent(req.TorrentFile, m, info, downloadDir, req.Tags, req.SelectedFiles)
+			err = c.AddTorrent(req.TorrentFile, m, info, downloadDir, req.Tags, req.Custom, req.SelectedFiles)
 			if err != nil {
 				return CodeError(5, errgo.Wrap(err, "failed to add torrent to download"))
 			}
@@ -93,8 +94,9 @@ type GetTorrentRequest struct {
 }
 
 type GetTorrentResponse struct {
-	Name string   `json:"name" required:"true"`
-	Tags []string `json:"tags"`
+	Name   string            `json:"name" required:"true"`
+	Tags   []string          `json:"tags"`
+	Custom map[string]string `json:"custom"`
 }
 
 func getTorrent(h *jsonrpc.Handler, c *core.Client) {
@@ -117,6 +119,12 @@ func getTorrent(h *jsonrpc.Handler, c *core.Client) {
 				res.Tags = []string{}
 			} else {
 				res.Tags = info.Tags
+			}
+
+			if info.Custom == nil {
+				res.Custom = make(map[string]string)
+			} else {
+				res.Custom = info.Custom
 			}
 
 			return nil
@@ -157,6 +165,7 @@ func MoveTorrent(h *jsonrpc.Handler, c *core.Client) {
 }
 
 type listTorrentRequest struct {
+	Keys []string `description:"custom keys to return, empty means all" json:"keys"`
 }
 
 type listTorrentResponse struct {
@@ -166,7 +175,7 @@ type listTorrentResponse struct {
 func listTorrent(h *jsonrpc.Handler, c *core.Client) {
 	u := usecase.NewInteractor(
 		func(ctx context.Context, req *listTorrentRequest, res *listTorrentResponse) error {
-			res.TorrentList = c.GetTorrentList()
+			res.TorrentList = c.GetTorrentList(req.Keys)
 			return nil
 		},
 	)

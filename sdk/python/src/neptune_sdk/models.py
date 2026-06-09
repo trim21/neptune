@@ -16,6 +16,7 @@ class MainDataTorrent:
     directory_base: str
     message: str
     tags: list[str]
+    custom: dict[str, str]
     download_rate: int
     download_total: int
     upload_rate: int
@@ -74,6 +75,7 @@ class TorrentInfo:
 
     name: str
     tags: list[str]
+    custom: dict[str, str]
 
 
 # ── Request types ─────────────────────────────────────────────────────
@@ -86,6 +88,7 @@ class AddTorrentRequest:
     torrent_file: bytes
     download_dir: str | None = None
     tags: list[str] | None = None
+    custom: dict[str, str] | None = None
     selected_files: list[int] | None = None
     is_base_dir: bool = False
 
@@ -143,6 +146,38 @@ class SetGlobalSpeedLimitRequest:
     """Parameters for client.set_download_limit / client.set_upload_limit."""
 
     limit: int = 0
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ListTorrentRequest:
+    """Parameters for torrent.list."""
+
+    keys: list[str] | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SetCustomRequest:
+    """Parameters for torrent.custom.set."""
+
+    info_hash: str
+    key: str
+    value: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class UpdateCustomRequest:
+    """Parameters for torrent.custom.update."""
+
+    info_hash: str
+    custom: dict[str, str]
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class DelCustomRequest:
+    """Parameters for torrent.custom.del."""
+
+    info_hash: str
+    key: str
 
 
 # ── Response types ────────────────────────────────────────────────────
