@@ -181,6 +181,31 @@ class DelCustomRequest:
     key: str
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AddTrackerRequest:
+    """Parameters for torrent.add_tracker."""
+
+    info_hash: str
+    url: str
+    tier: int = 0
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class RemoveTrackerRequest:
+    """Parameters for torrent.remove_tracker."""
+
+    info_hash: str
+    url: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ReplaceTrackersRequest:
+    """Parameters for torrent.replace_trackers."""
+
+    info_hash: str
+    replacements: dict[str, str]
+
+
 # ── Response types ────────────────────────────────────────────────────
 
 
