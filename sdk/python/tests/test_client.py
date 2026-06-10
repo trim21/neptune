@@ -39,6 +39,7 @@ TORRENT_JSON = {
     "comment": "",
     "directory_base": "/downloads/test",
     "message": "",
+    "tracker_errors": {},
     "tags": [],
     "custom": {},
     "download_rate": 0,
@@ -159,7 +160,11 @@ def test_torrent_peers(mock_api, client):
 def test_torrent_trackers(mock_api, client):
     mock_api.post("/json_rpc").mock(
         return_value=_ok(
-            {"trackers": [{"url": "http://t.example.com/announce", "tier": 0}]}
+            {
+                "trackers": [
+                    {"url": "http://t.example.com/announce", "tier": 0, "message": ""}
+                ]
+            }
         )
     )
     result = client.torrent_trackers("aabb")

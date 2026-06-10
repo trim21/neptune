@@ -46,6 +46,23 @@ func (d *Download) setAnnounceList(trackers metainfo.AnnounceList) {
 	}
 }
 
+func (d *Download) trackerErrors() map[string]string {
+	errs := make(map[string]string)
+	d.trackerErrorsMap.Range(func(url string, msg string) bool {
+		errs[url] = msg
+		return true
+	})
+	return errs
+}
+
+func (d *Download) updateTrackerError(t *Tracker) {
+	if msg := t.errorMessage(); msg != "" {
+		d.trackerErrorsMap.Store(t.url, msg)
+	} else {
+		d.trackerErrorsMap.Delete(t.url)
+	}
+}
+
 func (d *Download) backgroundTrackerHandler() {
 	timer := time.NewTimer(time.Second * 10)
 	defer timer.Stop()
@@ -126,12 +143,16 @@ func (tier TrackerTier) Announce(d *Download, event AnnounceEvent) (AnnounceResu
 
 		t.lastAnnounceTime = now
 		t.nextAnnounce = now.Add(r.Interval)
+		t.failureMessage = r.FailedReason
 
 		if r.Err != nil {
 			t.err = r.Err
+			d.updateTrackerError(t)
 			continue
 		}
 
+		t.err = nil
+		d.updateTrackerError(t)
 		t.peerCount = len(r.Peers)
 
 		r.Peers = lo.Uniq(r.Peers)
@@ -198,6 +219,16 @@ type Tracker struct {
 	peerCount        int
 	seeders          int
 	leechers         int
+}
+
+func (t *Tracker) errorMessage() string {
+	if t.failureMessage != "" {
+		return t.failureMessage
+	}
+	if t.err != nil {
+		return t.err.Error()
+	}
+	return ""
 }
 
 func (t *Tracker) req(d *Download) *resty.Request {

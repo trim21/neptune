@@ -81,6 +81,7 @@ type Download struct {
 	pieceInfo              []pieceFileChunks
 	trackers               []TrackerTier
 	pieceAvailability      []int32
+	trackerErrorsMap       *xsync.Map[string, string]
 	info                   meta.Info
 	completed              atomic.Int64
 	selectedSize           atomic.Int64
@@ -200,6 +201,7 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 			done: make(bitmap.Bitmap, int64(info.NumPieces)*((info.PieceLength+defaultBlockSize-1)/defaultBlockSize)),
 		},
 		endgameRequested: xsync.NewMap[proto.ChunkRequest, empty.Empty](),
+		trackerErrorsMap: xsync.NewMap[string, string](),
 
 		pendingPeers: heap.New[peerWithPriority](),
 
