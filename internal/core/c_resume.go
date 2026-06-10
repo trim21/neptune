@@ -22,7 +22,5 @@ func (c *Client) ResumeTorrent(h metainfo.Hash) error {
 		return fmt.Errorf("torrent %s is not stopped", h)
 	}
 
-	d.Start()
-
-	return nil
+	return d.Start()
 }

@@ -117,7 +117,9 @@ func (c *Client) SetFilePriority(h metainfo.Hash, fileIDs []int, priority int) e
 
 	// Transition to Seeding if all pieces are complete.
 	if d.bm.Count() == d.info.NumPieces {
-		d.state.Store(uint32(Seeding))
+		if err := d.transition(Seeding); err != nil {
+			d.log.Error().Err(err).Msg("failed to transition state in SetFilePriority")
+		}
 	}
 
 	d.m.Unlock()

@@ -6,6 +6,7 @@ package core
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/netip"
 	"sync"
@@ -42,6 +43,65 @@ const (
 	Moving      State = 1 << 4
 	Error       State = 1 << 5
 )
+
+type TransitionError struct {
+	From State
+	To   State
+}
+
+func (e *TransitionError) Error() string {
+	if msg := e.userMessage(); msg != "" {
+		return msg
+	}
+	return fmt.Sprintf("invalid state transition from %s to %s", e.From, e.To)
+}
+
+func (e *TransitionError) userMessage() string {
+	switch {
+	case e.From == Moving && e.To == Moving:
+		return "torrent is already being moved"
+	case e.From == Moving && e.To == Checking:
+		return "torrent is being moved, cannot recheck"
+	case e.From == Checking && e.To == Moving:
+		return "torrent is being rechecked, cannot move"
+	case e.From == Checking && e.To == Checking:
+		return "torrent is already being rechecked"
+	}
+	return ""
+}
+
+func (d *Download) transition(to State) error {
+	for {
+		old := State(d.state.Load())
+		if old == to {
+			return nil
+		}
+		if !validTransition(old, to) {
+			return &TransitionError{From: old, To: to}
+		}
+		if d.state.CompareAndSwap(uint32(old), uint32(to)) {
+			return nil
+		}
+	}
+}
+
+func validTransition(from, to State) bool {
+	switch from {
+	case Stopped:
+		return to == Downloading || to == Seeding || to == Checking || to == Moving
+	case Downloading:
+		return to == Stopped || to == Seeding || to == Error || to == Checking || to == Moving
+	case Seeding:
+		return to == Stopped || to == Error || to == Checking || to == Moving
+	case Checking:
+		return to == Downloading || to == Seeding || to == Error
+	case Moving:
+		return to == Downloading || to == Seeding || to == Stopped || to == Error
+	case Error:
+		return to == Checking
+	}
+	return false
+}
 
 // Download manage a download task
 // ctx should be canceled when torrent is removed, not stopped.
@@ -257,7 +317,9 @@ func (d *Download) setError(err error) {
 	}
 
 	d.err.Store(&err)
-	d.state.Store(uint32(Error))
+	if err := d.transition(Error); err != nil {
+		d.log.Warn().Err(err).Msg("failed to transition state in setError")
+	}
 }
 
 func (d *Download) isFileSelected(fileIndex int) bool {

@@ -19,11 +19,9 @@ func (d *Download) Move(target string) error {
 
 	originalState := State(d.state.Load())
 
-	if originalState == Moving || originalState == Checking {
-		return nil
+	if err := d.transition(Moving); err != nil {
+		return err
 	}
-
-	d.state.Store(uint32(Moving))
 
 	d.m.Lock()
 	originalBasePath := d.basePath
@@ -47,7 +45,9 @@ func (d *Download) Move(target string) error {
 	d.basePath = target
 	d.m.Unlock()
 
-	d.state.Store(uint32(originalState))
+	if err := d.transition(originalState); err != nil {
+		d.log.Error().Err(err).Msg("failed to restore state after move")
+	}
 
 	return nil
 }
