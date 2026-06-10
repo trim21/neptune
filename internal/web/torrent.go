@@ -23,12 +23,13 @@ import (
 )
 
 type AddTorrentRequest struct {
-	TorrentFile   []byte            `description:"base64 encoded torrent file content"                   json:"torrent_file"   required:"true" validate:"required"`
-	DownloadDir   string            `description:"base download dir"                                     json:"download_dir"`
+	TorrentFile   []byte            `description:"base64 encoded torrent file content"                                              json:"torrent_file"    required:"true" validate:"required"`
+	DownloadDir   string            `description:"base download dir"                                                                json:"download_dir"`
 	Tags          []string          `json:"tags"`
 	Custom        map[string]string `json:"custom"`
-	SelectedFiles []int             `description:"indices of files to download, empty means all"         json:"selected_files"` // if nil, all files are selected.
-	IsBaseDir     bool              `description:"if true, will not append torrent name to download_dir" json:"is_base_dir"`
+	SelectedFiles []int             `description:"indices of files to download, empty means all"                                    json:"selected_files"` // if nil, all files are selected.
+	IsBaseDir     bool              `description:"if true, will not append torrent name to download_dir"                            json:"is_base_dir"`
+	SkipHashCheck bool              `description:"if true, skip piece hash check and only verify file sizes match torrent metadata" json:"skip_hash_check"`
 }
 
 type AddTorrentResponse struct {
@@ -75,7 +76,7 @@ func addTorrent(h *jsonrpc.Handler, c *core.Client) {
 				}
 			}
 
-			err = c.AddTorrent(req.TorrentFile, m, info, downloadDir, req.Tags, req.Custom, req.SelectedFiles)
+			err = c.AddTorrent(req.TorrentFile, m, info, downloadDir, req.Tags, req.Custom, req.SelectedFiles, req.SkipHashCheck)
 			if err != nil {
 				return CodeError(5, errgo.Wrap(err, "failed to add torrent to download"))
 			}
