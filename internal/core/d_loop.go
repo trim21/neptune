@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/docker/go-units"
-	"github.com/dustin/go-humanize"
 
 	"neptune/internal/pkg/empty"
 	"neptune/internal/pkg/filepool"
@@ -44,30 +43,8 @@ func (d *Download) Check() {
 }
 
 // Init check existing files.
-func (d *Download) Init(resumed bool) {
-	if !resumed {
-		d.log.Debug().Msg("initializing download")
-
-		d.state.Store(uint32(Checking))
-
-		err := d.initCheck()
-		if err != nil {
-			d.setError(err)
-			d.log.Err(err).Msg("failed to initCheck torrent data")
-		}
-		// unsafe methods are safe here because d hasn't been shared with other goroutines yet.
-		d.markUnselectedPiecesDoneUnsafe()
-		d.completed.Store(d.computeCompletedUnsafe())
-		d.ioDown.Reset()
-
-		d.log.Debug().Msgf("done size %s", humanize.IBytes(uint64(d.bm.Count())*uint64(d.info.PieceLength)))
-
-		if d.bm.Count() == d.info.NumPieces {
-			d.state.Store(uint32(Seeding))
-		} else {
-			d.state.Store(uint32(Downloading))
-		}
-	}
+func (d *Download) Init(resumed bool, skipHashCheck bool) {
+	d.check(resumed, skipHashCheck)
 
 	go d.startBackground()
 

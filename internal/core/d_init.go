@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/docker/go-units"
+	"github.com/dustin/go-humanize"
 	"github.com/juju/ratelimit"
 	"github.com/trim21/errgo"
 
@@ -169,4 +170,71 @@ func tryAllocFile(index int, path string, size int64, doAlloc bool, selected boo
 	}
 
 	return ef, nil
+}
+
+// verifyFileSizes checks that all selected files exist with matching sizes.
+// No SHA-1 piece verification is performed. Bitmap is not modified.
+func (d *Download) verifyFileSizes() error {
+	d.log.Debug().Msg("verifyFileSizes")
+
+	for i, tf := range d.info.Files {
+		if !d.isFileSelected(i) {
+			continue
+		}
+
+		p := filepath.Join(d.basePath, tf.Path)
+		stat, err := os.Stat(p)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return fmt.Errorf("file %q does not exist", tf.Path)
+			}
+			return errgo.Wrap(err, fmt.Sprintf("failed to stat file %q", tf.Path))
+		}
+
+		if stat.Size() != tf.Length {
+			return fmt.Errorf("file %q size mismatch: expected %d, got %d", tf.Path, tf.Length, stat.Size())
+		}
+	}
+
+	return nil
+}
+
+func (d *Download) check(resumed bool, skipHashCheck bool) {
+	if !resumed {
+		d.log.Debug().Msg("initializing download")
+		d.state.Store(uint32(Checking))
+	}
+
+	if skipHashCheck {
+		if err := d.verifyFileSizes(); err != nil {
+			if resumed {
+				d.log.Warn().Err(err).Msg("file size verification failed on resume")
+			} else {
+				d.setError(err)
+				d.log.Err(err).Msg("file size verification failed")
+			}
+		} else if !resumed {
+			d.bm.Fill()
+		}
+	} else if !resumed {
+		if err := d.initCheck(); err != nil {
+			d.setError(err)
+			d.log.Err(err).Msg("failed to initCheck torrent data")
+		}
+	}
+
+	if !resumed {
+		// unsafe methods are safe here because d hasn't been shared with other goroutines yet.
+		d.markUnselectedPiecesDoneUnsafe()
+		d.completed.Store(d.computeCompletedUnsafe())
+		d.ioDown.Reset()
+
+		d.log.Debug().Msgf("done size %s", humanize.IBytes(uint64(d.bm.Count())*uint64(d.info.PieceLength)))
+
+		if d.bm.Count() == d.info.NumPieces {
+			d.state.Store(uint32(Seeding))
+		} else {
+			d.state.Store(uint32(Downloading))
+		}
+	}
 }

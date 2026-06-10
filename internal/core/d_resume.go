@@ -159,7 +159,7 @@ func (c *Client) UnmarshalResume(data []byte) error {
 	c.downloadMap[info.Hash] = d
 	c.infoHashes = lo.Keys(c.downloadMap)
 
-	d.Init(true)
+	d.Init(true, true)
 
 	return nil
 }

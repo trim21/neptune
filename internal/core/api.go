@@ -128,7 +128,7 @@ func (c *Client) GetTransferSummary() TransferSummary {
 	}
 }
 
-func (c *Client) AddTorrent(raw []byte, m *metainfo.MetaInfo, info meta.Info, downloadPath string, tags []string, custom map[string]string, selectedFiles []int) error {
+func (c *Client) AddTorrent(raw []byte, m *metainfo.MetaInfo, info meta.Info, downloadPath string, tags []string, custom map[string]string, selectedFiles []int, skipHashCheck bool) error {
 	log.Info().Msgf("try add torrent %s", info.Hash)
 
 	if err := validateTorrentPaths(downloadPath, info); err != nil {
@@ -169,7 +169,7 @@ func (c *Client) AddTorrent(raw []byte, m *metainfo.MetaInfo, info meta.Info, do
 	c.downloadMap[info.Hash] = d
 	c.infoHashes = lo.Keys(c.downloadMap)
 
-	go d.Init(false)
+	go d.Init(false, skipHashCheck)
 
 	return nil
 }
