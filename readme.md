@@ -4,94 +4,188 @@ A headless BitTorrent client.
 
 ## Install
 
-Only 64bit system are supported.
+Only 64-bit systems are supported.
 
-### Pre-build Binary
+### Pre-built Binary
 
-There will be pre-built static binary in GitHub release when first version released.
+Pre-built static binaries are available in [GitHub Releases](https://github.com/trim21/neptune/releases).
 
-Pre-built static binaries have zero system library dependency and does not require glibc.
+Pre-built static binaries have zero system library dependency and do not require glibc. Minimum OS version requirements by the Go toolchain:
 
-But there are still some there are still minimal OS version requirements by golang toolchain.
-
-- Linux: kernel >= v3.1.
-- Windows: Windows 10 and higher or Windows Server 2016 and higher.
-- MacOS: Catalina 10.15 or newer.
+- **Linux**: kernel >= 3.1
+- **Windows**: Windows 10 / Windows Server 2016 or higher
+- **macOS**: Catalina 10.15 or newer
 
 ### Docker
 
-pre-built docker
-image [`ghcr.io/trim21/neptune`](https://github.com/trim21/neptune/pkgs/container/neptune).
+Pre-built Docker image: [`ghcr.io/trim21/neptune`](https://github.com/trim21/neptune/pkgs/container/neptune)
 
-Platform `linux/amd64` and `linux/arm64` are supported.
+Platforms: `linux/amd64`, `linux/arm64`.
 
-Full docker compose example can be found at [./docker-compose.yaml](./etc/example/)
+#### Persistence
 
-### Build
+Neptune stores data in two directories:
 
-At first, you need to install go>=1.22 from <https://go.dev/> and go-task
-from https://taskfile.dev/
+| Path | Purpose | Persist? |
+|---|---|---|
+| Session path (default `~/.neptune`) | Torrent files, resume data, logs, config | **Yes** — must be persisted |
+| Download dir (default `~/downloads`) | Downloaded files (root of per-torrent data dirs) | **Yes** — your downloaded data |
 
-Then clone this repo, use task to build release binary.
+The session directory contains these sub-directories:
 
-task support these targets:
+| Sub-directory | Content |
+|---|---|
+| `torrents/` | Saved `.torrent` files (hash-sharded: `{ih[:2]}/{ih[2:4]}/{hash}.torrent`) |
+| `resume/` | Resume state for each torrent (`{ih[:2]}/{hash}.resume`) |
+| `logs/` | Application logs (rotated: 10MB / 3 backups / 28 days) |
+| `config.toml` | Config file (optional, defaults used if absent) |
+| `.lock` | Flock-based lock file to prevent concurrent instances |
 
-- release:windows:arm64
-- release:windows:amd64
-- release:linux:amd64
-- release:linux:arm64
-- release:darwin:arm64
-- release:darwin:amd64
+#### Docker Compose Example
 
-for example, for linux system running on amd64, use `task release:linux:amd64` to build.
+```yaml
+services:
+  neptune:
+    image: ghcr.io/trim21/neptune:master
+    init: true
+    environment:
+      NEPTUNE_WEB_SECRET_TOKEN: "a-secret-token-change-me"
+      NEPTUNE_SESSION_PATH:    "/var/lib/neptune"
+      NEPTUNE_CONFIG_FILE:     "/var/lib/config/neptune.toml"
+      # Optional overrides (all have sensible defaults):
+      # NEPTUNE_WEB:             "0.0.0.0:8002"
+      # NEPTUNE_P2P_PORT:        "50047"
+      # NEPTUNE_LOG_LEVEL:       "info"
+      # NEPTUNE_LOG_JSON:        "false"
+      # NEPTUNE_LOG_SAVE_TO_FILE:"true"
+      # NEPTUNE_DEBUG:           "false"
+    network_mode: host # required for P2P connectivity
+    healthcheck:
+      test: [
+        "CMD",
+        "/usr/local/bin/wget",
+        "--spider",
+        "--no-verbose",
+        "http://127.0.0.1:8002/healthz",
+      ]
+      interval: 10s
+      timeout: 3s
+      start_period: 10s
+    volumes:
+      # Session data (torrents, resume, logs) — persist this
+      - ./data/neptune/:/var/lib/neptune/
 
-## Development
+      # Downloaded files — persist this
+      - ./data/downloads/:/downloads/
 
-This project use [go-task](https://taskfile.dev/) to manage pre-defined scripts.
+      # Config file — mount read-only
+      - ./config.toml:/var/lib/config/neptune.toml:ro
 
-After you install go-task, use `task --list-all` to see all tasks.
+  flood:
+    image: ghcr.io/trim21/flood:neptune
+    network_mode: host
+    command:
+      - --port=4008
+      - --noauth
+      - --neptune-url=http://127.0.0.1:8002/json_rpc
+      - --neptune-token=a-secret-token-change-me
+    volumes:
+      - ./data/neptune/:/var/lib/neptune/
+      - ./data/downloads/:/downloads/
+```
 
-for example:
+Key points for deployment:
 
-`task lint` run linter
-`task test` run tests
+1. **Network mode** must be `host` — Neptune needs direct access to all ports for P2P communication.
+2. **Web secret token** (`NEPTUNE_WEB_SECRET_TOKEN`) secures the JSON-RPC API. Set it to a strong random value and keep it consistent across restarts. If left empty, a new token is generated on every startup.
+3. **Volume mounts** — at minimum, persist the session directory and your downloads directory. The config file is optional but recommended.
+4. **The Flood volume mounts** must mirror Neptune's so Flood can read torrent files for the Web UI.
 
-`task dev --watch` start client in watch mode, process will automatically restart if any go code
-changed.
+#### Config File
 
-`task release` build a client in release mode.
-
-## Usage
-
-Neptune doesn't provide a way to update config after process started, you need to use arguments and
-config file to set config.
-
-run `./neptune --help` to show all supported flags.
-
-## Config File
-
-Config use [TOML v1.0.0](https://toml.io/en/)
+Create a `config.toml` next to your compose file:
 
 ```toml
 [application]
-crypto = "force"
-p2p-port = 54482
+download-dir = "/downloads"
+p2p-port = 50047
 fallocate = true
+# optional overrides:
+# max-http-parallel = 100
+# num-want = 50
+# global-connections-limit = 50
+# global-upload-slots = 64
+# global-download-speed-limit = 0  # bytes/sec, 0 = unlimited
+# global-upload-speed-limit = 0    # bytes/sec, 0 = unlimited
 ```
 
-All config key-value pair are optional
+All config keys are optional:
 
-you can use
+| Key | Default | Description |
+|---|---|---|
+| `download-dir` | `~/downloads` | Root directory for downloaded files |
+| `max-http-parallel` | `100` | Max concurrent HTTP tracker announce requests |
+| `p2p-port` | `50047` | P2P listen port (also overridable via `NEPTUNE_P2P_PORT`) |
+| `num-want` | `50` | Number of peers to request from tracker |
+| `global-connections-limit` | `50` | Hard limit on total P2P connections |
+| `global-upload-slots` | `max(4×conn-limit, 64)` | Hard limit on upload slots across all torrents |
+| `global-download-speed-limit` | `0` (unlimited) | Download speed limit in bytes/sec |
+| `global-upload-speed-limit` | `0` (unlimited) | Upload speed limit in bytes/sec |
+| `fallocate` | `false` | Pre-allocate file space on disk |
+
+### Build from Source
+
+Install Go >= 1.25 and [go-task](https://taskfile.dev/).
+
+```sh
+git clone https://github.com/trim21/neptune.git
+cd neptune
+
+# Build for your platform (release mode):
+task release:linux:amd64   # or release:linux:arm64, release:darwin:amd64, etc.
+```
+
+Available build targets:
+
+- `release:linux:amd64`
+- `release:linux:arm64`
+- `release:darwin:amd64`
+- `release:darwin:arm64`
+- `release:windows:amd64`
+- `release:windows:arm64`
+
+## Usage
+
+Run `./neptune --help` to see all flags.
+
+| Flag | Default | Env | Description |
+|---|---|---|---|
+| `--session-path` | `~/.neptune` | `NEPTUNE_SESSION_PATH` | Session data directory |
+| `--config-file` | `{session}/config.toml` | `NEPTUNE_CONFIG_FILE` | Path to config file |
+| `--web` | `127.0.0.1:8002` | `NEPTUNE_WEB` | HTTP listen address |
+| `--web-secret-token` | auto-generated | `NEPTUNE_WEB_SECRET_TOKEN` | API auth token (32 chars) |
+| `--p2p-port` | `50047` | `NEPTUNE_P2P_PORT` | P2P listen port (overrides config) |
+| `--log-json` | `false` | `NEPTUNE_LOG_JSON` | Log as JSON |
+| `--log-level` | `info` | `NEPTUNE_LOG_LEVEL` | trace/debug/info/warn/error |
+| `--log-save-to-file` | `true` | `NEPTUNE_LOG_SAVE_TO_FILE` | Write logs to file |
+| `--debug` | `false` | `NEPTUNE_DEBUG` | Enable debug mode (pprof) |
+
+## Development
+
+```sh
+task lint          # run linter
+task test          # run tests
+task gen           # run code generation (stringer, protobuf)
+task dev --watch   # build and auto-restart on code changes
+task release       # build release binaries for all platforms
+task --list-all    # list all available tasks
+```
 
 ## License
 
-This project is mixed licensed.
+This project is mixed licensed. Most code is GPL v3. Some files are derived from other projects and retain their original licenses:
 
-Most code are licensed under GPL v3,
-but some code are copied from [anacrolix/torrent](https://github.com/anacrolix/torrent), these
-files are licensed under MPL-2.0.
+- Files copied from [anacrolix/torrent](https://github.com/anacrolix/torrent): **MPL-2.0**
+- Files in `internal/web/jsonrpc/` derived from [swaggest/jsonrpc](https://github.com/swaggest/jsonrpc): **MIT**
 
-There are also some files in internal/web/jsonrpc are copied
-from <https://github.com/swaggest/jsonrpc>, these files are licensed under MIT.
-
-You will find license in each file header.
+License information is noted in each file header.
