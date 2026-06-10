@@ -15,6 +15,7 @@ class MainDataTorrent:
     comment: str
     directory_base: str
     message: str
+    tracker_errors: dict[str, str]
     tags: list[str]
     custom: dict[str, str]
     download_rate: int
@@ -67,6 +68,7 @@ class Tracker:
 
     url: str
     tier: int
+    message: str
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

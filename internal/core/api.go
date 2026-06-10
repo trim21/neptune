@@ -48,6 +48,7 @@ type MainDataTorrent struct {
 	Comment         string            `json:"comment"`
 	DirectoryBase   string            `json:"directory_base"`
 	Message         string            `json:"message"`
+	TrackerErrors   map[string]string `json:"tracker_errors"`
 	Tags            []string          `json:"tags"`
 	DownloadRate    int64             `json:"download_rate"`
 	DownloadTotal   int64             `json:"download_total"`
@@ -105,6 +106,7 @@ func (c *Client) GetTorrentList(keys []string) TorrentList {
 			Custom:          custom,
 			ConnectionCount: d.peers.Size(),
 			Message:         msg,
+			TrackerErrors:   d.trackerErrors(),
 		}
 
 		d.m.RUnlock()
@@ -284,8 +286,9 @@ func (c *Client) GetTorrentPeers(h metainfo.Hash) []APIPeers {
 }
 
 type APITrackers struct {
-	URL  string `json:"url"`
-	Tier int    `json:"tier"`
+	URL     string `json:"url"`
+	Message string `json:"message"`
+	Tier    int    `json:"tier"`
 }
 
 func (c *Client) GetTorrentTrackers(h metainfo.Hash) []APITrackers {
@@ -305,8 +308,9 @@ func (c *Client) GetTorrentTrackers(h metainfo.Hash) []APITrackers {
 	for iterIndex, tier := range d.trackers {
 		for _, tracker := range tier.trackers {
 			results = append(results, APITrackers{
-				Tier: iterIndex,
-				URL:  tracker.url,
+				Tier:    iterIndex,
+				URL:     tracker.url,
+				Message: tracker.errorMessage(),
 			})
 		}
 	}
@@ -370,6 +374,7 @@ func (c *Client) RemoveTracker(h metainfo.Hash, trackerURL string) error {
 		for j, tr := range tier.trackers {
 			if tr.url == trackerURL {
 				d.trackers[i].trackers = slices.Delete(tier.trackers, j, j+1)
+				d.trackerErrorsMap.Delete(trackerURL)
 				// remove empty tiers
 				if len(d.trackers[i].trackers) == 0 {
 					d.trackers = slices.Delete(d.trackers, i, i+1)
@@ -396,6 +401,7 @@ func (c *Client) ReplaceTrackers(h metainfo.Hash, replacements map[string]string
 	for _, tier := range d.trackers {
 		for _, tr := range tier.trackers {
 			if newURL, ok := replacements[tr.url]; ok {
+				d.trackerErrorsMap.Delete(tr.url)
 				tr.url = newURL
 				tr.nextAnnounce = time.Now()
 			}
