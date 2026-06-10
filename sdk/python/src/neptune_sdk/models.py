@@ -91,6 +91,7 @@ class AddTorrentRequest:
     custom: dict[str, str] | None = None
     selected_files: list[int] | None = None
     is_base_dir: bool = False
+    skip_hash_check: bool = False
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
