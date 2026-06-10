@@ -162,9 +162,9 @@ type Client struct {
 }
 
 type DownloadInfo struct {
+	Custom map[string]string
 	Name   string
 	Tags   []string
-	Custom map[string]string
 }
 
 func (c *Client) GetTorrent(h metainfo.Hash) (DownloadInfo, error) {

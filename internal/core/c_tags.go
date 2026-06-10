@@ -5,6 +5,7 @@ package core
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 
 	"neptune/internal/metainfo"
@@ -81,9 +82,7 @@ func (c *Client) UpdateCustom(h metainfo.Hash, custom map[string]string) error {
 	}
 
 	d.m.Lock()
-	for k, v := range custom {
-		d.custom[k] = v
-	}
+	maps.Copy(d.custom, custom)
 	d.m.Unlock()
 
 	d.saveResume()

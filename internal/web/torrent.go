@@ -94,9 +94,9 @@ type GetTorrentRequest struct {
 }
 
 type GetTorrentResponse struct {
-	Name   string            `json:"name" required:"true"`
-	Tags   []string          `json:"tags"`
+	Name   string            `json:"name"   required:"true"`
 	Custom map[string]string `json:"custom"`
+	Tags   []string          `json:"tags"`
 }
 
 func getTorrent(h *jsonrpc.Handler, c *core.Client) {

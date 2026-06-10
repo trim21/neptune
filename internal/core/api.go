@@ -35,6 +35,7 @@ import (
 const colAddress = "address"
 
 type MainDataTorrent struct {
+	Custom          map[string]string `json:"custom"`
 	InfoHash        string            `json:"hash"`
 	Name            string            `json:"name"`
 	State           string            `json:"state"`
@@ -42,7 +43,6 @@ type MainDataTorrent struct {
 	DirectoryBase   string            `json:"directory_base"`
 	Message         string            `json:"message"`
 	Tags            []string          `json:"tags"`
-	Custom          map[string]string `json:"custom"`
 	DownloadRate    int64             `json:"download_rate"`
 	DownloadTotal   int64             `json:"download_total"`
 	UploadRate      int64             `json:"upload_rate"`
