@@ -102,6 +102,10 @@ func New(c *core.Client, token string, enableDebug bool) http.Handler {
 	listTorrentPeers(h, c)
 	listTorrentTrackers(h, c)
 
+	addTracker(h, c)
+	removeTracker(h, c)
+	replaceTrackers(h, c)
+
 	addTorrent(h, c)
 	removeTorrent(h, c)
 	getTorrent(h, c)

@@ -308,6 +308,97 @@ func (c *Client) GetTorrentTrackers(h metainfo.Hash) []APITrackers {
 	return results
 }
 
+func (c *Client) AddTracker(h metainfo.Hash, trackerURL string, tier int) error {
+	c.m.RLock()
+	d, ok := c.downloadMap[h]
+	c.m.RUnlock()
+	if !ok {
+		return fmt.Errorf("torrent %s not exists", h)
+	}
+
+	u, err := url.Parse(trackerURL)
+	if err != nil {
+		return fmt.Errorf("invalid tracker url: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("unsupported tracker scheme %q, only http/https are supported", u.Scheme)
+	}
+	if u.Host == "" {
+		return errors.New("tracker url must have a host")
+	}
+
+	d.trackerMutex.Lock()
+	defer d.trackerMutex.Unlock()
+
+	// check for duplicate
+	for _, t := range d.trackers {
+		for _, tr := range t.trackers {
+			if tr.url == trackerURL {
+				return nil // already exists
+			}
+		}
+	}
+
+	tracker := &Tracker{url: trackerURL, nextAnnounce: time.Now()}
+	if tier >= 0 && tier < len(d.trackers) {
+		d.trackers[tier].trackers = append(d.trackers[tier].trackers, tracker)
+	} else {
+		d.trackers = append(d.trackers, TrackerTier{trackers: []*Tracker{tracker}})
+	}
+
+	return nil
+}
+
+func (c *Client) RemoveTracker(h metainfo.Hash, trackerURL string) error {
+	c.m.RLock()
+	d, ok := c.downloadMap[h]
+	c.m.RUnlock()
+	if !ok {
+		return fmt.Errorf("torrent %s not exists", h)
+	}
+
+	d.trackerMutex.Lock()
+	defer d.trackerMutex.Unlock()
+
+	for i, tier := range d.trackers {
+		for j, tr := range tier.trackers {
+			if tr.url == trackerURL {
+				d.trackers[i].trackers = slices.Delete(tier.trackers, j, j+1)
+				// remove empty tiers
+				if len(d.trackers[i].trackers) == 0 {
+					d.trackers = slices.Delete(d.trackers, i, i+1)
+				}
+				return nil
+			}
+		}
+	}
+
+	return nil
+}
+
+func (c *Client) ReplaceTrackers(h metainfo.Hash, replacements map[string]string) error {
+	c.m.RLock()
+	d, ok := c.downloadMap[h]
+	c.m.RUnlock()
+	if !ok {
+		return fmt.Errorf("torrent %s not exists", h)
+	}
+
+	d.trackerMutex.Lock()
+	defer d.trackerMutex.Unlock()
+
+	for _, tier := range d.trackers {
+		for _, tr := range tier.trackers {
+			if newURL, ok := replacements[tr.url]; ok {
+				tr.url = newURL
+				tr.nextAnnounce = time.Now()
+			}
+		}
+	}
+
+	return nil
+}
+
 func (c *Client) RemoveTorrent(h metainfo.Hash, removeData bool) error {
 	c.m.Lock()
 

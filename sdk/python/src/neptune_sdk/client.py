@@ -16,11 +16,14 @@ from .exceptions import NeptuneConnectionError, NeptuneRPCError
 from .models import (
     AddTorrentRequest,
     AddTorrentResponse,
+    AddTrackerRequest,
     DelCustomRequest,
     InfoHashRequest,
     ListTorrentRequest,
     MoveTorrentRequest,
     RemoveTorrentRequest,
+    RemoveTrackerRequest,
+    ReplaceTrackersRequest,
     SetCustomRequest,
     SetFilePriorityRequest,
     SetGlobalSpeedLimitRequest,
@@ -169,6 +172,29 @@ class NeptuneClient:
         return _validate(
             TorrentTrackersResponse,
             self._call("torrent.trackers", InfoHashRequest(info_hash=info_hash)),
+        )
+
+    def torrent_add_tracker(self, info_hash: str, url: str, *, tier: int = 0) -> None:
+        """Add a tracker to a torrent."""
+        self._call(
+            "torrent.add_tracker",
+            AddTrackerRequest(info_hash=info_hash, url=url, tier=tier),
+        )
+
+    def torrent_remove_tracker(self, info_hash: str, url: str) -> None:
+        """Remove a tracker from a torrent."""
+        self._call(
+            "torrent.remove_tracker",
+            RemoveTrackerRequest(info_hash=info_hash, url=url),
+        )
+
+    def torrent_replace_trackers(
+        self, info_hash: str, replacements: dict[str, str]
+    ) -> None:
+        """Replace tracker URLs. Keys are old URLs, values are new URLs."""
+        self._call(
+            "torrent.replace_trackers",
+            ReplaceTrackersRequest(info_hash=info_hash, replacements=replacements),
         )
 
     # ── torrent — mutations ────────────────────────────────────────────
