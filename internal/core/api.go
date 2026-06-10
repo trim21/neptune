@@ -6,6 +6,7 @@ package core
 import (
 	"bytes"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -33,6 +34,11 @@ import (
 )
 
 const colAddress = "address"
+
+var (
+	errTrackerURLMissingHost = errors.New("tracker url must have a host")
+	errTrackerURLBadScheme   = errors.New("only http/https tracker urls are supported")
+)
 
 type MainDataTorrent struct {
 	Custom          map[string]string `json:"custom"`
@@ -321,10 +327,10 @@ func (c *Client) AddTracker(h metainfo.Hash, trackerURL string, tier int) error 
 		return fmt.Errorf("invalid tracker url: %w", err)
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
-		return fmt.Errorf("unsupported tracker scheme %q, only http/https are supported", u.Scheme)
+		return fmt.Errorf("%w: %q", errTrackerURLBadScheme, u.Scheme)
 	}
 	if u.Host == "" {
-		return errors.New("tracker url must have a host")
+		return errTrackerURLMissingHost
 	}
 
 	d.trackerMutex.Lock()
