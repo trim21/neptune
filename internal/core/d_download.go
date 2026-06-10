@@ -405,7 +405,10 @@ func (d *Download) checkDone() {
 		return
 	}
 
-	d.state.Store(uint32(Seeding))
+	if err := d.transition(Seeding); err != nil {
+		d.log.Error().Err(err).Msg("failed to transition state in checkDone")
+		return
+	}
 	d.ioDown.Reset()
 
 	d.peers.Range(func(addr netip.AddrPort, p *Peer) bool {

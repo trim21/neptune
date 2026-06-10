@@ -17,29 +17,73 @@ import (
 
 const defaultBlockSize = units.KiB * 16
 
-func (d *Download) Start() {
+func (d *Download) Start() error {
 	if d.bm.Count() == d.info.NumPieces {
-		d.state.Store(uint32(Seeding))
+		if err := d.transition(Seeding); err != nil {
+			d.log.Error().Err(err).Msg("failed to transition state in Start")
+			return err
+		}
 	} else {
-		d.state.Store(uint32(Downloading))
+		if err := d.transition(Downloading); err != nil {
+			d.log.Error().Err(err).Msg("failed to transition state in Start")
+			return err
+		}
 	}
 
 	d.stateCond.Broadcast()
+	return nil
 }
 
-func (d *Download) Stop() {
-	d.state.Store(uint32(Stopped))
+func (d *Download) Stop() error {
+	if err := d.transition(Stopped); err != nil {
+		d.log.Error().Err(err).Msg("failed to transition state in Stop")
+		return err
+	}
 
 	d.stateCond.Broadcast()
 
 	d.announce(EventStopped)
+	return nil
 }
 
-func (d *Download) Check() {
-	d.state.Store(uint32(Checking))
-	d.bm.Clear()
+func (d *Download) AsyncCheck() error {
+	if err := d.transition(Checking); err != nil {
+		return err
+	}
 
+	d.bm.Clear()
+	d.completed.Store(0)
 	d.stateCond.Broadcast()
+
+	go func() {
+		if err := d.initCheck(); err != nil {
+			if d.ctx.Err() != nil {
+				return
+			}
+			d.setError(err)
+			d.log.Err(err).Msg("failed to recheck torrent data")
+			return
+		}
+
+		d.markUnselectedPiecesDoneUnsafe()
+		d.completed.Store(d.computeCompletedUnsafe())
+		d.ioDown.Reset()
+
+		if d.bm.Count() == d.info.NumPieces {
+			if err := d.transition(Seeding); err != nil {
+				d.log.Error().Err(err).Msg("failed to transition state after recheck")
+				return
+			}
+		} else {
+			if err := d.transition(Downloading); err != nil {
+				d.log.Error().Err(err).Msg("failed to transition state after recheck")
+				return
+			}
+		}
+		d.stateCond.Broadcast()
+	}()
+
+	return nil
 }
 
 // Init check existing files.

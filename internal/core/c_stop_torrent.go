@@ -22,7 +22,5 @@ func (c *Client) StopTorrent(h metainfo.Hash) error {
 		return fmt.Errorf("torrent %s is already stopped", h)
 	}
 
-	d.Stop()
-
-	return nil
+	return d.Stop()
 }
