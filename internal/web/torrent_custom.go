@@ -48,8 +48,8 @@ func setCustom(h *jsonrpc.Handler, c *core.Client) {
 }
 
 type updateCustomRequest struct {
+	Custom   map[string]string `description:"custom to update"  json:"custom"    required:"true"`
 	InfoHash string            `description:"torrent file hash" json:"info_hash" required:"true"`
-	Custom   map[string]string `description:"custom to update"  json:"custom"     required:"true"`
 }
 
 type updateCustomResponse struct{}
@@ -78,8 +78,8 @@ func updateCustom(h *jsonrpc.Handler, c *core.Client) {
 }
 
 type delCustomRequest struct {
-	InfoHash string `description:"torrent file hash" json:"info_hash" required:"true"`
-	Key      string `description:"custom key to delete" json:"key"    required:"true"`
+	InfoHash string `description:"torrent file hash"    json:"info_hash" required:"true"`
+	Key      string `description:"custom key to delete" json:"key"       required:"true"`
 }
 
 type delCustomResponse struct{}
