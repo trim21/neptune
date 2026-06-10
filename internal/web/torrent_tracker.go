@@ -73,8 +73,8 @@ func removeTracker(h *jsonrpc.Handler, c *core.Client) {
 // torrent.replace_trackers
 
 type replaceTrackersRequest struct {
-	InfoHash     string            `description:"torrent file hash"                         json:"info_hash"    required:"true"`
 	Replacements map[string]string `description:"map of old tracker URL to new tracker URL" json:"replacements" required:"true"`
+	InfoHash     string            `description:"torrent file hash"                         json:"info_hash"    required:"true"`
 }
 
 type replaceTrackersResponse struct{}
