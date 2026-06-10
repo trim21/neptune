@@ -27,6 +27,7 @@ type resume struct {
 	InfoHash      string
 	Bitfield      []byte
 	Tags          []string
+	Custom        map[string]string
 	Trackers      [][]string
 	SelectedFiles []int // indices of files selected for download. nil means all files.
 	// Per-torrent speed limits in bytes per second. 0 means unlimited.
@@ -86,6 +87,7 @@ func (d *Download) MarshalBinary() (data []byte, err error) {
 		Downloaded:         d.downloaded.Load(),
 		Uploaded:           d.uploaded.Load(),
 		Tags:               d.tags,
+		Custom:             d.custom,
 		State:              d.GetState(),
 		InfoHash:           d.info.Hash.Hex(),
 		Bitfield:           d.bm.Bitfield(),
@@ -131,7 +133,7 @@ func (c *Client) UnmarshalResume(data []byte) error {
 		}
 	}
 
-	d := c.NewDownload(m, info, r.BasePath, r.Tags, r.SelectedFiles)
+	d := c.NewDownload(m, info, r.BasePath, r.Tags, r.Custom, r.SelectedFiles)
 
 	// unsafe methods are safe here because d hasn't been shared with other goroutines yet.
 	d.bm = bm.FromBitfields(r.Bitfield, d.info.NumPieces)

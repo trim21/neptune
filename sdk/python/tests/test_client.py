@@ -40,6 +40,7 @@ TORRENT_JSON = {
     "directory_base": "/downloads/test",
     "message": "",
     "tags": [],
+    "custom": {},
     "download_rate": 0,
     "download_total": 0,
     "upload_rate": 0,
@@ -103,11 +104,14 @@ def test_torrent_list(mock_api, client):
 
 def test_torrent_get(mock_api, client):
     mock_api.post("/json_rpc").mock(
-        return_value=_ok({"name": "my_torrent", "tags": ["a", "b"]})
+        return_value=_ok(
+            {"name": "my_torrent", "tags": ["a", "b"], "custom": {"key1": "val1"}}
+        )
     )
     result = client.torrent_get("aabb")
     assert result.name == "my_torrent"
     assert result.tags == ["a", "b"]
+    assert result.custom == {"key1": "val1"}
 
 
 def test_torrent_files(mock_api, client):
@@ -267,3 +271,36 @@ def test_empty_torrent_list(mock_api, client):
     mock_api.post("/json_rpc").mock(return_value=_ok({"torrents": []}))
     result = client.torrent_list()
     assert result.torrents == []
+
+
+def test_torrent_custom_set(mock_api, client):
+    mock_api.post("/json_rpc").mock(return_value=_ok(None))
+    client.torrent_custom_set("aabb", "label", "my-label")
+    payload = json.loads(mock_api.calls.last.request.content)
+    assert payload["method"] == "torrent.custom.set"
+    assert payload["params"]["key"] == "label"
+    assert payload["params"]["value"] == "my-label"
+
+
+def test_torrent_custom_update(mock_api, client):
+    mock_api.post("/json_rpc").mock(return_value=_ok(None))
+    client.torrent_custom_update("aabb", {"k1": "v1", "k2": "v2"})
+    payload = json.loads(mock_api.calls.last.request.content)
+    assert payload["method"] == "torrent.custom.update"
+    assert payload["params"]["custom"] == {"k1": "v1", "k2": "v2"}
+
+
+def test_torrent_custom_del(mock_api, client):
+    mock_api.post("/json_rpc").mock(return_value=_ok(None))
+    client.torrent_custom_del("aabb", "label")
+    payload = json.loads(mock_api.calls.last.request.content)
+    assert payload["method"] == "torrent.custom.del"
+    assert payload["params"]["key"] == "label"
+
+
+def test_torrent_list_with_keys(mock_api, client):
+    mock_api.post("/json_rpc").mock(return_value=_ok({"torrents": [TORRENT_JSON]}))
+    result = client.torrent_list(keys=["label"])
+    assert len(result.torrents) == 1
+    payload = json.loads(mock_api.calls.last.request.content)
+    assert payload["params"]["keys"] == ["label"]

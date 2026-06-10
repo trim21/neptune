@@ -35,30 +35,31 @@ import (
 const colAddress = "address"
 
 type MainDataTorrent struct {
-	InfoHash        string   `json:"hash"`
-	Name            string   `json:"name"`
-	State           string   `json:"state"`
-	Comment         string   `json:"comment"`
-	DirectoryBase   string   `json:"directory_base"`
-	Message         string   `json:"message"`
-	Tags            []string `json:"tags"`
-	DownloadRate    int64    `json:"download_rate"`
-	DownloadTotal   int64    `json:"download_total"`
-	UploadRate      int64    `json:"upload_rate"`
-	UploadTotal     int64    `json:"upload_total"`
-	ConnectionCount int      `json:"connection_count"`
-	Completed       int64    `json:"completed"`
-	TotalLength     int64    `json:"total_length"`
-	SelectedSize    int64    `json:"selected_size"`
-	AddedAt         int64    `json:"add_at"`
-	Private         bool     `json:"private"`
+	Custom          map[string]string `json:"custom"`
+	InfoHash        string            `json:"hash"`
+	Name            string            `json:"name"`
+	State           string            `json:"state"`
+	Comment         string            `json:"comment"`
+	DirectoryBase   string            `json:"directory_base"`
+	Message         string            `json:"message"`
+	Tags            []string          `json:"tags"`
+	DownloadRate    int64             `json:"download_rate"`
+	DownloadTotal   int64             `json:"download_total"`
+	UploadRate      int64             `json:"upload_rate"`
+	UploadTotal     int64             `json:"upload_total"`
+	ConnectionCount int               `json:"connection_count"`
+	Completed       int64             `json:"completed"`
+	TotalLength     int64             `json:"total_length"`
+	SelectedSize    int64             `json:"selected_size"`
+	AddedAt         int64             `json:"add_at"`
+	Private         bool              `json:"private"`
 }
 
 type TorrentList struct {
 	Torrents []MainDataTorrent `json:"torrents"`
 }
 
-func (c *Client) GetTorrentList() TorrentList {
+func (c *Client) GetTorrentList(keys []string) TorrentList {
 	c.m.RLock()
 	defer c.m.RUnlock()
 
@@ -68,6 +69,16 @@ func (c *Client) GetTorrentList() TorrentList {
 		d.m.RLock()
 
 		msg := d.ErrorMsg()
+
+		custom := d.custom
+		if len(keys) > 0 && custom != nil {
+			custom = make(map[string]string, len(keys))
+			for _, k := range keys {
+				if v, ok := d.custom[k]; ok {
+					custom[k] = v
+				}
+			}
+		}
 
 		torrents[i] = MainDataTorrent{
 			InfoHash:        d.info.Hash.Hex(),
@@ -85,6 +96,7 @@ func (c *Client) GetTorrentList() TorrentList {
 			DirectoryBase:   d.downloadDir,
 			Private:         d.info.Private,
 			Tags:            d.tags,
+			Custom:          custom,
 			ConnectionCount: d.peers.Size(),
 			Message:         msg,
 		}
@@ -116,7 +128,7 @@ func (c *Client) GetTransferSummary() TransferSummary {
 	}
 }
 
-func (c *Client) AddTorrent(raw []byte, m *metainfo.MetaInfo, info meta.Info, downloadPath string, tags []string, selectedFiles []int) error {
+func (c *Client) AddTorrent(raw []byte, m *metainfo.MetaInfo, info meta.Info, downloadPath string, tags []string, custom map[string]string, selectedFiles []int) error {
 	log.Info().Msgf("try add torrent %s", info.Hash)
 
 	if err := validateTorrentPaths(downloadPath, info); err != nil {
@@ -146,7 +158,7 @@ func (c *Client) AddTorrent(raw []byte, m *metainfo.MetaInfo, info meta.Info, do
 	c.m.Lock()
 	defer c.m.Unlock()
 
-	d := c.NewDownload(m, info, downloadPath, tags, selectedFiles)
+	d := c.NewDownload(m, info, downloadPath, tags, custom, selectedFiles)
 
 	c.downloads = append(c.downloads, d)
 

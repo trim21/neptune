@@ -16,9 +16,12 @@ from .exceptions import NeptuneConnectionError, NeptuneRPCError
 from .models import (
     AddTorrentRequest,
     AddTorrentResponse,
+    DelCustomRequest,
     InfoHashRequest,
+    ListTorrentRequest,
     MoveTorrentRequest,
     RemoveTorrentRequest,
+    SetCustomRequest,
     SetFilePriorityRequest,
     SetGlobalSpeedLimitRequest,
     SetSpeedLimitRequest,
@@ -29,6 +32,7 @@ from .models import (
     TorrentPeersResponse,
     TorrentTrackersResponse,
     TransferSummary,
+    UpdateCustomRequest,
 )
 
 T = TypeVar("T")
@@ -132,9 +136,12 @@ class NeptuneClient:
 
     # ── torrent — queries ──────────────────────────────────────────────
 
-    def torrent_list(self) -> TorrentListResponse:
-        """List all torrents."""
-        return _validate(TorrentListResponse, self._call("torrent.list"))
+    def torrent_list(self, keys: list[str] | None = None) -> TorrentListResponse:
+        """List all torrents. Optionally filter custom keys returned."""
+        return _validate(
+            TorrentListResponse,
+            self._call("torrent.list", ListTorrentRequest(keys=keys or None)),
+        )
 
     def torrent_get(self, info_hash: str) -> TorrentInfo:
         """Get basic info for a single torrent."""
@@ -201,7 +208,28 @@ class NeptuneClient:
         """Stop a torrent."""
         self._call("torrent.stop", InfoHashRequest(info_hash=info_hash))
 
-    # ── torrent — tags ─────────────────────────────────────────────────
+    # ── torrent — custom ───────────────────────────────────────────────
+
+    def torrent_custom_set(self, info_hash: str, key: str, value: str) -> None:
+        """Set a custom key-value pair on a torrent."""
+        self._call(
+            "torrent.custom.set",
+            SetCustomRequest(info_hash=info_hash, key=key, value=value),
+        )
+
+    def torrent_custom_update(self, info_hash: str, custom: dict[str, str]) -> None:
+        """Update multiple custom key-value pairs on a torrent."""
+        self._call(
+            "torrent.custom.update",
+            UpdateCustomRequest(info_hash=info_hash, custom=custom),
+        )
+
+    def torrent_custom_del(self, info_hash: str, key: str) -> None:
+        """Delete a custom key from a torrent."""
+        self._call(
+            "torrent.custom.del",
+            DelCustomRequest(info_hash=info_hash, key=key),
+        )
 
     def torrent_add_tags(self, info_hash: str, tags: list[str]) -> None:
         """Add tags to a torrent."""
