@@ -71,7 +71,7 @@ func (d *Download) initCheck() error {
 
 		piece := d.pieceInfo[pieceIndex]
 		for _, chunk := range piece.fileChunks {
-			f, err := d.openFile(chunk.fileIndex)
+			f, err := d.openFileReadOnly(chunk.fileIndex)
 			if err != nil {
 				return errgo.Wrap(err, fmt.Sprintf("failed to open file %q", filepath.Join(d.basePath, d.info.Files[chunk.fileIndex].Path)))
 			}

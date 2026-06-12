@@ -289,7 +289,7 @@ func (d *Download) readPiece(index uint32, buf []byte) error {
 	pieces := d.pieceInfo[index]
 	var offset int64 = 0
 	for _, chunk := range pieces.fileChunks {
-		f, err := d.openFile(chunk.fileIndex)
+		f, err := d.openFileReadOnly(chunk.fileIndex)
 		if err != nil {
 			return err
 		}
@@ -335,7 +335,7 @@ func (d *Download) readPieceRangeCtx(ctx context.Context, req proto.ChunkRequest
 			return errUploadPaused
 		}
 
-		f, err := d.openFile(chunk.fileIndex)
+		f, err := d.openFileReadOnly(chunk.fileIndex)
 		if err != nil {
 			return err
 		}
