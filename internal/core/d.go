@@ -258,7 +258,7 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 		connectionHistory: expirable.NewLRU[netip.AddrPort, connHistory](1024, nil, time.Minute*10),
 
 		chunk: chunkState{
-			done: make(bitmap.Bitmap, int64(info.NumPieces)*((info.PieceLength+defaultBlockSize-1)/defaultBlockSize)),
+			done: make(bitmap.Bitmap, (int64(info.NumPieces)*((info.PieceLength+defaultBlockSize-1)/defaultBlockSize)+63)/64),
 		},
 		endgameRequested: xsync.NewMap[proto.ChunkRequest, empty.Empty](),
 		trackerErrorsMap: xsync.NewMap[string, string](),
