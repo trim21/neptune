@@ -303,3 +303,11 @@ func (d *Download) openFile(fileIndex int) (*filepool.File, error) {
 
 	return d.c.filePool.Open(p, os.O_RDWR|os.O_CREATE, os.ModePerm, time.Hour)
 }
+
+func (d *Download) openFileReadOnly(fileIndex int) (*filepool.File, error) {
+	d.m.RLock()
+	p := filepath.Join(d.basePath, d.info.Files[fileIndex].Path)
+	d.m.RUnlock()
+
+	return d.c.filePool.Open(p, os.O_RDONLY, 0, time.Hour)
+}

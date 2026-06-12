@@ -345,7 +345,7 @@ func (d *Download) checkPiece(pieceIndex uint32) error {
 	piece := d.pieceInfo[pieceIndex]
 
 	for _, chunk := range piece.fileChunks {
-		f, err := d.openFile(chunk.fileIndex)
+		f, err := d.openFileReadOnly(chunk.fileIndex)
 		if err != nil {
 			return errgo.Wrap(err, "failed to open file for hashing")
 		}
