@@ -267,8 +267,7 @@ func (p *Peer) ourRequestHandleLoop() {
 				return
 			case index := <-p.ourPieceRequests:
 				pending[index] = struct{}{}
-			default:
-				break
+				continue
 			}
 		}
 
