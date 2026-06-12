@@ -63,7 +63,7 @@ func (c *Client) SetFilePriority(h metainfo.Hash, fileIDs []int, priority int) e
 			}
 
 			touchesChanged := false
-			for _, fc := range d.pieceInfo[pi].fileChunks {
+			for _, fc := range d.pieceInfo.fileChunks(pi) {
 				if _, ok := fileIDSet[fc.fileIndex]; ok {
 					touchesChanged = true
 					break

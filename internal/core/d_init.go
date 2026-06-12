@@ -69,8 +69,7 @@ func (d *Download) initCheck() error {
 			return d.ctx.Err()
 		}
 
-		piece := d.pieceInfo[pieceIndex]
-		for _, chunk := range piece.fileChunks {
+		for _, chunk := range d.pieceInfo.fileChunks(pieceIndex) {
 			f, err := d.openFileReadOnly(chunk.fileIndex)
 			if err != nil {
 				return errgo.Wrap(err, fmt.Sprintf("failed to open file %q", filepath.Join(d.basePath, d.info.Files[chunk.fileIndex].Path)))
@@ -104,9 +103,8 @@ func (d *Download) buildPieceToCheck(efs map[int]*existingFile) []uint32 {
 	var r = make([]uint32, 0, d.info.NumPieces)
 
 	for i := range d.info.NumPieces {
-		p := d.pieceInfo[i]
 		shouldCheck := true
-		for _, c := range p.fileChunks {
+		for _, c := range d.pieceInfo.fileChunks(i) {
 			ef, ok := efs[c.fileIndex]
 			if !ok {
 				shouldCheck = false

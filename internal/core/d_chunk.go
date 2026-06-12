@@ -16,26 +16,34 @@ func (d *Download) pieceLength(index uint32) int64 {
 	return d.info.PieceLength
 }
 
-type pieceFileChunks struct {
-	fileChunks []fileChunkInfo
+type pieceInfo struct {
+	offsets      []uint32       // NumPieces+1 entries, piece i uses chunks[offsets[i]:offsets[i+1]]
+	chunks       []fileChunkInfo // single contiguous array
 }
 
-func buildPieceInfos(info meta.Info) []pieceFileChunks {
-	p := make([]pieceFileChunks, info.NumPieces)
+func (p *pieceInfo) fileChunks(index uint32) []fileChunkInfo {
+	return p.chunks[p.offsets[index]:p.offsets[index+1]]
+}
+
+func buildPieceInfos(info meta.Info) pieceInfo {
+	offsets := make([]uint32, info.NumPieces+1)
+
+	chunks := make([]fileChunkInfo, 0, info.NumPieces)
 
 	for i := range info.NumPieces {
-		p[i] = getPieceInfo(i, info)
+		offsets[i] = uint32(len(chunks))
+		chunks = append(chunks, pieceFileInfos(i, info)...)
 	}
 
-	return p
+	offsets[info.NumPieces] = uint32(len(chunks))
+
+	return pieceInfo{offsets: offsets, chunks: chunks}
 }
 
-func getPieceInfo(i uint32, info meta.Info) pieceFileChunks {
+func getPieceInfo(i uint32, info meta.Info) []fileChunkInfo {
 	assert.NotEqual(info.Pieces[i], [20]byte{})
 
-	return pieceFileChunks{
-		fileChunks: pieceFileInfos(i, info),
-	}
+	return pieceFileInfos(i, info)
 }
 
 type fileChunkInfo struct {
