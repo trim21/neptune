@@ -286,9 +286,8 @@ func (d *Download) dispatchUploadWithData(item uploadReq, data []byte, responses
 
 // buf must be big enough to read whole piece.
 func (d *Download) readPiece(index uint32, buf []byte) error {
-	pieces := d.pieceInfo[index]
 	var offset int64 = 0
-	for _, chunk := range pieces.fileChunks {
+	for _, chunk := range d.pieceInfo.fileChunks(index) {
 		f, err := d.openFileReadOnly(chunk.fileIndex)
 		if err != nil {
 			return err

@@ -342,9 +342,9 @@ func (d *Download) checkPiece(pieceIndex uint32) error {
 	defer mempool.Put(buf)
 
 	hasher := sha1.New()
-	piece := d.pieceInfo[pieceIndex]
+	piece := d.pieceInfo.fileChunks(pieceIndex)
 
-	for _, chunk := range piece.fileChunks {
+	for _, chunk := range piece {
 		f, err := d.openFileReadOnly(chunk.fileIndex)
 		if err != nil {
 			return errgo.Wrap(err, "failed to open file for hashing")

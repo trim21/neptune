@@ -138,7 +138,7 @@ type Download struct {
 	chunk                  chunkState
 	tags                   []string
 	custom                 map[string]string
-	pieceInfo              []pieceFileChunks
+	pieceInfo              pieceInfo
 	trackers               []TrackerTier
 	pieceAvailability      []int32
 	trackerErrorsMap       *xsync.Map[string, string]
@@ -337,7 +337,7 @@ func (d *Download) hasSelectedFilesUnsafe(pieceIndex uint32) bool {
 	if d.selectedFilesSet == nil {
 		return true
 	}
-	for _, c := range d.pieceInfo[pieceIndex].fileChunks {
+	for _, c := range d.pieceInfo.fileChunks(pieceIndex) {
 		if _, ok := d.selectedFilesSet[c.fileIndex]; ok {
 			return true
 		}
