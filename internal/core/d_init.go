@@ -130,27 +130,38 @@ func (d *Download) buildPieceToCheck(efs map[int]*existingFile) []uint32 {
 func tryAllocFile(index int, path string, size int64, doAlloc bool, selected bool) (*existingFile, error) {
 	f, err := os.OpenFile(path, os.O_WRONLY, 0)
 	if err != nil {
-		if !os.IsNotExist(err) {
-			return nil, err
+		if os.IsNotExist(err) {
+			return tryCreateFile(path, size, doAlloc, selected)
 		}
 
-		if err = os.MkdirAll(filepath.Dir(path), os.ModePerm); err != nil {
-			return nil, err
-		}
-
-		f, err = os.Create(path)
+		f, err = os.OpenFile(path, os.O_RDONLY, 0)
 		if err != nil {
 			return nil, err
 		}
-		defer f.Close()
-
-		if doAlloc && selected {
-			return nil, fallocate.Fallocate(f, 0, size)
-		}
-
-		return nil, f.Truncate(size)
 	}
 
+	return statAndAllocFile(f, index, size, doAlloc, selected)
+}
+
+func tryCreateFile(path string, size int64, doAlloc bool, selected bool) (*existingFile, error) {
+	if err := os.MkdirAll(filepath.Dir(path), os.ModePerm); err != nil {
+		return nil, err
+	}
+
+	f, err := os.Create(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	if doAlloc && selected {
+		return nil, fallocate.Fallocate(f, 0, size)
+	}
+
+	return nil, f.Truncate(size)
+}
+
+func statAndAllocFile(f *os.File, index int, size int64, doAlloc bool, selected bool) (*existingFile, error) {
 	defer f.Close()
 
 	stat, err := f.Stat()
