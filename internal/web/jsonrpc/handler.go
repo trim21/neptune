@@ -232,7 +232,7 @@ func (h *Handler) invoke(ctx context.Context, req Request, resp *Response) {
 	}
 
 	if err := m.useCase.Interact(ctx, input, output); err != nil {
-		h.errResp(resp, "operation failed", CodeInternalError, err)
+		h.errResp(resp, fmt.Sprintf("operation failed: %s", err.Error()), CodeInternalError, err)
 
 		return
 	}
