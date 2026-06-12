@@ -31,7 +31,12 @@ func New() *FilePool {
 }
 
 func onEvict(key cacheKey, value *File) {
-	// Idle entry being evicted; safe to close.
+	if value == nil {
+		return
+	}
+	if value.ref.Load() > 0 {
+		return
+	}
 	log.Debug().Str("path", key.path).Msg("close file")
 	_ = value.File.Close()
 	value.pool = nil
@@ -56,9 +61,9 @@ func (pool *FilePool) Open(path string, flag int, perm os.FileMode, ttl time.Dur
 		return f, nil
 	}
 	if f, ok := pool.idle.Get(key); ok {
-		pool.idle.Remove(key)
 		f.ref.Store(1)
 		pool.active[key] = f
+		pool.idle.Remove(key)
 		pool.mu.Unlock()
 		return f, nil
 	}
