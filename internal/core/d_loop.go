@@ -124,23 +124,11 @@ func (d *Download) wait(states State) bool {
 	return true
 }
 
-func (d *Download) handleConnectionChange() {
-	for {
-		select {
-		case <-d.ctx.Done():
-			return
-		case <-d.buildNetworkPieces:
-			// d.onConnectionChanged()
-		}
-	}
-}
-
 func (d *Download) startBackground() {
 	d.log.Trace().Msg("start goroutine")
 
 	d.goBackground(d.backgroundResHandler)
 	d.goBackground(d.backgroundReqScheduler)
-	d.goBackground(d.handleConnectionChange)
 	d.goBackground(d.backgroundReqHandler)
 	d.goBackground(d.unchokeLoop)
 	d.goBackground(d.backgroundTrackerHandler)
