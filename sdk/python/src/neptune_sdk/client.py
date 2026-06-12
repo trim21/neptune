@@ -234,6 +234,10 @@ class NeptuneClient:
         """Stop a torrent."""
         self._call("torrent.stop", InfoHashRequest(info_hash=info_hash))
 
+    def torrent_recheck(self, info_hash: str) -> None:
+        """Recheck torrent data integrity."""
+        self._call("torrent.recheck", InfoHashRequest(info_hash=info_hash))
+
     # ── torrent — custom ───────────────────────────────────────────────
 
     def torrent_custom_set(self, info_hash: str, key: str, value: str) -> None:
