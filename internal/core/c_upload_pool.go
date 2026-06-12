@@ -53,56 +53,64 @@ func (c *Client) uploadWorker() {
 		case <-c.ctx.Done():
 			return
 		case t := <-c.uploadQ:
-			d := t.d
-			p := t.peer
-
-			if d == nil || p == nil {
-				continue
-			}
-			if d.ctx.Err() != nil || p.closed.Load() {
-				continue
-			}
-			if d.GetState()&(Downloading|Seeding) == 0 {
-				continue
-			}
-
-			res := proto.PiecePool.Get()
-			res.PieceIndex = t.req.PieceIndex
-			res.Begin = t.req.Begin
-
-			if t.data != nil {
-				res.Data = append(res.Data[:0], t.data...)
-			} else {
-				res.Data = slices.Grow(res.Data[:0], int(t.req.Length))[:t.req.Length]
-
-				err := d.readPieceRangeCtx(d.ctx, t.req, res.Data)
-				if err != nil {
-					proto.PiecePool.Put(res)
-					if err == errUploadPaused || err == context.Canceled {
-						continue
-					}
-					d.setError(err)
-					p.close()
-					continue
-				}
-			}
-
-			// Rate limit: block before sending to the network.
-			if err := d.uploadLimiter.Wait(d.ctx, len(res.Data)); err != nil {
-				proto.PiecePool.Put(res)
-				continue
-			}
-			if err := d.c.uploadLimiter.Wait(d.ctx, len(res.Data)); err != nil {
-				proto.PiecePool.Put(res)
-				continue
-			}
-
-			if p.Response(res) {
-				d.ioUp.Update(len(res.Data))
-				d.c.ioUp.Update(len(res.Data))
-				d.uploaded.Add(int64(len(res.Data)))
-			}
-			proto.PiecePool.Put(res)
+			c.processUploadTask(t)
 		}
 	}
+}
+
+func (c *Client) processUploadTask(t uploadTask) {
+	if t.data != nil {
+		defer c.memBudget.Release(int64(len(t.data)))
+	}
+
+	d := t.d
+	p := t.peer
+
+	if d == nil || p == nil {
+		return
+	}
+	if d.ctx.Err() != nil || p.closed.Load() {
+		return
+	}
+	if d.GetState()&(Downloading|Seeding) == 0 {
+		return
+	}
+
+	res := proto.PiecePool.Get()
+	res.PieceIndex = t.req.PieceIndex
+	res.Begin = t.req.Begin
+
+	if t.data != nil {
+		res.Data = append(res.Data[:0], t.data...)
+	} else {
+		res.Data = slices.Grow(res.Data[:0], int(t.req.Length))[:t.req.Length]
+
+		err := d.readPieceRangeCtx(d.ctx, t.req, res.Data)
+		if err != nil {
+			proto.PiecePool.Put(res)
+			if err == errUploadPaused || err == context.Canceled {
+				return
+			}
+			d.setError(err)
+			p.close()
+			return
+		}
+	}
+
+	// Rate limit: block before sending to the network.
+	if err := d.uploadLimiter.Wait(d.ctx, len(res.Data)); err != nil {
+		proto.PiecePool.Put(res)
+		return
+	}
+	if err := d.c.uploadLimiter.Wait(d.ctx, len(res.Data)); err != nil {
+		proto.PiecePool.Put(res)
+		return
+	}
+
+	if p.Response(res) {
+		d.ioUp.Update(len(res.Data))
+		d.c.ioUp.Update(len(res.Data))
+		d.uploaded.Add(int64(len(res.Data)))
+	}
+	proto.PiecePool.Put(res)
 }
