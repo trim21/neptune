@@ -257,7 +257,7 @@ func (t *Tracker) req(d *Download) *resty.Request {
 const defaultTrackerInterval = time.Minute * 30
 
 func (t *Tracker) announce(d *Download, event AnnounceEvent) AnnounceResult {
-	d.log.Trace().Str("url", t.url).Msg("announce to tracker")
+	d.log.Debug().Str("url", t.url).Msg("announce to tracker")
 
 	ctx, cancel := context.WithTimeout(d.ctx, 15*time.Second)
 	defer cancel()
