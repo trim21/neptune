@@ -51,27 +51,28 @@ type cacheKey struct {
 
 // Open returns a handle and bumps its ref. It prefers an active handle, then an
 // idle one, and only opens a new fd if none exist.
-func (pool *FilePool) Open(path string, flag int, perm os.FileMode, ttl time.Duration) (*File, error) {
+// fresh is true when a new fd was created (rather than taken from the cache).
+func (pool *FilePool) Open(path string, flag int, perm os.FileMode, ttl time.Duration) (file *File, fresh bool, err error) {
 	key := cacheKey{path: path, flag: flag, perm: perm, ttl: ttl}
 
 	pool.mu.Lock()
 	if f, ok := pool.active[key]; ok {
 		f.ref.Add(1)
 		pool.mu.Unlock()
-		return f, nil
+		return f, false, nil
 	}
 	if f, ok := pool.idle.Get(key); ok {
 		f.ref.Store(1)
 		pool.active[key] = f
 		pool.idle.Remove(key)
 		pool.mu.Unlock()
-		return f, nil
+		return f, false, nil
 	}
 	pool.mu.Unlock()
 
 	fd, err := os.OpenFile(path, flag, perm)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	f := &File{File: fd, key: key, pool: pool}
@@ -81,7 +82,7 @@ func (pool *FilePool) Open(path string, flag int, perm os.FileMode, ttl time.Dur
 	pool.active[key] = f
 	pool.mu.Unlock()
 
-	return f, nil
+	return f, true, nil
 }
 
 // File wraps an *os.File with ref counting.

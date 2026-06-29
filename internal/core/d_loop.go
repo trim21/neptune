@@ -12,6 +12,7 @@ import (
 	"github.com/docker/go-units"
 
 	"neptune/internal/pkg/empty"
+	"neptune/internal/pkg/fadvise"
 	"neptune/internal/pkg/filepool"
 )
 
@@ -276,20 +277,34 @@ func (d *Download) openFile(fileIndex int) (*filepool.File, error) {
 	p := filepath.Join(d.basePath, d.info.Files[fileIndex].Path)
 	d.m.RUnlock()
 
-	file, err := d.c.filePool.Open(p, os.O_RDWR|os.O_CREATE, os.ModePerm, time.Hour)
+	file, fresh, err := d.c.filePool.Open(p, os.O_RDWR|os.O_CREATE, os.ModePerm, time.Hour)
 	if err == nil {
+		d.adviseFresh(file, fresh)
 		return file, nil
 	}
 
 	if os.IsNotExist(err) {
 		// only try to create directory if needed.
-		err := os.MkdirAll(filepath.Dir(p), os.ModePerm)
+		err = os.MkdirAll(filepath.Dir(p), os.ModePerm)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	return d.c.filePool.Open(p, os.O_RDWR|os.O_CREATE, os.ModePerm, time.Hour)
+	file, fresh, err = d.c.filePool.Open(p, os.O_RDWR|os.O_CREATE, os.ModePerm, time.Hour)
+	if err != nil {
+		return nil, err
+	}
+	d.adviseFresh(file, fresh)
+	return file, nil
+}
+
+// adviseFresh sets FADV_RANDOM on newly-opened fds. Piece access during
+// download/seed is random; initCheck handles its own Sequential advice.
+func (d *Download) adviseFresh(f *filepool.File, fresh bool) {
+	if fresh {
+		_ = fadvise.Random(f.File, 0, 0)
+	}
 }
 
 func (d *Download) openFileReadOnly(fileIndex int) (*filepool.File, error) {
@@ -297,5 +312,10 @@ func (d *Download) openFileReadOnly(fileIndex int) (*filepool.File, error) {
 	p := filepath.Join(d.basePath, d.info.Files[fileIndex].Path)
 	d.m.RUnlock()
 
-	return d.c.filePool.Open(p, os.O_RDONLY, 0, time.Hour)
+	file, fresh, err := d.c.filePool.Open(p, os.O_RDONLY, 0, time.Hour)
+	if err != nil {
+		return nil, err
+	}
+	d.adviseFresh(file, fresh)
+	return file, nil
 }

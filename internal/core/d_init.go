@@ -16,6 +16,7 @@ import (
 	"github.com/juju/ratelimit"
 	"github.com/trim21/errgo"
 
+	"neptune/internal/pkg/fadvise"
 	"neptune/internal/pkg/fallocate"
 	"neptune/internal/pkg/gfs"
 	"neptune/internal/pkg/global"
@@ -70,18 +71,20 @@ func (d *Download) initCheck() error {
 		}
 
 		for _, chunk := range d.pieceInfo.fileChunks(pieceIndex) {
-			f, err := d.openFileReadOnly(chunk.fileIndex)
+			p := filepath.Join(d.basePath, d.info.Files[chunk.fileIndex].Path)
+			f, err := os.OpenFile(p, os.O_RDONLY, 0)
 			if err != nil {
-				return errgo.Wrap(err, fmt.Sprintf("failed to open file %q", filepath.Join(d.basePath, d.info.Files[chunk.fileIndex].Path)))
+				return errgo.Wrap(err, fmt.Sprintf("failed to open file %q", p))
 			}
+			// Init check scans files sequentially; tell the kernel to prefetch.
+			_ = fadvise.Sequential(f, 0, 0)
 
-			_, err = d.ioDown.IO64(gfs.CopyReaderAt(w, f.File, chunk.offsetOfFile, chunk.length))
+			_, err = d.ioDown.IO64(gfs.CopyReaderAt(w, f, chunk.offsetOfFile, chunk.length))
 			if err != nil {
 				f.Close()
-				return errgo.Wrap(err, "failed to read file "+f.File.Name())
+				return errgo.Wrap(err, "failed to read file "+f.Name())
 			}
-
-			f.Release()
+			f.Close()
 		}
 		sha1Sum = sum.Sum(sha1Sum[:0])
 		if [sha1.Size]byte(sha1Sum[:sha1.Size]) == d.info.Pieces[pieceIndex] {

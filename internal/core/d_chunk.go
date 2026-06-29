@@ -17,8 +17,8 @@ func (d *Download) pieceLength(index uint32) int64 {
 }
 
 type pieceInfo struct {
-	offsets      []uint32       // NumPieces+1 entries, piece i uses chunks[offsets[i]:offsets[i+1]]
-	chunks       []fileChunkInfo // single contiguous array
+	offsets []uint32        // NumPieces+1 entries, piece i uses chunks[offsets[i]:offsets[i+1]]
+	chunks  []fileChunkInfo // single contiguous array
 }
 
 func (p *pieceInfo) fileChunks(index uint32) []fileChunkInfo {
