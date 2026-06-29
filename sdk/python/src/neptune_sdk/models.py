@@ -28,6 +28,10 @@ class MainDataTorrent:
     selected_size: int
     add_at: int
     private: bool
+    total_seeding: int
+    total_downloading: int
+    connected_seeding: int
+    connected_downloading: int
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

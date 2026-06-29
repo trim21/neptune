@@ -399,6 +399,24 @@ func (p peerWithPriority) Less(o peerWithPriority) bool {
 	return p.priority > o.priority
 }
 
+func (d *Download) trackerTotals() (seeders, leechers int) {
+	d.trackerMutex.RLock()
+	defer d.trackerMutex.RUnlock()
+
+	for _, tier := range d.trackers {
+		for _, t := range tier.trackers {
+			if t.seeders > seeders {
+				seeders = t.seeders
+			}
+			if t.leechers > leechers {
+				leechers = t.leechers
+			}
+		}
+	}
+
+	return
+}
+
 func parseCompact4(b []byte) netip.AddrPort {
 	return netip.AddrPortFrom(netip.AddrFrom4([4]byte(b[:4])), binary.BigEndian.Uint16(b[4:6]))
 }

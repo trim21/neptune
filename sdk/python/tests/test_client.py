@@ -51,6 +51,10 @@ TORRENT_JSON = {
     "total_length": 100,
     "selected_size": 100,
     "add_at": 0,
+    "total_seeding": 0,
+    "total_downloading": 1,
+    "connected_seeding": 0,
+    "connected_downloading": 2,
     "private": False,
 }
 

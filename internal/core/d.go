@@ -402,3 +402,16 @@ func (d *Download) markUnselectedPiecesDoneUnsafe() {
 		}
 	}
 }
+
+func (d *Download) peerSeedLeecherCounts() (seeds, leechers int) {
+	totalPieces := d.info.NumPieces
+	d.peers.Range(func(_ netip.AddrPort, p *Peer) bool {
+		if p.Bitmap.Count() == totalPieces {
+			seeds++
+		} else {
+			leechers++
+		}
+		return true
+	})
+	return
+}

@@ -41,25 +41,29 @@ var (
 )
 
 type MainDataTorrent struct {
-	Custom          map[string]string `json:"custom"`
-	InfoHash        string            `json:"hash"`
-	Name            string            `json:"name"`
-	State           string            `json:"state"`
-	Comment         string            `json:"comment"`
-	DirectoryBase   string            `json:"directory_base"`
-	Message         string            `json:"message"`
-	TrackerErrors   map[string]string `json:"tracker_errors"`
-	Tags            []string          `json:"tags"`
-	DownloadRate    int64             `json:"download_rate"`
-	DownloadTotal   int64             `json:"download_total"`
-	UploadRate      int64             `json:"upload_rate"`
-	UploadTotal     int64             `json:"upload_total"`
-	ConnectionCount int               `json:"connection_count"`
-	Completed       int64             `json:"completed"`
-	TotalLength     int64             `json:"total_length"`
-	SelectedSize    int64             `json:"selected_size"`
-	AddedAt         int64             `json:"add_at"`
-	Private         bool              `json:"private"`
+	Custom               map[string]string `json:"custom"`
+	InfoHash             string            `json:"hash"`
+	Name                 string            `json:"name"`
+	State                string            `json:"state"`
+	Comment              string            `json:"comment"`
+	DirectoryBase        string            `json:"directory_base"`
+	Message              string            `json:"message"`
+	TrackerErrors        map[string]string `json:"tracker_errors"`
+	Tags                 []string          `json:"tags"`
+	DownloadRate         int64             `json:"download_rate"`
+	DownloadTotal        int64             `json:"download_total"`
+	UploadRate           int64             `json:"upload_rate"`
+	UploadTotal          int64             `json:"upload_total"`
+	ConnectionCount      int               `json:"connection_count"`
+	Completed            int64             `json:"completed"`
+	TotalLength          int64             `json:"total_length"`
+	SelectedSize         int64             `json:"selected_size"`
+	AddedAt              int64             `json:"add_at"`
+	Private              bool              `json:"private"`
+	TotalSeeding         int               `json:"total_seeding"`
+	TotalDownloading     int               `json:"total_downloading"`
+	ConnectedSeeding     int               `json:"connected_seeding"`
+	ConnectedDownloading int               `json:"connected_downloading"`
 }
 
 type TorrentList struct {
@@ -76,6 +80,7 @@ func (c *Client) GetTorrentList(keys []string) TorrentList {
 		d.m.RLock()
 
 		msg := d.ErrorMsg()
+		peers := d.peers.Size()
 
 		custom := d.custom
 		if len(keys) > 0 && custom != nil {
@@ -87,26 +92,33 @@ func (c *Client) GetTorrentList(keys []string) TorrentList {
 			}
 		}
 
+		totalSeeding, totalDownloading := d.trackerTotals()
+		connectedSeeding, connectedDownloading := d.peerSeedLeecherCounts()
+
 		torrents[i] = MainDataTorrent{
-			InfoHash:        d.info.Hash.Hex(),
-			Name:            d.info.Name,
-			State:           State(d.state.Load()).String(),
-			DownloadRate:    d.ioDown.Status().CurRate,
-			DownloadTotal:   d.downloaded.Load(),
-			UploadRate:      d.ioUp.Status().CurRate,
-			UploadTotal:     d.uploaded.Load(),
-			Completed:       d.completed.Load(),
-			TotalLength:     d.info.TotalLength,
-			SelectedSize:    d.SelectedSize(),
-			Comment:         d.info.Comment,
-			AddedAt:         d.AddAt,
-			DirectoryBase:   d.downloadDir,
-			Private:         d.info.Private,
-			Tags:            d.tags,
-			Custom:          custom,
-			ConnectionCount: d.peers.Size(),
-			Message:         msg,
-			TrackerErrors:   d.trackerErrors(),
+			InfoHash:             d.info.Hash.Hex(),
+			Name:                 d.info.Name,
+			State:                State(d.state.Load()).String(),
+			DownloadRate:         d.ioDown.Status().CurRate,
+			DownloadTotal:        d.downloaded.Load(),
+			UploadRate:           d.ioUp.Status().CurRate,
+			UploadTotal:          d.uploaded.Load(),
+			Completed:            d.completed.Load(),
+			TotalLength:          d.info.TotalLength,
+			SelectedSize:         d.SelectedSize(),
+			Comment:              d.info.Comment,
+			AddedAt:              d.AddAt,
+			DirectoryBase:        d.downloadDir,
+			Private:              d.info.Private,
+			Tags:                 d.tags,
+			Custom:               custom,
+			ConnectionCount:      peers,
+			Message:              msg,
+			TrackerErrors:        d.trackerErrors(),
+			TotalSeeding:         totalSeeding,
+			TotalDownloading:     totalDownloading,
+			ConnectedSeeding:     connectedSeeding,
+			ConnectedDownloading: connectedDownloading,
 		}
 
 		d.m.RUnlock()
