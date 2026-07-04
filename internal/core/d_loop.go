@@ -91,21 +91,8 @@ func (d *Download) AsyncCheck() error {
 func (d *Download) Init(resumed bool, skipHashCheck bool) {
 	d.check(resumed, skipHashCheck)
 
+	d.announce(EventStarted)
 	go d.startBackground()
-
-	d.backgroundWg.Go(func() {
-		d.announce(EventStarted)
-		ticker := time.NewTicker(time.Second * 5)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-d.ctx.Done():
-				return
-			case <-ticker.C:
-			}
-			d.TryAnnounce()
-		}
-	})
 
 	d.saveResume()
 }

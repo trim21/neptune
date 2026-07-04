@@ -65,14 +65,14 @@ func (d *Download) updateTrackerError(t *Tracker) {
 }
 
 func (d *Download) backgroundTrackerHandler() {
-	timer := time.NewTimer(time.Second * 10)
-	defer timer.Stop()
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
 
 	for {
 		select {
 		case <-d.ctx.Done():
 			return
-		case <-timer.C:
+		case <-ticker.C:
 			d.TryAnnounce()
 		}
 	}
