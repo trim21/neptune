@@ -339,10 +339,10 @@ func TestE2E(t *testing.T) {
 	})
 
 	// ---------------------------------------------------------------------------
-	// torrent.resume
+	// torrent.start (idempotent — already started)
 	// ---------------------------------------------------------------------------
-	t.Run("torrent.resume", func(t *testing.T) {
-		resp := makeJSONRPCRequest(t, url, token, "torrent.resume", map[string]string{
+	t.Run("torrent.start_idempotent", func(t *testing.T) {
+		resp := makeJSONRPCRequest(t, url, token, "torrent.start", map[string]string{
 			keyInfoHash: infoHash,
 		})
 		requireNoRPCError(t, resp)

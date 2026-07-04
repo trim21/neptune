@@ -206,13 +206,6 @@ def test_torrent_move(mock_api, client):
     assert payload["params"]["target_base_path"] == "/new/path"
 
 
-def test_torrent_resume(mock_api, client):
-    mock_api.post("/json_rpc").mock(return_value=_ok(None))
-    client.torrent_resume("aabb")
-    payload = json.loads(mock_api.calls.last.request.content)
-    assert payload["method"] == "torrent.resume"
-
-
 def test_torrent_start(mock_api, client):
     mock_api.post("/json_rpc").mock(return_value=_ok(None))
     client.torrent_start("aabb")

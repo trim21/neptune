@@ -19,7 +19,7 @@ func (c *Client) StopTorrent(h metainfo.Hash) error {
 	}
 
 	if d.HasState(Stopped) {
-		return fmt.Errorf("torrent %s is already stopped", h)
+		return nil
 	}
 
 	return d.Stop()
