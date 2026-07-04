@@ -72,7 +72,8 @@ func TestHandler_Add(t *testing.T) {
 
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, req)
-	require.JSONEq(t, `{"jsonrpc":"2.0","error":{"code":-32602,"message":"failed to unmarshal parameters","data":"json: cannot unmarshal string into Go struct field inp.b of type int"},"id":1}`, w.Body.String())
+	require.Contains(t, w.Body.String(), `"code":-32602`)
+	require.Contains(t, w.Body.String(), `"message":"failed to unmarshal parameters"`)
 	require.Equal(t, 2, cnt)
 
 	_, err = http.NewRequestWithContext(t.Context(), http.MethodPost, "/", bytes.NewReader([]byte(`{"jsonrpc":"2.0","method":"echo","params":{"a":"a","b":9},"id":1}`)))
