@@ -137,15 +137,15 @@ func (h *Handler) Add(u usecase.Interactor) {
 
 // Request is an JSON-RPC request item.
 type Request struct {
-	JSONRPC string          `json:"jsonrpc"`
-	Method  string          `json:"method"`
+	JSONRPC string                 `json:"jsonrpc"`
+	Method  string                 `json:"method"`
 	Params  sonic.NoCopyRawMessage `json:"params"`
 	ID      sonic.NoCopyRawMessage `json:"id,omitempty"`
 }
 
 // Response is an JSON-RPC response item.
 type Response struct {
-	JSONRPC string          `json:"jsonrpc"`
+	JSONRPC string                 `json:"jsonrpc"`
 	Result  sonic.NoCopyRawMessage `json:"result,omitempty"`
 	Error   *Error                 `json:"error,omitempty"`
 	ID      sonic.NoCopyRawMessage `json:"id"`
