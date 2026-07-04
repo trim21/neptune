@@ -50,7 +50,6 @@ Every JSON-RPC method maps 1:1 to an async client method:
 | `torrent.add` | `torrent_add(AddTorrentRequest)` |
 | `torrent.move` | `torrent_move(info_hash, target_base_path)` |
 | `torrent.remove` | `torrent_remove(info_hash, delete_data=False)` |
-| `torrent.resume` | `torrent_resume(info_hash)` |
 | `torrent.start` | `torrent_start(info_hash)` |
 | `torrent.stop` | `torrent_stop(info_hash)` |
 | `torrent.add_tags` | `torrent_add_tags(info_hash, tags)` |

@@ -114,7 +114,6 @@ func New(c *core.Client, token string, enableDebug bool) http.Handler {
 	setCustom(h, c)
 	updateCustom(h, c)
 	delCustom(h, c)
-	resumeTorrent(h, c)
 	startTorrent(h, c)
 	stopTorrent(h, c)
 	recheckTorrent(h, c)

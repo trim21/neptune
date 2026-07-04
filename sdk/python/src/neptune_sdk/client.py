@@ -222,10 +222,6 @@ class NeptuneClient:
             ),
         )
 
-    def torrent_resume(self, info_hash: str) -> None:
-        """Resume a torrent."""
-        self._call("torrent.resume", InfoHashRequest(info_hash=info_hash))
-
     def torrent_start(self, info_hash: str) -> None:
         """Start a torrent."""
         self._call("torrent.start", InfoHashRequest(info_hash=info_hash))
