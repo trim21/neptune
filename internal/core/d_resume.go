@@ -6,11 +6,9 @@ package core
 import (
 	"encoding"
 	"fmt"
-	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"slices"
-	"time"
 
 	"github.com/rs/zerolog/log"
 	"github.com/samber/lo"
@@ -98,11 +96,7 @@ func (d *Download) MarshalBinary() (data []byte, err error) {
 		SelectedFiles:      selectedFiles,
 		DownloadSpeedLimit: d.downloadLimiter.Rate(),
 		UploadSpeedLimit:   d.uploadLimiter.Rate(),
-		Trackers: lo.Map(d.trackers, func(tier TrackerTier, index int) []string {
-			return lo.Map(tier.trackers, func(tracker *Tracker, index int) string {
-				return tracker.url
-			})
-		}),
+		Trackers:           d.Trk.URLs(),
 	})
 }
 
@@ -155,13 +149,7 @@ func (c *Client) UnmarshalResume(data []byte) error {
 	d.uploadLimiter.Update(r.UploadSpeedLimit)
 
 	// stagger initial announce time to spread announces over 30 minutes
-	d.trackerMutex.Lock()
-	for _, tier := range d.trackers {
-		for _, t := range tier.trackers {
-			t.nextAnnounce = t.nextAnnounce.Add(time.Duration(rand.IntN(30*60)) * time.Second)
-		}
-	}
-	d.trackerMutex.Unlock()
+	d.Trk.Stagger()
 
 	c.m.Lock()
 	defer c.m.Unlock()

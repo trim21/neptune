@@ -10,6 +10,7 @@ import (
 	"github.com/samber/lo"
 	"github.com/trim21/go-bencode"
 
+	"neptune/internal/core/tracker"
 	"neptune/internal/metainfo"
 	"neptune/internal/pkg/null"
 )
@@ -28,7 +29,7 @@ type scrapeResponseFile struct {
 // trackerRef references a specific tracker within a download.
 type trackerRef struct {
 	download *Download
-	tracker  *Tracker
+	tracker  *tracker.Tracker
 }
 
 func (c *Client) scrape() {
@@ -45,16 +46,12 @@ func (c *Client) scrape() {
 			continue
 		}
 
-		d.m.RLock()
-		for _, tier := range d.trackers {
-			for _, t := range tier.trackers {
-				if scrapeURL, ok := announceToScrape(t.url); ok {
-					m[scrapeURL] = append(m[scrapeURL], trackerRef{download: d, tracker: t})
-					hashes[scrapeURL] = append(hashes[scrapeURL], d.info.Hash)
-				}
+		d.Trk.Each(func(_ int, t *tracker.Tracker) {
+			if scrapeURL, ok := tracker.AnnounceToScrape(t.URL); ok {
+				m[scrapeURL] = append(m[scrapeURL], trackerRef{download: d, tracker: t})
+				hashes[scrapeURL] = append(hashes[scrapeURL], d.info.Hash)
 			}
-		}
-		d.m.RUnlock()
+		})
 	}
 
 	for scrapeURL, refs := range m {
@@ -77,8 +74,8 @@ func (c *Client) scrape() {
 
 		for _, ref := range refs {
 			if file, ok := resp.Files[ref.download.info.Hash]; ok {
-				ref.download.trackerSeeds.Store(ref.tracker.url, file.Complete)
-				ref.download.trackerLeechers.Store(ref.tracker.url, file.Incomplete)
+				ref.download.Trk.Seeds.Store(ref.tracker.URL, file.Complete)
+				ref.download.Trk.Leechers.Store(ref.tracker.URL, file.Incomplete)
 			}
 		}
 	}

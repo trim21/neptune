@@ -20,6 +20,7 @@ import (
 	"github.com/samber/lo"
 	"go.uber.org/atomic"
 
+	"neptune/internal/core/tracker"
 	"neptune/internal/meta"
 	"neptune/internal/metainfo"
 	"neptune/internal/pkg/as"
@@ -135,16 +136,12 @@ type Download struct {
 	selectedFilesSet       map[int]struct{}
 	basePath               string
 	downloadDir            string
-	trackerKey             string
 	chunk                  chunkState
 	tags                   []string
 	custom                 map[string]string
 	pieceInfo              pieceInfo
-	trackers               []TrackerTier
+	Trk                    *tracker.Trackers
 	pieceAvailability      []int32
-	trackerErrorsMap       *xsync.Map[string, string]
-	trackerSeeds           *xsync.Map[string, int]
-	trackerLeechers        *xsync.Map[string, int]
 	info                   meta.Info
 	completed              atomic.Int64
 	selectedSize           atomic.Int64
@@ -157,11 +154,9 @@ type Download struct {
 	downloadAtStart        int64
 	endGameMode            atomic.Bool
 	seq                    atomic.Bool
-	announcePending        atomic.Bool
 	peerSeeds              atomic.Int64
 	peerLeechers           atomic.Int64
 	state                  atomic.Uint32
-	trackerMutex           sync.RWMutex
 	m                      sync.RWMutex
 	backgroundWg           sync.WaitGroup
 	ratePieceMutex         sync.Mutex
@@ -267,9 +262,7 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 			done: make(bitmap.Bitmap, (int64(info.NumPieces)*((info.PieceLength+defaultBlockSize-1)/defaultBlockSize)+63)/64),
 		},
 		endgameRequested: xsync.NewMap[proto.ChunkRequest, empty.Empty](),
-		trackerErrorsMap: xsync.NewMap[string, string](),
-
-		pendingPeers: heap.New[peerWithPriority](),
+		pendingPeers:     heap.New[peerWithPriority](),
 
 		// will use about 1mb per torrent, can be optimized later
 		pieceInfo: buildPieceInfos(info),
@@ -290,11 +283,6 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 
 		downloadDir: basePath,
 
-		trackerKey: random.URLSafeStr(16),
-
-		trackerSeeds:    xsync.NewMap[string, int](),
-		trackerLeechers: xsync.NewMap[string, int](),
-
 		downloadLimiter: ratelimit.New(0),
 		uploadLimiter:   ratelimit.New(0),
 	}
@@ -311,6 +299,30 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 	}
 	d.selectedSize.Store(d.computeSelectedSizeUnsafe())
 	d.buildSelectedPiecesBmUnsafe()
+
+	d.Trk = tracker.New(tracker.Config{
+		Key:             random.URLSafeStr(16),
+		HTTP:            c.http,
+		InfoHash:        info.Hash.AsString(),
+		PeerID:          d.peerID.AsString(),
+		Port:            c.Config.App.P2PPort,
+		Uploaded:        &d.uploaded,
+		UploadedStart:   d.uploadAtStart,
+		Downloaded:      &d.downloaded,
+		DownloadedStart: d.downloadAtStart,
+		Completed:       &d.completed,
+		SelectedSize:    &d.selectedSize,
+		OnPeers: func(peers []netip.AddrPort) {
+			d.pendingPeersMutex.Lock()
+			for _, p := range peers {
+				d.pendingPeers.Push(peerWithPriority{
+					addrPort: p,
+					priority: c.PeerPriority(p),
+				})
+			}
+			d.pendingPeersMutex.Unlock()
+		},
+	})
 
 	d.stateCond = gsync.NewCond(&gsync.EmptyLock{})
 
