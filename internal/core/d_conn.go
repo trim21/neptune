@@ -40,11 +40,13 @@ func (d *Download) connectToPeers() {
 		pp := d.pendingPeers.Pop()
 
 		if item, ok := d.connectionHistory.Get(pp.addrPort); ok {
-			if item.timeout {
-				continue
-			}
-			if item.refused {
-				continue
+			if time.Since(item.lastTry) < time.Minute*10 {
+				if item.timeout {
+					continue
+				}
+				if item.refused {
+					continue
+				}
 			}
 		}
 

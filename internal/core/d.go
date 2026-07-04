@@ -12,11 +12,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hashicorp/golang-lru/v2/expirable"
+	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/kelindar/bitmap"
 	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"github.com/samber/lo"
 	"go.uber.org/atomic"
 
 	"neptune/internal/meta"
@@ -118,7 +119,7 @@ type Download struct {
 	downloadLimiter        *ratelimit.Limiter
 	uploadLimiter          *ratelimit.Limiter
 	peers                  *xsync.Map[netip.AddrPort, *Peer]
-	connectionHistory      *expirable.LRU[netip.AddrPort, connHistory]
+	connectionHistory      *lru.Cache[netip.AddrPort, connHistory]
 	bm                     *bm.Bitmap
 	selectedPiecesBm       *bm.Bitmap
 	pendingPeers           *heap.Heap[peerWithPriority]
@@ -258,7 +259,7 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 		ioUp:    flowrate.New(time.Second, time.Second),
 
 		peers:             xsync.NewMap[netip.AddrPort, *Peer](),
-		connectionHistory: expirable.NewLRU[netip.AddrPort, connHistory](1024, nil, time.Minute*10),
+		connectionHistory: lo.Must(lru.New[netip.AddrPort, connHistory](256)),
 
 		chunk: chunkState{
 			done: make(bitmap.Bitmap, (int64(info.NumPieces)*((info.PieceLength+defaultBlockSize-1)/defaultBlockSize)+63)/64),
