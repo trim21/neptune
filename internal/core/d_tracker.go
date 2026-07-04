@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"net/netip"
 	"net/url"
@@ -270,7 +271,10 @@ func (t *Tracker) announce(d *Download, event AnnounceEvent) AnnounceResult {
 
 	res, err := req.Get(t.url)
 	if err != nil {
-		return AnnounceResult{Err: errgo.Wrap(err, "failed to connect to tracker")}
+		if errors.Is(err, context.DeadlineExceeded) {
+			return AnnounceResult{Err: errors.New("http request timeout")}
+		}
+		return AnnounceResult{Err: err}
 	}
 
 	var r trackerAnnounceResponse
