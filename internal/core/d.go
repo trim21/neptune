@@ -161,6 +161,7 @@ type Download struct {
 	backgroundWg           sync.WaitGroup
 	ratePieceMutex         sync.Mutex
 	pendingPeersMutex      sync.Mutex
+	unchokeSlotIdx         int
 	normalChunkLen         uint32
 	bitfieldSize           uint32
 	peerID                 proto.PeerID

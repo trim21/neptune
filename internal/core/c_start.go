@@ -29,6 +29,8 @@ func (c *Client) Start() error {
 		return err
 	}
 
+	c.startGlobalLoops()
+
 	// TODO: impl
 	if !global.Dev {
 		go func() {

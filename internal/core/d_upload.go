@@ -31,34 +31,7 @@ const (
 	unchokeInterval    = 10 * time.Second
 )
 
-// unchokeLoop periodically selects which peers get upload slots.
-// Based on libtorrent\'s choking algorithm:
-// - Sort interested peers by upload rate (descending)
-// - Unchoke top N peers
-// - Reserve 1 slot for optimistic unchoke (round-robin).
-func (d *Download) unchokeLoop() {
-	timer := time.NewTimer(unchokeInterval)
-	defer timer.Stop()
-
-	optimisticIdx := 0
-
-	for {
-		select {
-		case <-d.ctx.Done():
-			return
-		case <-timer.C:
-			timer.Reset(unchokeInterval)
-
-			if d.GetState()&(Downloading|Seeding) == 0 {
-				continue
-			}
-
-			d.recalculateUnchokeSlots(&optimisticIdx)
-		}
-	}
-}
-
-func (d *Download) recalculateUnchokeSlots(optimisticIdx *int) {
+func (d *Download) recalculateUnchokeSlots() {
 	type peerRate struct {
 		peer *Peer
 		rate int64
@@ -109,12 +82,12 @@ func (d *Download) recalculateUnchokeSlots(optimisticIdx *int) {
 	// optimistic unchoke: pick the peer that has been waiting longest
 	if len(candidates) > normalSlots {
 		// rotate through candidates beyond the normal slots
-		if *optimisticIdx >= len(candidates)-normalSlots {
-			*optimisticIdx = 0
+		if d.unchokeSlotIdx >= len(candidates)-normalSlots {
+			d.unchokeSlotIdx = 0
 		}
-		if normalSlots+*optimisticIdx < len(candidates) {
-			unchokable = append(unchokable, candidates[normalSlots+*optimisticIdx].peer)
-			*optimisticIdx++
+		if normalSlots+d.unchokeSlotIdx < len(candidates) {
+			unchokable = append(unchokable, candidates[normalSlots+d.unchokeSlotIdx].peer)
+			d.unchokeSlotIdx++
 		}
 	}
 

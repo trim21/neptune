@@ -131,7 +131,6 @@ func (d *Download) startBackground() {
 	d.goBackground(d.backgroundResHandler)
 	d.goBackground(d.backgroundReqScheduler)
 	d.goBackground(d.backgroundReqHandler)
-	d.goBackground(d.unchokeLoop)
 	d.goBackground(d.backgroundTrackerHandler)
 
 	d.goBackground(func() {
@@ -184,8 +183,6 @@ func (d *Download) startBackground() {
 			}
 		}
 	})
-
-	d.goBackground(d.optimisticUnchokeLoop)
 }
 
 func (d *Download) goBackground(fn func()) {
@@ -194,50 +191,27 @@ func (d *Download) goBackground(fn func()) {
 	})
 }
 
-// optimisticUnchokeLoop periodically picks a random peer and clears its Requested
-// bitmap, giving it a chance to receive new piece assignments from the scheduler.
-// This helps discover fast peers that may have been overlooked.
-func (d *Download) optimisticUnchokeLoop() {
-	const interval = 30 * time.Second
-	timer := time.NewTimer(interval)
-	defer timer.Stop()
-
-	for {
-		select {
-		case <-d.ctx.Done():
-			return
-		case <-timer.C:
-			timer.Reset(interval)
-
-			if !d.wait(Downloading | Seeding) {
-				continue
-			}
-
-			// collect all peers
-			var peers []*Peer
-			d.peers.Range(func(addr netip.AddrPort, p *Peer) bool {
-				if !p.closed.Load() && !p.snubbed.Load() {
-					peers = append(peers, p)
-				}
-				return true
-			})
-
-			if len(peers) == 0 {
-				continue
-			}
-
-			// pick a random peer
-			idx := int(time.Now().UnixNano()) % len(peers)
-			p := peers[idx]
-			p.Requested.Clear()
-			d.log.Debug().Stringer("addr", p.Address).Msg("optimistic unchoke: cleared peer Requested")
-
-			// trigger reschedule
-			select {
-			case d.scheduleRequestSignal <- empty.Empty{}:
-			default:
-			}
+func (d *Download) optimisticUnchoke() {
+	var peers []*Peer
+	d.peers.Range(func(addr netip.AddrPort, p *Peer) bool {
+		if !p.closed.Load() && !p.snubbed.Load() {
+			peers = append(peers, p)
 		}
+		return true
+	})
+
+	if len(peers) == 0 {
+		return
+	}
+
+	idx := int(time.Now().UnixNano()) % len(peers)
+	p := peers[idx]
+	p.Requested.Clear()
+	d.log.Debug().Stringer("addr", p.Address).Msg("optimistic unchoke: cleared peer Requested")
+
+	select {
+	case d.scheduleRequestSignal <- empty.Empty{}:
+	default:
 	}
 }
 
