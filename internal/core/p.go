@@ -170,6 +170,7 @@ type Peer struct {
 	ourInterested    atomic.Bool
 	snubbed          atomic.Bool
 	closed           atomic.Bool
+	isSeed           atomic.Bool
 	peerChoking      atomic.Bool
 	peerInterested   atomic.Bool
 	ourChoking       atomic.Bool
@@ -226,6 +227,11 @@ func (p *Peer) close() {
 	if p.closed.CompareAndSwap(false, true) {
 		p.log.Trace().Caller(1).Msg("close")
 		p.d.peers.Delete(p.Address)
+		if p.isSeed.Load() {
+			p.d.peerSeeds.Add(-1)
+		} else {
+			p.d.peerLeechers.Add(-1)
+		}
 		p.d.c.sem.Release(1)
 		p.d.c.connectionCount.Sub(1)
 		p.cancel()
@@ -483,6 +489,8 @@ func (p *Peer) start(skipHandshake bool) {
 		return
 	}
 
+	p.d.peerLeechers.Add(1)
+
 	go p.ourRequestHandle()
 	go p.checkRequestTimeouts()
 
@@ -506,6 +514,11 @@ func (p *Peer) start(skipHandshake bool) {
 		switch event.Event {
 		case proto.Bitfield:
 			p.Bitmap.OR(event.Bitmap)
+			if !p.isSeed.Load() && p.Bitmap.Count() == p.d.info.NumPieces {
+				p.isSeed.Store(true)
+				p.d.peerLeechers.Add(-1)
+				p.d.peerSeeds.Add(1)
+			}
 		case proto.Have:
 			if event.Index >= p.d.info.NumPieces {
 				p.log.Debug().Uint32("index", event.Index).Msg("peer send 'Have' message with invalid index")
@@ -513,6 +526,11 @@ func (p *Peer) start(skipHandshake bool) {
 			}
 
 			p.Bitmap.Set(event.Index)
+			if !p.isSeed.Load() && p.Bitmap.Count() == p.d.info.NumPieces {
+				p.isSeed.Store(true)
+				p.d.peerLeechers.Add(-1)
+				p.d.peerSeeds.Add(1)
+			}
 		case proto.Interested:
 			p.peerInterested.Store(true)
 			p.d.scheduleResponseSignal <- empty.Empty{}

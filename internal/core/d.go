@@ -155,6 +155,8 @@ type Download struct {
 	endGameMode            atomic.Bool
 	seq                    atomic.Bool
 	announcePending        atomic.Bool
+	peerSeeds              atomic.Int64
+	peerLeechers           atomic.Int64
 	state                  atomic.Uint32
 	trackerMutex           sync.RWMutex
 	m                      sync.RWMutex
@@ -405,14 +407,5 @@ func (d *Download) markUnselectedPiecesDoneUnsafe() {
 }
 
 func (d *Download) peerSeedLeecherCounts() (seeds, leechers int) {
-	totalPieces := d.info.NumPieces
-	d.peers.Range(func(_ netip.AddrPort, p *Peer) bool {
-		if p.Bitmap.Count() == totalPieces {
-			seeds++
-		} else {
-			leechers++
-		}
-		return true
-	})
-	return
+	return int(d.peerSeeds.Load()), int(d.peerLeechers.Load())
 }
