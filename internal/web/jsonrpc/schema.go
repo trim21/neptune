@@ -6,11 +6,11 @@
 package jsonrpc
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"sync"
 
+	"github.com/bytedance/sonic"
 	"github.com/samber/lo"
 	"github.com/swaggest/openapi-go"
 	"github.com/swaggest/openapi-go/openapi3"
@@ -113,7 +113,7 @@ func (c *OpenAPI) ServeHTTP(rw http.ResponseWriter, _ *http.Request) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	document, err := json.MarshalIndent(c.Reflector().Spec, "", " ")
+	document, err := sonic.MarshalIndent(c.Reflector().Spec, "", " ")
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 	}
