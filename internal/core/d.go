@@ -143,6 +143,8 @@ type Download struct {
 	trackers               []TrackerTier
 	pieceAvailability      []int32
 	trackerErrorsMap       *xsync.Map[string, string]
+	trackerSeeds           *xsync.Map[string, int]
+	trackerLeechers        *xsync.Map[string, int]
 	info                   meta.Info
 	completed              atomic.Int64
 	selectedSize           atomic.Int64
@@ -289,6 +291,9 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 		downloadDir: basePath,
 
 		trackerKey: random.URLSafeStr(16),
+
+		trackerSeeds:    xsync.NewMap[string, int](),
+		trackerLeechers: xsync.NewMap[string, int](),
 
 		downloadLimiter: ratelimit.New(0),
 		uploadLimiter:   ratelimit.New(0),

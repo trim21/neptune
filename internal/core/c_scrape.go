@@ -77,10 +77,8 @@ func (c *Client) scrape() {
 
 		for _, ref := range refs {
 			if file, ok := resp.Files[ref.download.info.Hash]; ok {
-				ref.download.trackerMutex.Lock()
-				ref.tracker.seeders = file.Complete
-				ref.tracker.leechers = file.Incomplete
-				ref.download.trackerMutex.Unlock()
+				ref.download.trackerSeeds.Store(ref.tracker.url, file.Complete)
+				ref.download.trackerLeechers.Store(ref.tracker.url, file.Incomplete)
 			}
 		}
 	}

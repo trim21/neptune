@@ -387,6 +387,8 @@ func (c *Client) RemoveTracker(h metainfo.Hash, trackerURL string) error {
 			if tr.url == trackerURL {
 				d.trackers[i].trackers = slices.Delete(tier.trackers, j, j+1)
 				d.trackerErrorsMap.Delete(trackerURL)
+				d.trackerSeeds.Delete(trackerURL)
+				d.trackerLeechers.Delete(trackerURL)
 				// remove empty tiers
 				if len(d.trackers[i].trackers) == 0 {
 					d.trackers = slices.Delete(d.trackers, i, i+1)
@@ -414,6 +416,12 @@ func (c *Client) ReplaceTrackers(h metainfo.Hash, replacements map[string]string
 		for _, tr := range tier.trackers {
 			if newURL, ok := replacements[tr.url]; ok {
 				d.trackerErrorsMap.Delete(tr.url)
+				if s, loaded := d.trackerSeeds.LoadAndDelete(tr.url); loaded {
+					d.trackerSeeds.Store(newURL, s)
+				}
+				if l, loaded := d.trackerLeechers.LoadAndDelete(tr.url); loaded {
+					d.trackerLeechers.Store(newURL, l)
+				}
 				tr.url = newURL
 				tr.nextAnnounce = time.Now()
 			}
@@ -538,11 +546,13 @@ func debugPrintTrackers(w io.Writer, d *Download) {
 
 	for iterIndex, tier := range d.trackers {
 		for _, tracker := range tier.trackers {
+			trackerSeed, _ := d.trackerSeeds.Load(tracker.url)
+			trackerLeecher, _ := d.trackerLeechers.Load(tracker.url)
 			t.AppendRow(table.Row{
 				iterIndex,
 				lo.Ellipsis(tracker.url, 40),
-				tracker.seeders,
-				tracker.leechers,
+				trackerSeed,
+				trackerLeecher,
 				tracker.lastAnnounceTime.Format(time.RFC3339),
 				tracker.nextAnnounce.Format(time.RFC3339),
 				tracker.peerCount,
