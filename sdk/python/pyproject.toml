@@ -24,6 +24,7 @@ dev = [
 [tool.pdm.version]
 source = "scm"
 tag_regex = "^sdk/python/v(.+)$"
+version_format = "_version_helper:format_version"
 
 [tool.pdm.build]
 package-dir = "src"
