@@ -6,9 +6,11 @@ package core
 import (
 	"encoding"
 	"fmt"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"slices"
+	"time"
 
 	"github.com/rs/zerolog/log"
 	"github.com/samber/lo"
@@ -151,6 +153,15 @@ func (c *Client) UnmarshalResume(data []byte) error {
 
 	d.downloadLimiter.Update(r.DownloadSpeedLimit)
 	d.uploadLimiter.Update(r.UploadSpeedLimit)
+
+	// stagger initial announce time to spread announces over 30 minutes
+	d.trackerMutex.Lock()
+	for _, tier := range d.trackers {
+		for _, t := range tier.trackers {
+			t.nextAnnounce = t.nextAnnounce.Add(time.Duration(rand.IntN(30*60)) * time.Second)
+		}
+	}
+	d.trackerMutex.Unlock()
 
 	c.m.Lock()
 	defer c.m.Unlock()
