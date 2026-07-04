@@ -18,8 +18,8 @@ func (c *Client) ResumeTorrent(h metainfo.Hash) error {
 		return fmt.Errorf("torrent %s not exists", h)
 	}
 
-	if !d.HasState(Stopped) {
-		return fmt.Errorf("torrent %s is not stopped", h)
+	if !d.HasState(Stopped) && !d.HasState(Downloading) && !d.HasState(Seeding) {
+		return fmt.Errorf("torrent %s is not in a resumable state", h)
 	}
 
 	return d.Start()
