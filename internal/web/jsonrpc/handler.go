@@ -168,7 +168,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		resp Response
 	)
 
-	if err := sonic.ConfigDefault.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sonic.ConfigFastest.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.fail(w, fmt.Errorf("failed to unmarshal request: %w", err), CodeParseError)
 
 		return
@@ -188,8 +188,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var buf = mempool.Get()
 	defer mempool.Put(buf)
 
-	enc := sonic.ConfigDefault.NewEncoder(buf)
-	enc.SetEscapeHTML(false)
+	enc := sonic.ConfigFastest.NewEncoder(buf)
 	if err := enc.Encode(resp); err != nil {
 		h.fail(w, err, CodeInternalError)
 
@@ -241,7 +240,7 @@ func (h *Handler) invoke(ctx context.Context, req Request, resp *Response) {
 }
 
 func (h *Handler) encode(resp *Response, output any) {
-	data, err := sonic.Marshal(output)
+	data, err := sonic.ConfigFastest.Marshal(output)
 	if err != nil {
 		resp.Error = &Error{
 			Code:    CodeInternalError,
@@ -255,7 +254,7 @@ func (h *Handler) encode(resp *Response, output any) {
 }
 
 func (h *Handler) decode(ctx context.Context, m method, req Request, resp *Response, input any) bool {
-	if err := sonic.Unmarshal(req.Params, input); err != nil {
+	if err := sonic.ConfigFastest.Unmarshal(req.Params, input); err != nil {
 		if m.failingUseCase != nil {
 			err = m.failingUseCase.Interact(context.WithValue(ctx, errCtxKey{}, err), nil, nil)
 		}
@@ -305,7 +304,7 @@ func (h *Handler) fail(w http.ResponseWriter, err error, code ErrorCode) {
 		},
 	}
 
-	data, err := sonic.Marshal(resp)
+	data, err := sonic.ConfigFastest.Marshal(resp)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 

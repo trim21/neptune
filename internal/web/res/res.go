@@ -14,8 +14,7 @@ import (
 func JSON(w http.ResponseWriter, code int, value any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	enc := sonic.ConfigDefault.NewEncoder(w)
-	enc.SetEscapeHTML(false)
+	enc := sonic.ConfigFastest.NewEncoder(w)
 	_ = enc.Encode(value)
 }
 

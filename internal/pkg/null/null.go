@@ -72,7 +72,7 @@ func (t Null[T]) MarshalJSON() ([]byte, error) {
 		return nullBytes, nil
 	}
 
-	return sonic.Marshal(t.Value)
+	return sonic.ConfigFastest.Marshal(t.Value)
 }
 
 // UnmarshalJSON implements json.Unmarshaler.
@@ -82,7 +82,7 @@ func (t *Null[T]) UnmarshalJSON(data []byte) error {
 	}
 
 	t.Set = true
-	return sonic.Unmarshal(data, &t.Value)
+	return sonic.ConfigFastest.Unmarshal(data, &t.Value)
 }
 
 func (t Null[T]) IsZeroBencodeValue() bool {
