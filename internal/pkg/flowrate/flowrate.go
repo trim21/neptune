@@ -28,6 +28,7 @@ type Monitor struct {
 	rEMA    float64 // Exponential moving average of rSample
 	rPeak   float64 // Peak transfer rate (max of all rSamples)
 	rWindow float64 // rEMA window (seconds)
+	emaW    float64 // precomputed EMA decay weight
 
 	sBytes int64         // Number of total transferred since sLast
 	sLast  time.Duration // Most recent sample time (stop time when inactive)
@@ -60,6 +61,7 @@ func New(sampleRate, windowSize time.Duration) *Monitor {
 		active:  true,
 		start:   now,
 		rWindow: windowSize.Seconds(),
+		emaW:    math.Exp(-sampleRate.Seconds() / windowSize.Seconds()),
 		sLast:   now,
 		sRate:   sampleRate,
 		tLast:   now,
@@ -195,8 +197,7 @@ func (m *Monitor) update(n int) (now time.Duration) {
 		// Exponential moving average using a method similar to *nix load
 		// average calculation. Longer sampling periods carry greater weight.
 		if m.samples > 0 {
-			w := math.Exp(-t / m.rWindow)
-			m.rEMA = m.rSample + w*(m.rEMA-m.rSample)
+			m.rEMA = m.rSample + m.emaW*(m.rEMA-m.rSample)
 		} else {
 			m.rEMA = m.rSample
 		}
