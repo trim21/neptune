@@ -26,6 +26,7 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+          cache: true
 
       - name: Build binary (linux/amd64)
         env:
