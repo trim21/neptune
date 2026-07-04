@@ -4,13 +4,14 @@
 package null
 
 import (
-	"encoding/json"
+	stdjson "encoding/json"
 
+	"github.com/bytedance/sonic"
 	"github.com/trim21/go-bencode"
 )
 
-var _ json.Marshaler = (*Null[any])(nil)
-var _ json.Unmarshaler = (*Null[any])(nil)
+var _ stdjson.Marshaler = (*Null[any])(nil)
+var _ stdjson.Unmarshaler = (*Null[any])(nil)
 var _ bencode.Unmarshaler = (*Null[any])(nil)
 var _ bencode.Marshaler = (*Null[any])(nil)
 var _ bencode.IsZeroValue = (*Null[any])(nil)
@@ -71,7 +72,7 @@ func (t Null[T]) MarshalJSON() ([]byte, error) {
 		return nullBytes, nil
 	}
 
-	return json.Marshal(t.Value)
+	return sonic.Marshal(t.Value)
 }
 
 // UnmarshalJSON implements json.Unmarshaler.
@@ -81,7 +82,7 @@ func (t *Null[T]) UnmarshalJSON(data []byte) error {
 	}
 
 	t.Set = true
-	return json.Unmarshal(data, &t.Value)
+	return sonic.Unmarshal(data, &t.Value)
 }
 
 func (t Null[T]) IsZeroBencodeValue() bool {

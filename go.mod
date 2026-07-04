@@ -6,6 +6,7 @@ tool golang.org/x/tools/cmd/stringer
 
 require (
 	github.com/KimMachineGun/automemlimit v0.7.5
+	github.com/bytedance/sonic v1.15.2
 	github.com/docker/go-units v0.5.0
 	github.com/dustin/go-humanize v1.0.1
 	github.com/go-chi/chi/v5 v5.3.0
@@ -43,8 +44,11 @@ require (
 
 require (
 	github.com/beorn7/perks v1.0.1 // indirect
+	github.com/bytedance/gopkg v0.1.3 // indirect
+	github.com/bytedance/sonic/loader v0.5.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
+	github.com/cloudwego/base64x v0.1.6 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/fsnotify/fsnotify v1.10.1 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.13 // indirect
@@ -71,7 +75,9 @@ require (
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/swaggest/jsonschema-go v0.3.79 // indirect
 	github.com/swaggest/refl v1.4.0 // indirect
+	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
+	golang.org/x/arch v0.0.0-20210923205945-b76863e36670 // indirect
 	golang.org/x/crypto v0.53.0 // indirect
 	golang.org/x/mod v0.36.0 // indirect
 	golang.org/x/text v0.38.0 // indirect

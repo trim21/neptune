@@ -4,8 +4,9 @@
 package res
 
 import (
-	"encoding/json"
 	"net/http"
+
+	"github.com/bytedance/sonic"
 
 	"neptune/internal/pkg/unsafe"
 )
@@ -13,7 +14,7 @@ import (
 func JSON(w http.ResponseWriter, code int, value any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	enc := json.NewEncoder(w)
+	enc := sonic.ConfigDefault.NewEncoder(w)
 	enc.SetEscapeHTML(false)
 	_ = enc.Encode(value)
 }

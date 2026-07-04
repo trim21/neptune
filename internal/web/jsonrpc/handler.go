@@ -7,11 +7,11 @@ package jsonrpc
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"reflect"
 
+	"github.com/bytedance/sonic"
 	"github.com/go-playground/validator/v10"
 	"github.com/swaggest/openapi-go"
 	"github.com/swaggest/usecase"
@@ -139,16 +139,16 @@ func (h *Handler) Add(u usecase.Interactor) {
 type Request struct {
 	JSONRPC string          `json:"jsonrpc"`
 	Method  string          `json:"method"`
-	Params  json.RawMessage `json:"params"`
-	ID      json.RawMessage `json:"id,omitempty"`
+	Params  sonic.NoCopyRawMessage `json:"params"`
+	ID      sonic.NoCopyRawMessage `json:"id,omitempty"`
 }
 
 // Response is an JSON-RPC response item.
 type Response struct {
 	JSONRPC string          `json:"jsonrpc"`
-	Result  json.RawMessage `json:"result,omitempty"`
-	Error   *Error          `json:"error,omitempty"`
-	ID      json.RawMessage `json:"id"`
+	Result  sonic.NoCopyRawMessage `json:"result,omitempty"`
+	Error   *Error                 `json:"error,omitempty"`
+	ID      sonic.NoCopyRawMessage `json:"id"`
 }
 
 // Error describes JSON-RPC error structure.
@@ -168,7 +168,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		resp Response
 	)
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sonic.ConfigDefault.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.fail(w, fmt.Errorf("failed to unmarshal request: %w", err), CodeParseError)
 
 		return
@@ -188,7 +188,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var buf = mempool.Get()
 	defer mempool.Put(buf)
 
-	enc := json.NewEncoder(buf)
+	enc := sonic.ConfigDefault.NewEncoder(buf)
 	enc.SetEscapeHTML(false)
 	if err := enc.Encode(resp); err != nil {
 		h.fail(w, err, CodeInternalError)
@@ -241,7 +241,7 @@ func (h *Handler) invoke(ctx context.Context, req Request, resp *Response) {
 }
 
 func (h *Handler) encode(resp *Response, output any) {
-	data, err := json.Marshal(output)
+	data, err := sonic.Marshal(output)
 	if err != nil {
 		resp.Error = &Error{
 			Code:    CodeInternalError,
@@ -255,7 +255,7 @@ func (h *Handler) encode(resp *Response, output any) {
 }
 
 func (h *Handler) decode(ctx context.Context, m method, req Request, resp *Response, input any) bool {
-	if err := json.Unmarshal(req.Params, input); err != nil {
+	if err := sonic.Unmarshal(req.Params, input); err != nil {
 		if m.failingUseCase != nil {
 			err = m.failingUseCase.Interact(context.WithValue(ctx, errCtxKey{}, err), nil, nil)
 		}
@@ -305,7 +305,7 @@ func (h *Handler) fail(w http.ResponseWriter, err error, code ErrorCode) {
 		},
 	}
 
-	data, err := json.Marshal(resp)
+	data, err := sonic.Marshal(resp)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 
