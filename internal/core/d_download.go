@@ -26,7 +26,7 @@ import (
 )
 
 func (d *Download) backgroundReqScheduler() {
-	timer := time.NewTimer(time.Second / 5)
+	timer := time.NewTimer(time.Second * 5)
 	defer timer.Stop()
 
 	for {
