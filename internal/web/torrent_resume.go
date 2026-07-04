@@ -33,7 +33,7 @@ func resumeTorrent(h *jsonrpc.Handler, c *core.Client) {
 				return errInvalidInfoHash
 			}
 
-			return c.ResumeTorrent(metainfo.Hash(raw))
+			return c.StartTorrent(metainfo.Hash(raw))
 		},
 	)
 	u.SetName("torrent.resume")
