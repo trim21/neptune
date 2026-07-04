@@ -4,7 +4,7 @@ build-backend = "pdm.backend"
 
 [project]
 name = "neptune-sdk"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Python SDK for Neptune BitTorrent client JSON-RPC API"
 requires-python = ">=3.10"
 license = "GPL-3.0-only"
@@ -20,6 +20,10 @@ dev = [
   "ruff>=0.11",
   "ty>=0.0.40",
 ]
+
+[tool.pdm.version]
+source = "scm"
+tag_regex = "^sdk/python/v(.+)$"
 
 [tool.pdm.build]
 package-dir = "src"
