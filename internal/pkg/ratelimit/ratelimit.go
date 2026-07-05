@@ -119,9 +119,7 @@ func (l *Limiter) Wait(ctx context.Context, n int) error {
 		debt := -l.tokens
 		waitTime := time.Duration(debt / r * float64(time.Second))
 		waitTime = max(waitTime, time.Microsecond) // prevent busy-wait
-		if waitTime > maxSleep {
-			waitTime = maxSleep
-		}
+		waitTime = min(waitTime, maxSleep)
 
 		l.mu.Unlock()
 
