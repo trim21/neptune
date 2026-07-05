@@ -604,6 +604,11 @@ func (p *Peer) start(skipHandshake bool) {
 			continue
 		case proto.HaveAll:
 			p.Bitmap.Fill()
+			if !p.isSeed.Load() {
+				p.isSeed.Store(true)
+				p.d.peerLeechers.Add(-1)
+				p.d.peerSeeds.Add(1)
+			}
 		case proto.HaveNone:
 			p.Bitmap.Clear()
 		case proto.Cancel:
