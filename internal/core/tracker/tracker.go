@@ -548,7 +548,7 @@ func (t *Trackers) announceHTTP(tr *Tracker, event AnnounceEvent) AnnounceRespon
 
 	var r trackerAnnounceResponse
 	body := resp.Body()
-	if err := bencode.Unmarshal(body, &r); err != nil {
+	if err := bencode.UnmarshalRelaxed(body, &r); err != nil {
 		if t.debug {
 			return AnnounceResponse{Err: fmt.Errorf("failed to parse tracker announce response %v: %s", err, base64.StdEncoding.EncodeToString(body))}
 		}
