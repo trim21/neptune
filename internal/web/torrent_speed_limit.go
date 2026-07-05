@@ -124,3 +124,24 @@ func setGlobalUploadLimit(h *jsonrpc.Handler, c *core.Client) {
 	u.SetName("client.set_upload_limit")
 	h.Add(u)
 }
+
+// client.get_transfer_config
+
+type getTransferConfigRequest struct{}
+
+type getTransferConfigResponse struct {
+	DownloadLimit int64 `json:"download_limit"`
+	UploadLimit   int64 `json:"upload_limit"`
+}
+
+func getTransferConfig(h *jsonrpc.Handler, c *core.Client) {
+	u := usecase.NewInteractor(
+		func(ctx context.Context, req *getTransferConfigRequest, res *getTransferConfigResponse) error {
+			res.DownloadLimit = c.GetGlobalDownloadLimit()
+			res.UploadLimit = c.GetGlobalUploadLimit()
+			return nil
+		},
+	)
+	u.SetName("client.get_transfer_config")
+	h.Add(u)
+}

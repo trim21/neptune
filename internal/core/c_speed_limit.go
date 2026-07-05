@@ -46,3 +46,11 @@ func (c *Client) SetGlobalDownloadLimit(limit int64) {
 func (c *Client) SetGlobalUploadLimit(limit int64) {
 	c.uploadLimiter.Update(limit)
 }
+
+func (c *Client) GetGlobalDownloadLimit() int64 {
+	return c.downloadLimiter.Rate()
+}
+
+func (c *Client) GetGlobalUploadLimit() int64 {
+	return c.uploadLimiter.Rate()
+}

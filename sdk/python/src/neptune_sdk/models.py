@@ -156,6 +156,14 @@ class SetGlobalSpeedLimitRequest:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class TransferConfig:
+    """Response for client.get_transfer_config."""
+
+    download_limit: int
+    upload_limit: int
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class ListTorrentRequest:
     """Parameters for torrent.list."""
 

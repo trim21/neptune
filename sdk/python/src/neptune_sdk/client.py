@@ -34,6 +34,7 @@ from .models import (
     TorrentListResponse,
     TorrentPeersResponse,
     TorrentTrackersResponse,
+    TransferConfig,
     TransferSummary,
     UpdateCustomRequest,
 )
@@ -294,6 +295,10 @@ class NeptuneClient:
             "client.set_upload_limit",
             SetGlobalSpeedLimitRequest(limit=limit),
         )
+
+    def client_get_transfer_config(self) -> TransferConfig:
+        """Get global download/upload speed limits."""
+        return _validate(TransferConfig, self._call("client.get_transfer_config"))
 
     # ── torrent — file priority ────────────────────────────────────────
 
