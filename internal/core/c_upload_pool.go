@@ -87,12 +87,12 @@ func (c *Client) uploadWorker() {
 				}
 			}
 
-			// Rate limit: block before sending to the network.
-			if err := d.uploadLimiter.Wait(d.ctx, len(res.Data)); err != nil {
+			// Rate limit: global first, then per-torrent (same rationale as download).
+			if err := d.c.uploadLimiter.Wait(d.ctx, len(res.Data)); err != nil {
 				proto.PiecePool.Put(res)
 				continue
 			}
-			if err := d.c.uploadLimiter.Wait(d.ctx, len(res.Data)); err != nil {
+			if err := d.uploadLimiter.Wait(d.ctx, len(res.Data)); err != nil {
 				proto.PiecePool.Put(res)
 				continue
 			}

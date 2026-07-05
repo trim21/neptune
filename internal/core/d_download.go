@@ -99,12 +99,14 @@ func (d *Download) handleRes(res *proto.ChunkResponse) {
 		Uint32("piece", res.PieceIndex).
 		Msg("res received")
 
-	// Rate limit: block until allowed, which backpressures the peer read loop
-	// and ultimately slows TCP reception via flow control.
-	if err := d.downloadLimiter.Wait(d.ctx, len(res.Data)); err != nil {
+	// Rate limit: global first, then per-torrent.
+	// Global acts as the primary clock; per-torrent is a secondary constraint.
+	// This order prevents the global limiter from accumulating burst while the
+	// per-torrent limiter blocks, avoiding boom-bust oscillation.
+	if err := d.c.downloadLimiter.Wait(d.ctx, len(res.Data)); err != nil {
 		return
 	}
-	if err := d.c.downloadLimiter.Wait(d.ctx, len(res.Data)); err != nil {
+	if err := d.downloadLimiter.Wait(d.ctx, len(res.Data)); err != nil {
 		return
 	}
 
