@@ -32,6 +32,8 @@ pull_request_rules:
       - check-success=lint
       - check-success=dprint
       - check-success=binary
+      - check-success-or-neutral=typescript-sdk
+      - check-success-or-neutral=python-sdk
     actions:
       queue:
         name: renovate

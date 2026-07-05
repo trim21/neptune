@@ -15,10 +15,10 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-  "pytest>=8",
-  "respx>=0.22",
-  "ruff>=0.11",
-  "ty>=0.0.40",
+  "pytest==9.1.1",
+  "respx==0.23.1",
+  "ruff==0.15.20",
+  "ty==0.0.55",
 ]
 
 [tool.pdm.version]

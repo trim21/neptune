@@ -2,7 +2,6 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "local>trim21/renovate-config",
-    "local>trim21/renovate-config:app",
     "local>trim21/renovate-config:go"
   ],
   "rebaseWhen": "conflicted",
@@ -10,8 +9,51 @@
     "* 4 29 2 7"
   ],
   "labels": [
-    "ci:auto-merge",
     "dependencies"
   ],
-  "prConcurrentLimit": 3
+  "prConcurrentLimit": 3,
+  "packageRules": [
+    {
+      "matchManagers": ["gomod"],
+      "matchDatasources": ["golang-version"],
+      "separateMinorPatch": true,
+      "rangeStrategy": "bump"
+    },
+    {
+      "matchManagers": ["gomod"],
+      "matchDatasources": ["golang-version"],
+      "matchCurrentVersion": "1.25",
+      "matchUpdateTypes": ["minor"],
+      "enabled": false
+    },
+    {
+      "description": "Python SDK: pin dev dependency groups",
+      "matchFileNames": ["sdk/python/**"],
+      "matchDepTypes": ["dependency-groups"],
+      "rangeStrategy": "pin"
+    },
+    {
+      "description": "TypeScript SDK: pin devDependencies",
+      "matchFileNames": ["sdk/typescript/**"],
+      "matchDepTypes": ["devDependencies"],
+      "rangeStrategy": "pin"
+    },
+    {
+      "description": "SDK is a library, do not bump requires-python",
+      "matchFileNames": ["sdk/python/**"],
+      "matchDepNames": ["python"],
+      "enabled": false
+    },
+    {
+      "description": "SDK is a library, do not bump engines.node",
+      "matchFileNames": ["sdk/typescript/**"],
+      "matchDepNames": ["node"],
+      "enabled": false
+    },
+    {
+      "description": "Do not upgrade @types/node",
+      "matchPackageNames": ["@types/node"],
+      "enabled": false
+    }
+  ]
 }

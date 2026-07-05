@@ -1,4 +1,4 @@
-name: python-sdk
+name: python SDK
 
 on:
   push:
@@ -17,13 +17,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  check:
+  python-sdk:
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: sdk/python
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v6.0.3
 
       - uses: astral-sh/setup-uv@v8.0.0
         with:
