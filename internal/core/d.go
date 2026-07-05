@@ -321,6 +321,11 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 				})
 			}
 			d.pendingPeersMutex.Unlock()
+
+			select {
+			case d.pendingPeersSignal <- empty.Empty{}:
+			default:
+			}
 		},
 	})
 
