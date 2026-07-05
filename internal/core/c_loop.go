@@ -24,6 +24,7 @@ func (c *Client) globalUnchokeLoop() {
 			for _, d := range c.downloads {
 				if d.HasState(Downloading | Seeding) {
 					d.recalculateUnchokeSlots()
+					d.recalcPeerCounts()
 				}
 			}
 			c.m.RUnlock()
