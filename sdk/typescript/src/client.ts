@@ -20,6 +20,7 @@ import type {
   TorrentList,
   TorrentPeers,
   TorrentTrackers,
+  TransferConfig,
   TransferSummary,
   UpdateCustomParams,
 } from './types.js';
@@ -73,6 +74,7 @@ export interface NeptuneMethodMap {
   'torrent.custom.del': {params: DelCustomParams; result: void};
   'client.set_download_limit': {params: GlobalSpeedLimitParams; result: void};
   'client.set_upload_limit': {params: GlobalSpeedLimitParams; result: void};
+  'client.get_transfer_config': {params: Record<string, never>; result: TransferConfig};
 }
 
 /** Union of all method name strings. */

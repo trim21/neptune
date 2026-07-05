@@ -157,6 +157,12 @@ export interface GlobalSpeedLimitParams {
   limit: number;
 }
 
+/** Response for client.get_transfer_config. */
+export interface TransferConfig {
+  download_limit: number;
+  upload_limit: number;
+}
+
 export interface ListTorrentParams {
   /** Custom keys to include in the response. Omit for all keys. */
   keys?: string[];
