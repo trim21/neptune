@@ -83,26 +83,28 @@ func (c *Client) Start() error {
 		}
 	}()
 
-	return filepath.Walk(c.resumePath, func(path string, info fs.FileInfo, err error) error {
-		if err != nil {
-			return err
+	// pre-scan resume files to get total count for staggered announces
+	var resumeFiles []string
+	if err := filepath.Walk(c.resumePath, func(path string, info fs.FileInfo, _ error) error {
+		if info != nil && !info.IsDir() && strings.HasSuffix(path, ".resume") {
+			resumeFiles = append(resumeFiles, path)
 		}
+		return nil
+	}); err != nil {
+		return err
+	}
 
-		if info.IsDir() {
-			return nil
-		}
-
-		if !strings.HasSuffix(path, ".resume") {
-			return nil
-		}
-
+	totalDownloads := len(resumeFiles)
+	for _, path := range resumeFiles {
 		resumeData, err := os.ReadFile(path)
 		if err != nil {
 			return err
 		}
-
-		return c.UnmarshalResume(resumeData)
-	})
+		if err := c.UnmarshalResume(resumeData, totalDownloads); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (c *Client) startListen() error {

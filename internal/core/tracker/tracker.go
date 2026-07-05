@@ -295,12 +295,18 @@ func (t *Trackers) URLs() [][]string {
 }
 
 // Stagger adds a random delay to all NextAnnounce times.
-func (t *Trackers) Stagger() {
+// totalDownloads is the number of torrents in the session, used to set the
+// stagger window so ~1 torrent announces per second on average. The window
+// is clamped between 5 seconds and 30 minutes.
+func (t *Trackers) Stagger(totalDownloads int) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+
+	maxDelay := min(max(totalDownloads, 5), 30*60)
+
 	for _, tier := range t.tiers {
 		for _, tr := range tier.Trackers {
-			tr.NextAnnounce = tr.NextAnnounce.Add(time.Duration(rand.IntN(30*60)) * time.Second)
+			tr.NextAnnounce = tr.NextAnnounce.Add(time.Duration(rand.IntN(maxDelay)) * time.Second)
 		}
 	}
 }
@@ -320,6 +326,37 @@ func (t *Trackers) Pause() {
 		return
 	}
 	go t.announceToAll(EventStopped)
+}
+
+// Shutdown synchronously sends EventStopped to all trackers. It uses a
+// background context so it works even when the Trackers' own context has
+// already been cancelled (e.g. during graceful process shutdown).
+func (t *Trackers) Shutdown() {
+	t.mu.RLock()
+	trackers := make([]*Tracker, 0)
+	for _, tier := range t.tiers {
+		trackers = append(trackers, tier.Trackers...)
+	}
+	t.mu.RUnlock()
+
+	for _, tr := range trackers {
+		if !tr.inFlight.CompareAndSwap(false, true) {
+			continue
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_, err := t.announceReq(ctx, EventStopped).Get(tr.URL)
+		cancel()
+
+		if err != nil {
+			t.mu.Lock()
+			tr.Err = err
+			t.SetError(tr)
+			t.mu.Unlock()
+		}
+
+		tr.inFlight.Store(false)
+	}
 }
 
 // Resume restarts the periodic announce loop, resets NextAnnounce for all
