@@ -550,7 +550,7 @@ func (t *Trackers) announceHTTP(tr *Tracker, event AnnounceEvent) AnnounceRespon
 	body := resp.Body()
 	if err := bencode.Unmarshal(body, &r); err != nil {
 		if t.debug {
-			return AnnounceResponse{Err: fmt.Errorf("failed to parse tracker announce response (body: %s): %w", string(body), err)}
+			return AnnounceResponse{Err: fmt.Errorf("failed to parse tracker announce response %v: %s", err, base64.StdEncoding.EncodeToString(body))}
 		}
 		return AnnounceResponse{Err: errgo.Wrap(err, "failed to parse tracker announce response")}
 	}
@@ -574,7 +574,7 @@ func (t *Trackers) announceHTTP(tr *Tracker, event AnnounceEvent) AnnounceRespon
 			defer bytebufferpool.Put(b)
 			if err := bencode.Unmarshal(r.Peers, &b.B); err != nil {
 				if t.debug {
-					result.Err = fmt.Errorf("failed to parse binary 'peers' (data: %s): %w", base64.StdEncoding.EncodeToString(r.Peers), err)
+					result.Err = fmt.Errorf("failed to parse binary 'peers' %v: %s", err, base64.StdEncoding.EncodeToString(r.Peers))
 				} else {
 					result.Err = errgo.Wrap(err, "failed to parse binary 'peers'")
 				}
@@ -599,7 +599,7 @@ func (t *Trackers) announceHTTP(tr *Tracker, event AnnounceEvent) AnnounceRespon
 			defer bytebufferpool.Put(b)
 			if err := bencode.Unmarshal(r.Peers6, &b.B); err != nil {
 				if t.debug {
-					result.Err = fmt.Errorf("failed to parse binary 'peers6' (data: %s): %w", base64.StdEncoding.EncodeToString(r.Peers6), err)
+					result.Err = fmt.Errorf("failed to parse binary 'peers6' %v: %s", err, base64.StdEncoding.EncodeToString(r.Peers6))
 				} else {
 					result.Err = errgo.Wrap(err, "failed to parse binary 'peers6'")
 				}

@@ -25,7 +25,7 @@
 | `--log-json` | false | `NEPTUNE_LOG_JSON` | |
 | `--log-level` | `"info"` | `NEPTUNE_LOG_LEVEL` | trace/debug/info/warn/error |
 | `--log-save-to-file` | true | `NEPTUNE_LOG_SAVE_TO_FILE` | |
-| `--debug` | false | `NEPTUNE_DEBUG` | Enables pprof |
+| `--debug` | false | `NEPTUNE_DEBUG` | Enables debug, including pprof routers |
 - For new config knobs, add to `Application` struct with TOML tags and sane defaults, and wire in [main.go](../main.go) via viper bindings. Flag/env names use kebab-case/snake_case and `NEPTUNE_` prefix.
 
 ## Web Server
