@@ -312,6 +312,7 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 		DownloadedStart: d.downloadAtStart,
 		Completed:       &d.completed,
 		SelectedSize:    &d.selectedSize,
+		Debug:           c.debug,
 		OnPeers: func(peers []netip.AddrPort) {
 			d.pendingPeersMutex.Lock()
 			for _, p := range peers {

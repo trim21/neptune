@@ -7,6 +7,7 @@ package tracker
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -87,6 +88,7 @@ type Config struct {
 	UploadedStart   int64
 	DownloadedStart int64
 	Port            uint16
+	Debug           bool
 }
 
 // Trackers manages announce trackers and the background announce loop.
@@ -112,6 +114,7 @@ type Trackers struct {
 	uploadedStart   int64
 	mu              sync.RWMutex
 	port            uint16
+	debug           bool
 }
 
 // New creates a Trackers instance. ctx controls the announce loop lifetime.
@@ -138,6 +141,7 @@ func New(ctx context.Context, cfg Config) *Trackers {
 		resumeCh: make(chan struct{}, 1),
 		queue:    make(chan AnnounceEvent, 1),
 		onPeers:  cfg.OnPeers,
+		debug:    cfg.Debug,
 	}
 }
 
@@ -543,7 +547,11 @@ func (t *Trackers) announceHTTP(tr *Tracker, event AnnounceEvent) AnnounceRespon
 	}
 
 	var r trackerAnnounceResponse
-	if err := bencode.Unmarshal(resp.Body(), &r); err != nil {
+	body := resp.Body()
+	if err := bencode.Unmarshal(body, &r); err != nil {
+		if t.debug {
+			return AnnounceResponse{Err: fmt.Errorf("failed to parse tracker announce response (body: %s): %w", string(body), err)}
+		}
 		return AnnounceResponse{Err: errgo.Wrap(err, "failed to parse tracker announce response")}
 	}
 
@@ -565,7 +573,11 @@ func (t *Trackers) announceHTTP(tr *Tracker, event AnnounceEvent) AnnounceRespon
 			var b = bytebufferpool.Get()
 			defer bytebufferpool.Put(b)
 			if err := bencode.Unmarshal(r.Peers, &b.B); err != nil {
-				result.Err = errgo.Wrap(err, "failed to parse binary 'peers'")
+				if t.debug {
+					result.Err = fmt.Errorf("failed to parse binary 'peers' (data: %s): %w", base64.StdEncoding.EncodeToString(r.Peers), err)
+				} else {
+					result.Err = errgo.Wrap(err, "failed to parse binary 'peers'")
+				}
 				return result
 			}
 			if b.Len()%6 != 0 {
@@ -586,7 +598,11 @@ func (t *Trackers) announceHTTP(tr *Tracker, event AnnounceEvent) AnnounceRespon
 			var b = bytebufferpool.Get()
 			defer bytebufferpool.Put(b)
 			if err := bencode.Unmarshal(r.Peers6, &b.B); err != nil {
-				result.Err = errgo.Wrap(err, "failed to parse binary 'peers6'")
+				if t.debug {
+					result.Err = fmt.Errorf("failed to parse binary 'peers6' (data: %s): %w", base64.StdEncoding.EncodeToString(r.Peers6), err)
+				} else {
+					result.Err = errgo.Wrap(err, "failed to parse binary 'peers6'")
+				}
 				return result
 			}
 			if b.Len()%18 != 0 {
