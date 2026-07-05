@@ -92,28 +92,28 @@ type Config struct {
 // Trackers manages announce trackers and the background announce loop.
 type Trackers struct {
 	ctx             context.Context
-	selectedSize    *atomic.Int64
+	http            *resty.Client
 	Seeds           *xsync.Map[string, int]
 	Leechers        *xsync.Map[string, int]
 	cancel          context.CancelFunc
 	Errors          *xsync.Map[string, string]
-	http            *resty.Client
+	resumeCh        chan struct{}
 	onPeers         func([]netip.AddrPort)
 	queue           chan AnnounceEvent
 	uploaded        *atomic.Int64
 	completed       *atomic.Int64
 	downloaded      *atomic.Int64
+	selectedSize    *atomic.Int64
 	peerID          string
-	infoHash        string
 	Key             string
+	infoHash        string
 	tiers           []TrackerTier
 	wg              sync.WaitGroup
-	startOnce       sync.Once
 	paused          atomic.Bool
-	resumeCh        chan struct{}
 	downloadedStart int64
 	uploadedStart   int64
 	mu              sync.RWMutex
+	startOnce       sync.Once
 	port            uint16
 }
 
