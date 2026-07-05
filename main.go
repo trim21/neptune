@@ -364,6 +364,8 @@ func mustParseConfig(sessionPath string) config.Config {
 	var cfg config.Config
 	var err error
 
+	log.Info().Str("path", configPath).Msg("trying to load config")
+
 	switch filepath.Ext(configPath) {
 	case ".lua":
 		cfg, err = config.LoadFromLua(configPath)
@@ -378,6 +380,8 @@ func mustParseConfig(sessionPath string) config.Config {
 	}
 
 	cfg.App.P2PPort = viper.GetUint16("p2p-port")
+
+	log.Info().Str("path", configPath).Msg("config loaded")
 
 	return cfg
 }
