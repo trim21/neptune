@@ -31,10 +31,10 @@
   },
   "packageManager": "pnpm@11.9.0",
   "engines": {
-    "node": ">=22.0.0"
+    "node": "v26.4.0"
   },
   "devDependencies": {
-    "prettier": "^3.7.4",
-    "typescript": "~6.0.3"
+    "prettier": "3.9.4",
+    "typescript": "6.0.3"
   }
 }

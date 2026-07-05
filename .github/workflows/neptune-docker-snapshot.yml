@@ -20,10 +20,10 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.0
 
       - name: Install Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v6.5.0
         with:
           go-version-file: go.mod
           cache: true
@@ -42,14 +42,14 @@ jobs:
             .
 
       - name: Log in to Container Registry
-        uses: docker/login-action@v4
+        uses: docker/login-action@v4.4.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push Docker image
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@v7.3.0
         with:
           context: .
           file: etc/Dockerfile

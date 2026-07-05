@@ -9,10 +9,10 @@ importers:
   .:
     devDependencies:
       prettier:
-        specifier: ^3.7.4
+        specifier: 3.9.4
         version: 3.9.4
       typescript:
-        specifier: ~6.0.3
+        specifier: 6.0.3
         version: 6.0.3
 
 packages:

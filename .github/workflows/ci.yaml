@@ -23,7 +23,7 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v6.0.3
 
       - uses: trim21/actions/setup-go@master
         with:
@@ -43,7 +43,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-15]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v6.0.3
 
       - uses: trim21/actions/setup-go@master
         with:
@@ -61,7 +61,7 @@ jobs:
         shell: bash
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@v6.0.2
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
 
@@ -71,7 +71,7 @@ jobs:
         shell: bash
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@v6.0.2
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
 
@@ -91,7 +91,7 @@ jobs:
   license:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v6.0.3
       - run: python tools/scan-license-header.py
 
   lint:
@@ -99,13 +99,13 @@ jobs:
       contents: read
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v6.0.3
       - uses: trim21/actions/setup-go@master
         with:
           cache-namespace: lint
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v9
+        uses: golangci/golangci-lint-action@v9.3.0
         with:
           version: v2.12.2
 
@@ -113,7 +113,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v6.0.3
 
       - run: curl -fsSL https://dprint.dev/install.sh | sh -
       - run: echo "/home/runner/.dprint/bin" >> $GITHUB_PATH
