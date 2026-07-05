@@ -1,8 +1,8 @@
 // Copyright 2024 trim21 <trim21.me@gmail.com>
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Package ratelimit provides a simple token-bucket rate limiter for byte streams.
-// A zero Limiter is a no-op (unlimited).
+// Package ratelimit provides a token-bucket rate limiter for byte streams.
+// A zero-value Limiter is a no-op (unlimited).
 package ratelimit
 
 import (
@@ -13,9 +13,15 @@ import (
 	"go.uber.org/atomic"
 )
 
+// maxSleep is the upper bound for a single Wait sleep cycle.
+// It ensures that dynamic rate changes (via Update) and context cancellations
+// are noticed within this interval, while adding negligible overhead for
+// typical rates (MB/s range) where the computed sleep is far shorter.
+const maxSleep = 250 * time.Millisecond
+
 // Limiter controls the rate of byte transfers using a token bucket algorithm.
 // Tokens represent bytes and are replenished at the configured rate.
-// A zero value Limiter imposes no limit.
+// A zero-value Limiter imposes no limit.
 type Limiter struct {
 	last   time.Time
 	rate   atomic.Int64
@@ -25,9 +31,13 @@ type Limiter struct {
 }
 
 func computeBurst(rate float64) float64 {
-	burst := rate
-	if burst < 256*1024 {
-		burst = 256 * 1024
+	// Burst of 2 seconds worth of tokens provides smooth traffic shaping
+	// while absorbing TCP window fluctuations.
+	// Minimum 512 KB ensures reasonable burst even at very low rates.
+	const minBurst = 512 * 1024
+	burst := rate * 2
+	if burst < minBurst {
+		burst = minBurst
 	}
 	return burst
 }
@@ -52,6 +62,7 @@ func New(rate int64) *Limiter {
 
 // Update dynamically changes the rate limit.
 // If rate <= 0, the limiter becomes unlimited.
+// Waiting goroutines will notice the change within maxSleep.
 func (l *Limiter) Update(rate int64) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -82,26 +93,33 @@ func (l *Limiter) Wait(ctx context.Context, n int) error {
 
 	l.mu.Lock()
 	l.refill()
+	l.tokens -= float64(n)
 
-	// Fast path: enough tokens available, consume and return.
-	if l.tokens >= float64(n) {
-		l.tokens -= float64(n)
+	// Fast path: enough tokens available (including burst), return immediately.
+	if l.tokens >= 0 {
 		l.mu.Unlock()
 		return nil
 	}
 
-	// Slow path: calculate the exact wait time once and wait.
-	// Only re-loops if the rate was changed (via Update) during the wait.
+	// Slow path: we are in token debt.
+	// By going negative early (debt model), we prevent other goroutines from
+	// consuming the same tokens, avoiding "token stealing" that causes jitter
+	// when multiple peers share a limiter.
+	// Each sleep cycle is capped at maxSleep so that dynamic rate changes via
+	// Update() are noticed promptly.
 	for {
 		r := float64(l.rate.Load())
 		if r <= 0 {
+			// Rate became unlimited — clear debt and return.
+			l.tokens = 0
 			l.mu.Unlock()
 			return nil
 		}
 
-		deficit := float64(n) - l.tokens
-		waitTime := time.Duration(deficit / r * float64(time.Second))
-		waitTime = max(waitTime, time.Microsecond)
+		debt := -l.tokens
+		waitTime := time.Duration(debt / r * float64(time.Second))
+		waitTime = max(waitTime, time.Microsecond) // prevent busy-wait
+		waitTime = min(waitTime, maxSleep)
 
 		l.mu.Unlock()
 
@@ -109,6 +127,13 @@ func (l *Limiter) Wait(ctx context.Context, n int) error {
 		select {
 		case <-ctx.Done():
 			timer.Stop()
+			// Restore tokens that were reserved but never used.
+			l.mu.Lock()
+			l.tokens += float64(n)
+			if l.tokens > l.burst {
+				l.tokens = l.burst
+			}
+			l.mu.Unlock()
 			return ctx.Err()
 		case <-timer.C:
 		}
@@ -117,15 +142,17 @@ func (l *Limiter) Wait(ctx context.Context, n int) error {
 		l.refill()
 
 		if l.rate.Load() <= 0 {
+			l.tokens = 0
 			l.mu.Unlock()
 			return nil
 		}
 
-		if l.tokens >= float64(n) {
-			l.tokens -= float64(n)
+		// Debt repaid?
+		if l.tokens >= 0 {
 			l.mu.Unlock()
 			return nil
 		}
+		// Still in debt, loop to wait more.
 	}
 }
 
