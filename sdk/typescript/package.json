@@ -1,0 +1,40 @@
+{
+  "name": "@neptune/sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for Neptune BitTorrent client JSON-RPC API",
+  "keywords": [
+    "neptune",
+    "bittorrent",
+    "json-rpc",
+    "client"
+  ],
+  "license": "GPL-3.0-only",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./src/*": "./src/*"
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "check": "tsc --noEmit",
+    "format": "prettier -w .",
+    "format:check": "prettier -c ."
+  },
+  "packageManager": "pnpm@11.9.0",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "devDependencies": {
+    "prettier": "^3.7.4",
+    "typescript": "~6.0.3"
+  }
+}
