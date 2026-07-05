@@ -16,9 +16,15 @@ func (c *Client) Shutdown() {
 	log.Info().Msg("core shutting down...")
 
 	c.m.RLock()
-	defer c.m.RUnlock()
-
+	downloads := c.downloads
 	c.saveSessionUnsafe()
+	c.m.RUnlock()
+
+	// Send EventStopped to all trackers before cancelling contexts.
+	// Each tracker request has a 5-second timeout.
+	for _, d := range downloads {
+		d.Trk.Shutdown()
+	}
 
 	c.cancel()
 }

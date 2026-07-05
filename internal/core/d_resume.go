@@ -100,7 +100,7 @@ func (d *Download) MarshalBinary() (data []byte, err error) {
 	})
 }
 
-func (c *Client) UnmarshalResume(data []byte) error {
+func (c *Client) UnmarshalResume(data []byte, totalDownloads int) error {
 	var r resume
 	if err := bencode.Unmarshal(data, &r); err != nil {
 		return errgo.Wrap(err, "failed to decode resume data")
@@ -148,8 +148,7 @@ func (c *Client) UnmarshalResume(data []byte) error {
 	d.downloadLimiter.Update(r.DownloadSpeedLimit)
 	d.uploadLimiter.Update(r.UploadSpeedLimit)
 
-	// stagger initial announce time to spread announces over 30 minutes
-	d.Trk.Stagger()
+	d.Trk.Stagger(totalDownloads)
 
 	c.m.Lock()
 	defer c.m.Unlock()
