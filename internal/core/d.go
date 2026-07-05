@@ -432,3 +432,18 @@ func (d *Download) markUnselectedPiecesDoneUnsafe() {
 func (d *Download) peerSeedLeecherCounts() (seeds, leechers int) {
 	return int(d.peerSeeds.Load()), int(d.peerLeechers.Load())
 }
+
+// recalcPeerCounts iterates all connected peers and refreshes the cached seed/leecher counters.
+func (d *Download) recalcPeerCounts() {
+	var seeds, leechers int64
+	d.peers.Range(func(_ netip.AddrPort, p *Peer) bool {
+		if p.isSeed.Load() {
+			seeds++
+		} else {
+			leechers++
+		}
+		return true
+	})
+	d.peerSeeds.Store(seeds)
+	d.peerLeechers.Store(leechers)
+}
