@@ -60,6 +60,7 @@ type MainDataTorrent struct {
 	TotalLength          int64             `json:"total_length"`
 	SelectedSize         int64             `json:"selected_size"`
 	AddedAt              int64             `json:"add_at"`
+	CompletedAt          int64             `json:"completed_at"`
 	Private              bool              `json:"private"`
 	TotalSeeding         int               `json:"total_seeding"`
 	TotalDownloading     int               `json:"total_downloading"`
@@ -109,6 +110,7 @@ func (c *Client) GetTorrentList(keys []string) TorrentList {
 			SelectedSize:         d.SelectedSize(),
 			Comment:              d.info.Comment,
 			AddedAt:              d.AddAt,
+			CompletedAt:          d.CompletedAt.Load(),
 			DirectoryBase:        d.downloadDir,
 			Private:              d.info.Private,
 			Tags:                 d.tags,

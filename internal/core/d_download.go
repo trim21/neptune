@@ -410,6 +410,7 @@ func (d *Download) checkDone() {
 		d.log.Error().Err(err).Msg("failed to transition state in checkDone")
 		return
 	}
+	d.CompletedAt.Store(time.Now().Unix())
 	d.ioDown.Reset()
 
 	d.peers.Range(func(addr netip.AddrPort, p *Peer) bool {
