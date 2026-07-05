@@ -1,0 +1,12 @@
+# neptune-sdk
+
+# pnpm
+pnpm-lock.yaml
+.pnpm-store/
+
+# build output
+dist/
+
+# IDE
+.vscode/
+.idea/
