@@ -12,7 +12,7 @@ importers:
         specifier: 3.9.4
         version: 3.9.4
       tsdown:
-        specifier: ^0.22.0
+        specifier: 0.22.3
         version: 0.22.3(typescript@6.0.3)
       typescript:
         specifier: 6.0.3

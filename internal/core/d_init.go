@@ -233,6 +233,7 @@ func (d *Download) check(resumed bool, skipHashCheck bool) {
 		d.log.Debug().Msgf("done size %s", humanize.IBytes(uint64(d.bm.Count())*uint64(d.info.PieceLength)))
 
 		if d.bm.Count() == d.info.NumPieces {
+			d.CompletedAt.Store(time.Now().Unix())
 			if err := d.transition(Seeding); err != nil {
 				d.log.Error().Err(err).Msg("failed to transition state after init check")
 			}

@@ -137,7 +137,7 @@ func (c *Client) UnmarshalResume(data []byte, totalDownloads int) error {
 	d.completed.Store(d.computeCompletedUnsafe())
 	d.state.Store(uint32(r.State))
 	d.AddAt = r.AddAt
-	d.CompletedAt.Store(d.CompletedAt.Load())
+	d.CompletedAt.Store(r.CompletedAt)
 
 	d.downloaded.Store(r.Downloaded)
 	d.downloadAtStart = r.Downloaded
