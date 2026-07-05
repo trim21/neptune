@@ -95,7 +95,6 @@ type Trackers struct {
 	http            *resty.Client
 	Seeds           *xsync.Map[string, int]
 	Leechers        *xsync.Map[string, int]
-	cancel          context.CancelFunc
 	Errors          *xsync.Map[string, string]
 	resumeCh        chan struct{}
 	onPeers         func([]netip.AddrPort)
@@ -108,18 +107,17 @@ type Trackers struct {
 	Key             string
 	infoHash        string
 	tiers           []TrackerTier
-	wg              sync.WaitGroup
 	paused          atomic.Bool
 	downloadedStart int64
 	uploadedStart   int64
 	mu              sync.RWMutex
-	startOnce       sync.Once
 	port            uint16
 }
 
-// New creates a Trackers instance.
-func New(cfg Config) *Trackers {
+// New creates a Trackers instance. ctx controls the announce loop lifetime.
+func New(ctx context.Context, cfg Config) *Trackers {
 	return &Trackers{
+		ctx:      ctx,
 		Errors:   xsync.NewMap[string, string](),
 		Seeds:    xsync.NewMap[string, int](),
 		Leechers: xsync.NewMap[string, int](),
@@ -143,21 +141,10 @@ func New(cfg Config) *Trackers {
 	}
 }
 
-// Start begins the background announce loop. The loop runs until ctx is cancelled.
-func (t *Trackers) Start(ctx context.Context) {
-	t.startOnce.Do(func() {
-		t.ctx, t.cancel = context.WithCancel(ctx)
-		t.wg.Add(1)
-		go t.loop()
-	})
-}
-
-// Stop cancels the background loop and waits for it to finish.
-func (t *Trackers) Stop() {
-	if t.cancel != nil {
-		t.cancel()
-	}
-	t.wg.Wait()
+// Run starts the announce loop and blocks until the context is cancelled.
+// Callers must invoke this in a goroutine.
+func (t *Trackers) Run() {
+	t.loop()
 }
 
 // Announce enqueues an announce event. Non-blocking.
@@ -391,7 +378,6 @@ func (t *Trackers) announceToAll(event AnnounceEvent) {
 }
 
 func (t *Trackers) loop() {
-	defer t.wg.Done()
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
 

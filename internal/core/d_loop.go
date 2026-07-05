@@ -93,7 +93,7 @@ func (d *Download) AsyncCheck() error {
 func (d *Download) Init(resumed bool, skipHashCheck bool) {
 	d.check(resumed, skipHashCheck)
 
-	d.Trk.Start(d.ctx)
+	d.goBackground(d.Trk.Run)
 	d.Trk.Announce(tracker.EventStarted)
 	go d.startBackground()
 

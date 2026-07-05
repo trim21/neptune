@@ -300,7 +300,7 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 	d.selectedSize.Store(d.computeSelectedSizeUnsafe())
 	d.buildSelectedPiecesBmUnsafe()
 
-	d.Trk = tracker.New(tracker.Config{
+	d.Trk = tracker.New(d.ctx, tracker.Config{
 		Key:             random.URLSafeStr(16),
 		HTTP:            c.http,
 		InfoHash:        info.Hash.AsString(),

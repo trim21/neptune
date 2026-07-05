@@ -390,7 +390,6 @@ func (c *Client) RemoveTorrent(h metainfo.Hash, removeData bool) error {
 
 	d.cancel()
 
-	d.Trk.Stop()
 	d.backgroundWg.Wait()
 
 	d.peers.Range(func(key netip.AddrPort, p *Peer) bool {
