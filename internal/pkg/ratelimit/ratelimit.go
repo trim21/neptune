@@ -83,15 +83,15 @@ func (l *Limiter) Wait(ctx context.Context, n int) error {
 	l.mu.Lock()
 	l.refill()
 
+	// Fast path: enough tokens available, consume and return.
 	if l.tokens >= float64(n) {
 		l.tokens -= float64(n)
 		l.mu.Unlock()
 		return nil
 	}
 
-	timer := time.NewTimer(time.Hour)
-	defer timer.Stop()
-
+	// Slow path: calculate the exact wait time once and wait.
+	// Only re-loops if the rate was changed (via Update) during the wait.
 	for {
 		r := float64(l.rate.Load())
 		if r <= 0 {
@@ -100,21 +100,15 @@ func (l *Limiter) Wait(ctx context.Context, n int) error {
 		}
 
 		deficit := float64(n) - l.tokens
-		wait := max(time.Duration(deficit/r*float64(time.Second)), time.Millisecond)
-
-		if !timer.Stop() {
-			select {
-			case <-timer.C:
-			default:
-			}
-		}
-		timer.Reset(wait)
+		waitTime := time.Duration(deficit / r * float64(time.Second))
+		waitTime = max(waitTime, time.Microsecond)
 
 		l.mu.Unlock()
 
+		timer := time.NewTimer(waitTime)
 		select {
 		case <-ctx.Done():
-			l.mu.Lock()
+			timer.Stop()
 			return ctx.Err()
 		case <-timer.C:
 		}
@@ -123,6 +117,7 @@ func (l *Limiter) Wait(ctx context.Context, n int) error {
 		l.refill()
 
 		if l.rate.Load() <= 0 {
+			l.mu.Unlock()
 			return nil
 		}
 
