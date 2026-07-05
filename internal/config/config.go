@@ -3,14 +3,6 @@
 
 package config
 
-import (
-	"os"
-	"path/filepath"
-
-	"github.com/pelletier/go-toml/v2"
-	"github.com/trim21/errgo"
-)
-
 type Application struct {
 	DownloadDir     string `toml:"download-dir"`
 	MaxHTTPParallel int    `toml:"max-http-parallel"`
@@ -30,43 +22,4 @@ type Application struct {
 
 type Config struct {
 	App Application `toml:"application"`
-}
-
-func LoadFromFile(path string) (Config, error) {
-	var cfg = Config{
-		App: Application{MaxHTTPParallel: 100, GlobalConnectionLimit: 50},
-	}
-
-	f, err := os.Open(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return cfg, nil
-		}
-
-		return Config{}, errgo.Wrap(err, "failed to read config file")
-	}
-	defer f.Close()
-
-	if err := toml.NewDecoder(f).DisallowUnknownFields().Decode(&cfg); err != nil {
-		return cfg, errgo.Wrap(err, "failed to parse config file")
-	}
-
-	if cfg.App.DownloadDir == "" {
-		hd, err := os.UserHomeDir()
-		if err != nil {
-			panic(errgo.Wrap(err, "failed to get user homedir"))
-		}
-
-		cfg.App.DownloadDir = filepath.Join(hd, "downloads")
-	}
-
-	if cfg.App.GlobalUploadSlots == 0 {
-		// Default to a small multiple of connection limit to allow pipelining,
-		// while still providing a hard cap across all torrents.
-		// Min 64 to avoid being too restrictive on small setups.
-		slots := max(cfg.App.GlobalConnectionLimit*4, 64)
-		cfg.App.GlobalUploadSlots = slots
-	}
-
-	return cfg, nil
 }
