@@ -14,6 +14,7 @@ import (
 	"github.com/docker/go-units"
 	"github.com/trim21/errgo"
 
+	"neptune/internal/core/tracker"
 	"neptune/internal/meta"
 	"neptune/internal/pkg/as"
 	"neptune/internal/pkg/bm"
@@ -419,7 +420,7 @@ func (d *Download) checkDone() {
 		return true
 	})
 
-	d.announce(EventCompleted)
+	d.Trk.Announce(tracker.EventCompleted)
 }
 
 // piecePriority computes a priority score for a piece, inspired by libtorrent:

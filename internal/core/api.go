@@ -26,6 +26,7 @@ import (
 	"github.com/trim21/errgo"
 	"go.uber.org/multierr"
 
+	"neptune/internal/core/tracker"
 	"neptune/internal/meta"
 	"neptune/internal/metainfo"
 	"neptune/internal/pkg/as"
@@ -312,21 +313,15 @@ func (c *Client) GetTorrentTrackers(h metainfo.Hash) []APITrackers {
 	}
 	c.m.RUnlock()
 
-	var results = make([]APITrackers, 0, 10)
-
-	d.trackerMutex.RLock()
-	defer d.trackerMutex.RUnlock()
-
-	for iterIndex, tier := range d.trackers {
-		for _, tracker := range tier.trackers {
-			results = append(results, APITrackers{
-				Tier:    iterIndex,
-				URL:     tracker.url,
-				Message: tracker.errorMessage(),
-			})
+	infos := d.Trk.List()
+	results := make([]APITrackers, len(infos))
+	for i, info := range infos {
+		results[i] = APITrackers{
+			Tier:    info.Tier,
+			URL:     info.URL,
+			Message: info.Err,
 		}
 	}
-
 	return results
 }
 
@@ -349,25 +344,7 @@ func (c *Client) AddTracker(h metainfo.Hash, trackerURL string, tier int) error 
 		return errTrackerURLMissingHost
 	}
 
-	d.trackerMutex.Lock()
-	defer d.trackerMutex.Unlock()
-
-	// check for duplicate
-	for _, t := range d.trackers {
-		for _, tr := range t.trackers {
-			if tr.url == trackerURL {
-				return nil // already exists
-			}
-		}
-	}
-
-	tracker := &Tracker{url: trackerURL, nextAnnounce: time.Now()}
-	if tier >= 0 && tier < len(d.trackers) {
-		d.trackers[tier].trackers = append(d.trackers[tier].trackers, tracker)
-	} else {
-		d.trackers = append(d.trackers, TrackerTier{trackers: []*Tracker{tracker}})
-	}
-
+	d.Trk.Add(trackerURL, tier)
 	return nil
 }
 
@@ -379,25 +356,7 @@ func (c *Client) RemoveTracker(h metainfo.Hash, trackerURL string) error {
 		return fmt.Errorf("torrent %s not exists", h)
 	}
 
-	d.trackerMutex.Lock()
-	defer d.trackerMutex.Unlock()
-
-	for i, tier := range d.trackers {
-		for j, tr := range tier.trackers {
-			if tr.url == trackerURL {
-				d.trackers[i].trackers = slices.Delete(tier.trackers, j, j+1)
-				d.trackerErrorsMap.Delete(trackerURL)
-				d.trackerSeeds.Delete(trackerURL)
-				d.trackerLeechers.Delete(trackerURL)
-				// remove empty tiers
-				if len(d.trackers[i].trackers) == 0 {
-					d.trackers = slices.Delete(d.trackers, i, i+1)
-				}
-				return nil
-			}
-		}
-	}
-
+	d.Trk.Remove(trackerURL)
 	return nil
 }
 
@@ -409,25 +368,7 @@ func (c *Client) ReplaceTrackers(h metainfo.Hash, replacements map[string]string
 		return fmt.Errorf("torrent %s not exists", h)
 	}
 
-	d.trackerMutex.Lock()
-	defer d.trackerMutex.Unlock()
-
-	for _, tier := range d.trackers {
-		for _, tr := range tier.trackers {
-			if newURL, ok := replacements[tr.url]; ok {
-				d.trackerErrorsMap.Delete(tr.url)
-				if s, loaded := d.trackerSeeds.LoadAndDelete(tr.url); loaded {
-					d.trackerSeeds.Store(newURL, s)
-				}
-				if l, loaded := d.trackerLeechers.LoadAndDelete(tr.url); loaded {
-					d.trackerLeechers.Store(newURL, l)
-				}
-				tr.url = newURL
-				tr.nextAnnounce = time.Now()
-			}
-		}
-	}
-
+	d.Trk.Replace(replacements)
 	return nil
 }
 
@@ -534,9 +475,6 @@ func (c *Client) DebugHandlers() http.Handler {
 }
 
 func debugPrintTrackers(w io.Writer, d *Download) {
-	d.trackerMutex.RLock()
-	defer d.trackerMutex.RUnlock()
-
 	t := table.NewWriter()
 
 	t.AppendHeader(table.Row{"tier", "url", "seeders", "leechers", "last announce", "next announce",
@@ -544,23 +482,21 @@ func debugPrintTrackers(w io.Writer, d *Download) {
 
 	t.SortBy([]table.SortBy{{Name: "tier"}, {Name: "url"}})
 
-	for iterIndex, tier := range d.trackers {
-		for _, tracker := range tier.trackers {
-			trackerSeed, _ := d.trackerSeeds.Load(tracker.url)
-			trackerLeecher, _ := d.trackerLeechers.Load(tracker.url)
-			t.AppendRow(table.Row{
-				iterIndex,
-				lo.Ellipsis(tracker.url, 40),
-				trackerSeed,
-				trackerLeecher,
-				tracker.lastAnnounceTime.Format(time.RFC3339),
-				tracker.nextAnnounce.Format(time.RFC3339),
-				tracker.peerCount,
-				tracker.failureMessage,
-				tracker.err,
-			})
-		}
-	}
+	d.Trk.Each(func(tierIdx int, tr *tracker.Tracker) {
+		trackerSeed, _ := d.Trk.Seeds.Load(tr.URL)
+		trackerLeecher, _ := d.Trk.Leechers.Load(tr.URL)
+		t.AppendRow(table.Row{
+			tierIdx,
+			lo.Ellipsis(tr.URL, 40),
+			trackerSeed,
+			trackerLeecher,
+			tr.LastAnnounceTime.Format(time.RFC3339),
+			tr.NextAnnounce.Format(time.RFC3339),
+			tr.PeerCount,
+			tr.FailureMessage,
+			tr.Err,
+		})
+	})
 
 	_, _ = io.WriteString(w, t.Render())
 	_, _ = fmt.Fprintln(w)

@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"neptune/internal/core/tracker"
 )
 
 func TestAnnounceToScrape(t *testing.T) {
@@ -74,7 +76,7 @@ func TestAnnounceToScrape(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotURL, gotOK := announceToScrape(tt.announce)
+			gotURL, gotOK := tracker.AnnounceToScrape(tt.announce)
 			assert.Equal(t, tt.wantOK, gotOK)
 			assert.Equal(t, tt.wantURL, gotURL)
 		})

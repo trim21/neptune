@@ -20,6 +20,7 @@ import (
 	"github.com/rs/zerolog"
 	"go.uber.org/atomic"
 
+	"neptune/internal/core/tracker"
 	"neptune/internal/pkg/as"
 	"neptune/internal/pkg/bm"
 	"neptune/internal/pkg/empty"
@@ -776,7 +777,7 @@ func parsePex(msg proto.ExtPex) ([]pexPeer, []netip.AddrPort, error) {
 
 	for i, flag := range msg.AddedFlag {
 		r = append(r, pexPeer{
-			addrPort:         parseCompact4(msg.Added[i*6 : i*6+6]),
+			addrPort:         tracker.ParseCompact4(msg.Added[i*6 : i*6+6]),
 			preferEnc:        flag&proto.PexFlagPreferEnc != 0,
 			seedOnly:         flag&proto.PexFlagSeedOnly != 0,
 			supportUTP:       flag&proto.PexFlagSupportUTP != 0,
@@ -787,7 +788,7 @@ func parsePex(msg proto.ExtPex) ([]pexPeer, []netip.AddrPort, error) {
 
 	for i, flag := range msg.Added6Flag {
 		r = append(r, pexPeer{
-			addrPort:         parseCompact6(msg.Added6[i*18 : i*18+18]),
+			addrPort:         tracker.ParseCompact6(msg.Added6[i*18 : i*18+18]),
 			preferEnc:        flag&proto.PexFlagPreferEnc != 0,
 			seedOnly:         flag&proto.PexFlagSeedOnly != 0,
 			supportUTP:       flag&proto.PexFlagSupportUTP != 0,
@@ -799,11 +800,11 @@ func parsePex(msg proto.ExtPex) ([]pexPeer, []netip.AddrPort, error) {
 	var dropped = make([]netip.AddrPort, 0, len(msg.Dropped)/6+len(msg.Dropped6)/18)
 
 	for i := 0; i < len(msg.Dropped); i += 6 {
-		dropped = append(dropped, parseCompact4(msg.Dropped[i:i+6]))
+		dropped = append(dropped, tracker.ParseCompact4(msg.Dropped[i:i+6]))
 	}
 
 	for i := 0; i < len(msg.Dropped6); i += 18 {
-		dropped = append(dropped, parseCompact6(msg.Dropped6[i:i+18]))
+		dropped = append(dropped, tracker.ParseCompact6(msg.Dropped6[i:i+18]))
 	}
 
 	return r, dropped, nil

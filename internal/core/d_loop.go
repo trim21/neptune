@@ -11,6 +11,7 @@ import (
 
 	"github.com/docker/go-units"
 
+	"neptune/internal/core/tracker"
 	"neptune/internal/pkg/empty"
 	"neptune/internal/pkg/fadvise"
 	"neptune/internal/pkg/filepool"
@@ -32,6 +33,7 @@ func (d *Download) Start() error {
 	}
 
 	d.stateCond.Broadcast()
+	d.Trk.Resume()
 	return nil
 }
 
@@ -43,7 +45,7 @@ func (d *Download) Stop() error {
 
 	d.stateCond.Broadcast()
 
-	d.announce(EventStopped)
+	d.Trk.Pause()
 	return nil
 }
 
@@ -91,7 +93,8 @@ func (d *Download) AsyncCheck() error {
 func (d *Download) Init(resumed bool, skipHashCheck bool) {
 	d.check(resumed, skipHashCheck)
 
-	d.announce(EventStarted)
+	d.goBackground(d.Trk.Run)
+	d.Trk.Announce(tracker.EventStarted)
 	go d.startBackground()
 
 	d.saveResume()
@@ -118,7 +121,6 @@ func (d *Download) startBackground() {
 	d.goBackground(d.backgroundResHandler)
 	d.goBackground(d.backgroundReqScheduler)
 	d.goBackground(d.backgroundReqHandler)
-	d.goBackground(d.backgroundTrackerHandler)
 
 	d.goBackground(func() {
 		for {
