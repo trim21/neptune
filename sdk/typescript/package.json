@@ -20,12 +20,11 @@
     "./src/*": "./src/*"
   },
   "files": [
-    "dist",
-    "src"
+    "dist"
   ],
   "scripts": {
-    "build": "tsc",
-    "check": "tsc --noEmit",
+    "build": "tsdown",
+    "check": "tsc",
     "format": "prettier -w .",
     "format:check": "prettier -c ."
   },
@@ -35,6 +34,7 @@
   },
   "devDependencies": {
     "prettier": "3.9.4",
+    "tsdown": "^0.22.0",
     "typescript": "6.0.3"
   }
 }

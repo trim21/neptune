@@ -1,7 +1,7 @@
-export {NeptuneClient} from './client.js';
-export type {NeptuneClientOptions, NeptuneMethod, NeptuneMethodMap} from './client.js';
+export {NeptuneClient} from './client.ts';
+export type {NeptuneClientOptions, NeptuneMethod, NeptuneMethodMap} from './client.ts';
 
-export {NeptuneHTTPError, NeptuneRPCError} from './errors.js';
+export {NeptuneHTTPError, NeptuneRPCError} from './errors.ts';
 
 export type {
   AddTorrentParams,
@@ -31,4 +31,4 @@ export type {
   Tracker,
   TransferSummary,
   UpdateCustomParams,
-} from './types.js';
+} from './types.ts';

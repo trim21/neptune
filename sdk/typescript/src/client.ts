@@ -1,4 +1,4 @@
-import {NeptuneHTTPError, NeptuneRPCError} from './errors.js';
+import {NeptuneHTTPError, NeptuneRPCError} from './errors.ts';
 import type {
   AddTorrentParams,
   AddTorrentResult,
@@ -23,7 +23,7 @@ import type {
   TransferConfig,
   TransferSummary,
   UpdateCustomParams,
-} from './types.js';
+} from './types.ts';
 
 // ── JSON-RPC wire types ─────────────────────────────────────────────
 
