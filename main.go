@@ -7,7 +7,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -23,7 +22,6 @@ import (
 
 	"github.com/KimMachineGun/automemlimit/memlimit"
 	"github.com/gofrs/flock"
-	"github.com/pelletier/go-toml/v2"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/rs/zerolog"
@@ -194,7 +192,7 @@ func setupFlagsAndEnvParser() {
 	}
 
 	pflag.String("session-path", "", "client session path (default ~/.neptune/)")
-	pflag.String("config-file", "", "path to config file (default {session-path}/config.toml)")
+	pflag.String("config", "", "path to config file (.toml or .lua, default {session-path}/config.toml)")
 
 	pflag.String("web", "127.0.0.1:8002", "web interface address")
 	pflag.String("web-secret-token", "", "web interface address secret token")
@@ -351,21 +349,31 @@ func setupLogger(sessionPath string) {
 }
 
 func mustParseConfig(sessionPath string) config.Config {
-	configFilePath := viper.GetString("config-file")
-	if configFilePath == "" {
-		configFilePath = filepath.Join(sessionPath, "config.toml")
+	configPath := viper.GetString("config")
+
+	// Auto-detect: prefer config.lua, fallback to config.toml
+	if configPath == "" {
+		luaPath := filepath.Join(sessionPath, "config.lua")
+		if _, err := os.Stat(luaPath); err == nil {
+			configPath = luaPath
+		} else {
+			configPath = filepath.Join(sessionPath, "config.toml")
+		}
 	}
 
-	cfg, err := config.LoadFromFile(configFilePath)
-	if err != nil {
-		var derr *toml.DecodeError
-		if errors.As(err, &derr) {
-			_, _ = fmt.Fprintln(os.Stderr, derr.String())
-			row, col := derr.Position()
-			_, _ = fmt.Fprintln(os.Stderr, "error occurred at row", row, "column", col)
-			os.Exit(2)
-		}
+	var cfg config.Config
+	var err error
 
+	switch filepath.Ext(configPath) {
+	case ".lua":
+		cfg, err = config.LoadFromLua(configPath)
+	case ".toml":
+		cfg, err = config.LoadFromTOML(configPath)
+	default:
+		errExit(fmt.Sprintf("unknown config format %q, expected .toml or .lua", configPath))
+	}
+
+	if err != nil {
 		errExit("failed to load config", err)
 	}
 
