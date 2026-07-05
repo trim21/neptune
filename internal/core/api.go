@@ -459,15 +459,17 @@ func (c *Client) DebugHandlers() http.Handler {
 		debugPrintTrackers(w, d)
 		debugPrintPeers(w, d)
 
-		_, _ = fmt.Fprintln(w, d.bm.String())
+		if r.URL.Query().Get("mode") == "full" {
+			_, _ = fmt.Fprintln(w, d.bm.String())
 
-		_, _ = fmt.Fprintln(w, "\nmissing pieces")
+			_, _ = fmt.Fprintln(w, "\nmissing pieces")
 
-		missing := bm.New(d.info.NumPieces)
+			missing := bm.New(d.info.NumPieces)
 
-		missing.Fill()
+			missing.Fill()
 
-		_, _ = fmt.Fprintln(w, missing.WithAndNot(d.bm).String())
+			_, _ = fmt.Fprintln(w, missing.WithAndNot(d.bm).String())
+		}
 
 		debugPrintPendingPeers(w, d)
 	})
