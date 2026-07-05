@@ -27,6 +27,7 @@ class MainDataTorrent:
     total_length: int
     selected_size: int
     add_at: int
+    completed_at: int
     private: bool
     total_seeding: int
     total_downloading: int
