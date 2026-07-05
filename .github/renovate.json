@@ -9,6 +9,7 @@
     "* 4 29 2 7"
   ],
   "labels": [
+    "ci:auto-merge",
     "dependencies"
   ],
   "prConcurrentLimit": 3,
