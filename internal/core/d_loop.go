@@ -122,28 +122,44 @@ func (d *Download) startBackground() {
 	d.goBackground(d.backgroundReqScheduler)
 	d.goBackground(d.backgroundReqHandler)
 
+	// Connection loop — libtorrent-style periodic connect attempts.
+	// 1s ticker (matching libtorrent's tick_interval) for prompt reuse of freed slots.
+	// 5min ticker for peer turnover (disconnect slow peers, connect new candidates).
 	d.goBackground(func() {
-		// Periodic reconnect timer so backoff-expired peers get retried.
-		// libtorrent does this every 10s via receive_connect_peers.
-		reconnectTicker := time.NewTicker(10 * time.Second)
-		defer reconnectTicker.Stop()
+		connectTicker := time.NewTicker(time.Second)
+		defer connectTicker.Stop()
+
+		turnoverTicker := time.NewTicker(5 * time.Minute)
+		defer turnoverTicker.Stop()
 
 		for {
 			select {
 			case <-d.ctx.Done():
 				return
 			case <-d.pendingPeersSignal:
-			case <-reconnectTicker.C:
+			case <-connectTicker.C:
+			case <-turnoverTicker.C:
+				d.peerTurnover()
+				continue
 			}
 
 			if !d.wait(Seeding | Downloading) {
 				continue
 			}
 
-			d.connectToPeers()
+			// Compute how many slots we can fill
+			desired := d.maxConnections()
+			current := d.peerCount()
+			maxSlots := desired - current
+			if maxSlots <= 0 {
+				continue
+			}
+
+			d.connectToPeers(maxSlots)
 		}
 	})
 
+	// PEX handler — feeds peers from PEX messages into the persistent peer list.
 	d.goBackground(func() {
 		for {
 			select {
@@ -153,24 +169,16 @@ func (d *Download) startBackground() {
 			case peers := <-d.pexAdd:
 				state := d.GetState()
 
-				d.pendingPeersMutex.Lock()
-
 				for _, peer := range peers {
 					if !peer.outGoing {
 						continue
 					}
-
 					if state == Seeding && peer.seedOnly {
 						continue
 					}
 
-					d.pendingPeers.Push(peerWithPriority{
-						addrPort: peer.addrPort,
-						priority: d.c.PeerPriority(peer.addrPort),
-					})
+					d.peerList.addPeer(peer.addrPort, peerSourcePEX, true)
 				}
-
-				d.pendingPeersMutex.Unlock()
 
 				select {
 				case d.pendingPeersSignal <- empty.Empty{}:
@@ -202,8 +210,7 @@ func (d *Download) optimisticUnchoke() {
 
 	idx := int(time.Now().UnixNano()) % len(peers)
 	p := peers[idx]
-	p.Requested.Clear()
-	d.log.Debug().Stringer("addr", p.Address).Msg("optimistic unchoke: cleared peer Requested")
+	d.log.Debug().Stringer("addr", p.Address).Msg("optimistic unchoke")
 
 	select {
 	case d.scheduleRequestSignal <- empty.Empty{}:
@@ -288,4 +295,19 @@ func (d *Download) openFileReadOnly(fileIndex int) (*filepool.File, error) {
 	}
 	d.adviseFresh(file, fresh)
 	return file, nil
+}
+
+// maxConnections returns the per-torrent connection limit.
+func (d *Download) maxConnections() int {
+	return int(d.c.Config.App.GlobalConnectionLimit)
+}
+
+// peerCount returns the number of currently connected peers.
+func (d *Download) peerCount() int {
+	count := 0
+	d.peers.Range(func(_ netip.AddrPort, _ *Peer) bool {
+		count++
+		return true
+	})
+	return count
 }

@@ -4,11 +4,9 @@
 package core
 
 import (
-	"cmp"
 	"crypto/sha1"
 	"io"
 	"net/netip"
-	"slices"
 	"time"
 
 	"github.com/docker/go-units"
@@ -17,7 +15,7 @@ import (
 	"neptune/internal/core/tracker"
 	"neptune/internal/meta"
 	"neptune/internal/pkg/as"
-	"neptune/internal/pkg/bm"
+	"neptune/internal/pkg/empty"
 	"neptune/internal/pkg/global/tasks"
 	"neptune/internal/pkg/gslice"
 	"neptune/internal/pkg/gsync"
@@ -25,6 +23,16 @@ import (
 	"neptune/internal/pkg/mempool"
 	"neptune/internal/proto"
 )
+
+// requestQueueTime is the target number of seconds of pipeline to maintain
+// (mirrors libtorrent's request_queue_time setting).
+const requestQueueTime = 3
+
+// minRequestQueue is the minimum number of outstanding requests per peer.
+const minRequestQueue = 2
+
+// maxRequestQueue is the maximum number of outstanding requests per peer.
+const maxRequestQueue = 250
 
 func (d *Download) backgroundReqScheduler() {
 	timer := time.NewTimer(time.Second * 5)
@@ -35,18 +43,21 @@ func (d *Download) backgroundReqScheduler() {
 		case <-d.ctx.Done():
 			return
 		case <-d.scheduleRequestSignal:
-			if !d.wait(Downloading) {
-				continue
-			}
-
-			d.scheduleSeq()
 		case <-timer.C:
-			if !d.wait(Downloading) {
-				continue
-			}
-
-			d.scheduleSeq()
 		}
+
+		if !d.wait(Downloading) {
+			continue
+		}
+
+		// Iterate peers and request blocks for each
+		d.peers.Range(func(addr netip.AddrPort, p *Peer) bool {
+			if p.closed.Load() {
+				return true
+			}
+			d.requestABlock(p)
+			return true
+		})
 	}
 }
 
@@ -114,15 +125,15 @@ func (d *Download) handleRes(res *proto.ChunkResponse) {
 	d.c.pieceDownloadRate.Update(len(res.Data))
 	d.downloaded.Add(int64(len(res.Data)))
 
-	// clear endgame tracking for this chunk
-	if d.endGameMode.Load() {
-		d.endgameRequested.Delete(res.Request())
-	}
 
 	// in endgame mode we may receive duplicated response, just ignore them
 	if d.bm.Contains(res.PieceIndex) {
 		return
 	}
+
+	// Mark block as writing in the picker
+	blockIndex := int(res.Begin / uint32(defaultBlockSize))
+	d.picker.markAsWriting(res.PieceIndex, blockIndex)
 
 	if d.endGameMode.Load() {
 		d.handleResEndgame(res)
@@ -151,6 +162,7 @@ func (d *Download) handleRes(res *proto.ChunkResponse) {
 
 	head := d.chunk.heap.Pop()
 	headPi := head.pi
+	headPiece := head.res.PieceIndex
 
 	mergedChunk := pieceChunksPool.Get()
 	defer pieceChunksPool.Put(mergedChunk)
@@ -160,8 +172,6 @@ func (d *Download) handleRes(res *proto.ChunkResponse) {
 	d.chunk.done.Set(headPi)
 	d.chunk.mu.Unlock()
 
-	headPiece := head.res.PieceIndex
-	tailPiece := headPiece
 	tailPi := headPi
 
 	start := int64(headPiece)*d.info.PieceLength + int64(head.res.Begin)
@@ -181,7 +191,6 @@ func (d *Download) handleRes(res *proto.ChunkResponse) {
 		}
 
 		tailPi++
-		tailPiece = peak.res.PieceIndex
 
 		d.chunk.mu.Lock()
 		d.chunk.done.Set(tailPi)
@@ -198,11 +207,30 @@ func (d *Download) handleRes(res *proto.ChunkResponse) {
 		return
 	}
 
-	for pieceIndex := headPiece; pieceIndex <= tailPiece; pieceIndex++ {
-		if !d.checkPieceBitmapDone(pieceIndex) {
-			continue
-		}
+	// Mark only the blocks that were actually written as finished.
+	// track which pieces were fully completed.
+	var completedPieces []uint32
+	for pi := headPi; pi <= tailPi; pi++ {
+		pieceIdx := pi / d.normalChunkLen
+		blockIdx := int(pi % d.normalChunkLen)
+		d.picker.markAsFinished(pieceIdx, blockIdx)
 
+		if d.checkPieceBitmapDone(pieceIdx) {
+			// avoid duplicates
+			already := false
+			for _, cp := range completedPieces {
+				if cp == pieceIdx {
+					already = true
+					break
+				}
+			}
+			if !already {
+				completedPieces = append(completedPieces, pieceIdx)
+			}
+		}
+	}
+
+	for _, pieceIndex := range completedPieces {
 		tasks.Submit(func() {
 			err := d.checkPiece(pieceIndex)
 			if err != nil {
@@ -228,6 +256,10 @@ func (d *Download) handleResEndgame(res *proto.ChunkResponse) {
 		d.chunk.done.Set(chunk.pi)
 		d.chunk.mu.Unlock()
 		proto.PiecePool.Put(chunk.res)
+
+		// Mark block as finished in the picker
+		blockIdx := int(chunk.res.Begin / uint32(defaultBlockSize))
+		d.picker.markAsFinished(index, blockIdx)
 
 		if err != nil {
 			continue
@@ -279,6 +311,11 @@ func (d *Download) handlePieceFromHeap(index uint32) {
 	err := d.writeChunkToDist(int64(index)*d.info.PieceLength, buf.B)
 	if err != nil {
 		return
+	}
+
+	// Mark all blocks as finished in the picker
+	for bi := range int(pieceChunksCount(d.info, index)) {
+		d.picker.markAsFinished(index, bi)
 	}
 
 	tasks.Submit(func() {
@@ -382,7 +419,8 @@ func (d *Download) checkPiece(pieceIndex uint32) error {
 	copy(digest[:], hasher.Sum(nil))
 
 	if digest != d.info.Pieces[pieceIndex] {
-		d.pieceInFlight.Unset(pieceIndex)
+		// Piece hash check failed — reset in picker so blocks can be re-requested
+		d.picker.resetPiece(pieceIndex, d.info)
 		d.corruptedPiecesMu.Lock()
 		d.corruptedPieces[pieceIndex]++
 		d.corruptedPiecesMu.Unlock()
@@ -394,22 +432,35 @@ func (d *Download) checkPiece(pieceIndex uint32) error {
 			d.chunk.done.Remove(i)
 		}
 		d.chunk.mu.Unlock()
+		// Trigger reschedule for re-requesting this piece
+		select {
+		case d.scheduleRequestSignal <- empty.Empty{}:
+		default:
+		}
 		return nil
 	}
 
 	notHave := d.bm.SetX(pieceIndex)
-	d.pieceInFlight.Unset(pieceIndex)
+
+	// Mark piece as fully owned in the picker
+	d.picker.weHave(pieceIndex)
 
 	if notHave {
 		d.completed.Add(pieceSize)
 		d.corruptedPiecesMu.Lock()
 		delete(d.corruptedPieces, pieceIndex)
 		d.corruptedPiecesMu.Unlock()
-		d.piecePeerMu.Lock()
-		delete(d.piecePeerAssignments, pieceIndex)
-		d.piecePeerMu.Unlock()
 		d.log.Trace().Msgf("piece %d done", pieceIndex)
 		d.have(pieceIndex)
+
+		// Signal peers that a piece completed so they can request more blocks.
+		d.peers.Range(func(_ netip.AddrPort, p *Peer) bool {
+			select {
+			case p.pieceDone <- empty.Empty{}:
+			default:
+			}
+			return true
+		})
 	}
 
 	return nil
@@ -438,316 +489,159 @@ func (d *Download) checkDone() {
 	d.Trk.Announce(tracker.EventCompleted)
 }
 
-// piecePriority computes a priority score for a piece, inspired by libtorrent:
-// priority = (availability + 1) * 3 + state_adjustment
-// Higher priority means more urgent to download.
-func piecePriority(availability int32, hasPendingChunks bool) int32 {
-	p := (availability + 1) * 3
-	if hasPendingChunks {
-		p += 1 // boost partially downloaded pieces
+// requestABlock picks blocks for a single peer using the global piece picker.
+// Mirrors libtorrent's request_a_block().
+//
+// It determines the desired queue size dynamically (rate-based or snubbed=1),
+// calls the piece picker to find blocks, filters out already-queued blocks,
+// and pushes free blocks into the peer's request channel. In endgame mode,
+// it may also pick busy blocks (already requested by other peers).
+func (d *Download) requestABlock(p *Peer) {
+	if d.bm.Count() == d.info.NumPieces {
+		return // we're a seed, nothing to request
 	}
-	return p
-}
-
-func (d *Download) updateRarePieces() {
-	d.ratePieceMutex.Lock()
-	defer d.ratePieceMutex.Unlock()
-
-	if len(d.pieceAvailability) == 0 {
-		d.pieceAvailability = make([]int32, d.info.NumPieces)
-	} else {
-		clear(d.pieceAvailability)
+	if p.closed.Load() || p.isDisconnecting() {
+		return
 	}
-
-	var baseAvail int32
-	d.peers.Range(func(addr netip.AddrPort, p *Peer) bool {
-		if p.peerChoking.Load() {
-			p.allowFast.Range(func(u uint32) {
-				if p.Bitmap.Contains(u) {
-					d.pieceAvailability[u]++
-				}
-			})
-			return true
-		}
-
-		if p.Bitmap.Count() == d.info.NumPieces {
-			baseAvail++
-			return true
-		}
-
-		p.Bitmap.Range(func(u uint32) {
-			d.pieceAvailability[u]++
-		})
-
-		return true
-	})
-
-	var queue = make([]pieceRare, 0, d.info.NumPieces)
-
-	for index, avail := range d.pieceAvailability {
-		if d.bm.Contains(uint32(index)) {
-			continue
-		}
-
-		totalAvail := avail + baseAvail
-		if totalAvail == 0 {
-			continue
-		}
-
-		if !d.selectedPiecesBm.Contains(uint32(index)) {
-			continue
-		}
-
-		// Skip pieces already assigned to another peer (mirrors libtorrent's untouched_bitfield).
-		if d.pieceInFlight.Contains(uint32(index)) {
-			continue
-		}
-
-		// check if piece has pending chunks (partially downloaded)
-		pieceStart := uint32(index) * d.normalChunkLen
-		pieceEnd := pieceStart + uint32(pieceChunksCount(d.info, uint32(index)))
-		hasPending := false
-		d.chunk.mu.RLock()
-		for c := pieceStart; c < pieceEnd; c++ {
-			if d.chunk.done.Contains(c) {
-				hasPending = true
-				break
-			}
-		}
-		d.chunk.mu.RUnlock()
-
-		priority := piecePriority(totalAvail, hasPending)
-		if priority > 0 {
-			queue = append(queue, pieceRare{priority: priority, index: uint32(index)})
-		}
-	}
-
-	d.rarePieceQueue = heap.FromSlice(queue)
-}
-
-func (d *Download) scheduleSeq() {
-	if d.endGameMode.Load() {
-		d.scheduleSeqEndGame()
+	if !d.HasState(Downloading) {
 		return
 	}
 
-	if d.SelectedSize()-d.completed.Load() <= units.MiB*100 {
+
+	// Determine desired queue size
+	desiredQueueSize := p.updateDesiredQueueSize()
+
+	// Already have enough outstanding requests
+	numRequests := desiredQueueSize - p.myRequests.Size() - p.requestQueueLen()
+	if numRequests <= 0 {
+		return
+	}
+
+	// Check if we should enter endgame mode
+	remaining := d.SelectedSize() - d.completed.Load()
+	if remaining <= units.MiB*100 {
 		d.endGameMode.Store(true)
-		d.scheduleSeqEndGame()
-		return
 	}
 
-	// Phase 1: prioritize partial pieces (already partially downloaded)
-	d.schedulePartialPieces()
+	// Build bitfield of pieces peer has
+	choked := p.peerChoking.Load()
 
-	// Phase 2: rarest-first for remaining capacity
-	d.scheduleRarePieces()
-}
+	// Call the piece picker
+	result := d.picker.pickPieces(
+		p.Bitmap,
+		choked,
+		p.allowFast,
+		numRequests,
+		0, // prefer_contiguous_blocks (can be enabled for fast peers later)
+		nil, // suggested pieces (not yet implemented)
+		d.info,
+	)
 
-// schedulePartialPieces assigns pieces that are already partially downloaded.
-// This reduces memory usage and completes work-in-progress faster.
-func (d *Download) schedulePartialPieces() {
-	type partialPiece struct {
-		index    uint32
-		progress int // number of chunks already downloaded
-	}
-
-	var partials []partialPiece
-
-	for i := range d.info.NumPieces {
-		if d.bm.Contains(i) {
-			continue
-		}
-		if !d.selectedPiecesBm.Contains(i) {
-			continue
+	// Pick free blocks first
+	freeBlocksPicked := 0
+	for _, fb := range result.freeBlocks {
+		if numRequests <= 0 {
+			break
 		}
 
-		pieceStart := i * d.normalChunkLen
-		pieceEnd := pieceStart + uint32(pieceChunksCount(d.info, i))
-		downloaded := 0
+		// Check if the block is already in the peer's queues
+		chunk := pieceChunk(d.info, fb.pieceIndex, fb.blockIndex)
+		if p.isInQueue(chunk) {
+			continue
+		}
+
+		// Check if block is already finished
+		if d.picker.isFinished(fb.pieceIndex, fb.blockIndex) {
+			continue
+		}
+
+		// Check if piece is already downloaded
+		if d.bm.Contains(fb.pieceIndex) {
+			continue
+		}
+
+		// Check if chunk is already written to disk
+		chunkPi := fb.pieceIndex*d.normalChunkLen + uint32(fb.blockIndex)
 		d.chunk.mu.RLock()
-		for c := pieceStart; c < pieceEnd; c++ {
-			if d.chunk.done.Contains(c) {
-				downloaded++
-			}
-		}
+		done := d.chunk.done.Contains(chunkPi)
 		d.chunk.mu.RUnlock()
+		if done {
+			continue
+		}
 
-		if downloaded > 0 {
-			partials = append(partials, partialPiece{index: i, progress: downloaded})
+		// Mark block as requesting in the picker
+		d.picker.markAsRequesting(fb.pieceIndex, fb.blockIndex, p)
+		d.picker.addDownloadingPiece(fb.pieceIndex, d.info)
+
+		// Push block to peer's request queue
+		select {
+		case p.blockRequests <- pieceBlock{pieceIndex: fb.pieceIndex, blockIndex: fb.blockIndex}:
+			numRequests--
+			freeBlocksPicked++
+		default:
+			// peer's request queue full, abort the mark
+			d.picker.abortDownload(fb.pieceIndex, fb.blockIndex)
+			return
 		}
 	}
 
-	if len(partials) == 0 {
+	// If we could pick enough free blocks, we're not in endgame for this peer
+	if numRequests <= 0 {
+		p.setEndgame(false)
 		return
 	}
 
-	// sort by progress descending (almost-done pieces first)
-	slices.SortFunc(partials, func(a, b partialPiece) int {
-		return cmp.Compare(b.progress, a.progress)
-	})
-
-	d.assignPiecesToPeers(func() (uint32, bool) {
-		if len(partials) == 0 {
-			return 0, false
-		}
-		p := partials[0]
-		partials = partials[1:]
-		return p.index, true
-	})
-}
-
-// scheduleRarePieces assigns pieces using rarest-first strategy.
-func (d *Download) scheduleRarePieces() {
-	d.updateRarePieces()
-
-	d.ratePieceMutex.Lock()
-	q := d.rarePieceQueue
-	d.rarePieceQueue = heap.New[pieceRare]()
-	d.ratePieceMutex.Unlock()
-
-	d.assignPiecesToPeers(func() (uint32, bool) {
-		if q.Len() == 0 {
-			return 0, false
-		}
-		piece := q.Pop()
-		if piece.priority <= 0 {
-			return 0, false
-		}
-		return piece.index, true
-	})
-}
-
-// assignPiecesToPeers assigns pieces from the iterator to peers.
-// Peers are sorted by speed (fastest first) and get pieces proportional to their pipeline capacity.
-func (d *Download) assignPiecesToPeers(nextPiece func() (uint32, bool)) {
-	type peerInfo struct {
-		peer     *Peer
-		capacity int // how many more pieces this peer can handle
+	// If we couldn't find enough free blocks, this peer enters endgame.
+	// Only set endgame if we're not choked (choked means only allowed-fast,
+	// which doesn't count as endgame).
+	if !p.peerChoking.Load() {
+		p.setEndgame(true)
+		d.endGameMode.Store(true)
 	}
 
-	var peers []peerInfo
-	d.peers.Range(func(addr netip.AddrPort, p *Peer) bool {
-		if p.closed.Load() {
-			return true
-		}
-		queueSize := int(p.desiredQueueSize.Load())
-		pending := p.myRequests.Size()
-		// rough estimate: each piece has multiple chunks, divide by avg chunks
-		pendingPieces := 0
-		if pending > 0 {
-			pendingPieces = max(pending/int(d.normalChunkLen), 1)
-		}
-		avail := queueSize - pendingPieces
-		if avail > 0 {
-			peers = append(peers, peerInfo{peer: p, capacity: avail})
-		}
-		return true
-	})
-
-	if len(peers) == 0 {
+	// In endgame, also try busy blocks, but only if we have
+	// no outstanding requests already (to avoid all peers
+	// fighting over the same blocks).
+	// Mirrors libtorrent: dq.size() + rq.size() > 0 check.
+	if !d.endGameMode.Load() || p.myRequests.Size()+p.requestQueueLen() > 0 {
 		return
 	}
 
-	// sort by download rate descending (fastest peer first)
-	slices.SortFunc(peers, func(a, b peerInfo) int {
-		return cmp.Compare(b.peer.pieceDownloadRate.Status().CurRate, a.peer.pieceDownloadRate.Status().CurRate)
-	})
+	if len(result.busyBlocks) > 0 {
 
-	for _, pi := range peers {
-		for pi.capacity > 0 {
-			pieceIndex, ok := nextPiece()
-			if !ok {
-				return
-			}
-
-			if !d.selectedPiecesBm.Contains(pieceIndex) {
+		for _, bb := range result.busyBlocks {
+			chunk := pieceChunk(d.info, bb.pieceIndex, bb.blockIndex)
+			if p.isInQueue(chunk) {
 				continue
 			}
 
-			if pi.peer.peerChoking.Load() {
-				if !pi.peer.allowFast.Contains(pieceIndex) {
-					continue
-				}
-			} else if !pi.peer.Bitmap.Contains(pieceIndex) {
+			if d.picker.isFinished(bb.pieceIndex, bb.blockIndex) {
 				continue
 			}
 
-			// skip peers that previously sent corrupted data for this piece
-			d.piecePeerMu.Lock()
-			if peers, ok := d.piecePeerAssignments[pieceIndex]; ok {
-				if _, bad := peers[pi.peer.id]; bad {
-					d.piecePeerMu.Unlock()
-					continue
-				}
+			if d.bm.Contains(bb.pieceIndex) {
+				continue
 			}
-			// record this assignment
-			if d.piecePeerAssignments[pieceIndex] == nil {
-				d.piecePeerAssignments[pieceIndex] = make(map[uint32]struct{})
+
+			chunkPi := bb.pieceIndex*d.normalChunkLen + uint32(bb.blockIndex)
+			d.chunk.mu.RLock()
+			done := d.chunk.done.Contains(chunkPi)
+			d.chunk.mu.RUnlock()
+			if done {
+				continue
 			}
-			d.piecePeerAssignments[pieceIndex][pi.peer.id] = struct{}{}
-			d.piecePeerMu.Unlock()
+
+			d.picker.markAsRequesting(bb.pieceIndex, bb.blockIndex, p)
+			d.picker.addDownloadingPiece(bb.pieceIndex, d.info)
 
 			select {
-			case pi.peer.ourPieceRequests <- pieceIndex:
-				pi.peer.Requested.Set(pieceIndex)
-				d.pieceInFlight.Set(pieceIndex) // global tracking, mirrors libtorrent untouched_bitfield
-				pi.capacity--
+			case p.blockRequests <- pieceBlock{pieceIndex: bb.pieceIndex, blockIndex: bb.blockIndex}:
 			default:
-				// channel full, move to next peer
-				break
+				d.picker.abortDownload(bb.pieceIndex, bb.blockIndex)
 			}
+			return
 		}
 	}
-}
-
-func (d *Download) scheduleSeqEndGame() {
-	missing := bm.New(d.info.NumPieces)
-	missing.Fill()
-	missing.AndNot(d.bm)
-	s := missing.ToArray()
-
-	d.peers.Range(func(addr netip.AddrPort, p *Peer) bool {
-		for _, u := range s {
-			if !d.selectedPiecesBm.Contains(u) {
-				continue
-			}
-			if p.Bitmap.Contains(u) {
-				// check if this peer has any unrequested chunks for this piece
-				if !d.hasUnrequestedEndgameChunks(u) {
-					continue
-				}
-				select {
-				case <-p.ctx.Done():
-					return true
-				case p.ourPieceRequests <- u:
-				default:
-				}
-			}
-		}
-
-		return true
-	})
-}
-
-// hasUnrequestedEndgameChunks returns true if the piece has chunks not yet requested in endgame mode.
-func (d *Download) hasUnrequestedEndgameChunks(pieceIndex uint32) bool {
-	if !d.endGameMode.Load() {
-		return true
-	}
-	pieceStart := pieceIndex * d.normalChunkLen
-	pieceEnd := pieceStart + uint32(pieceChunksCount(d.info, pieceIndex))
-	d.chunk.mu.RLock()
-	defer d.chunk.mu.RUnlock()
-	for c := pieceStart; c < pieceEnd; c++ {
-		if !d.chunk.done.Contains(c) {
-			req := pieceChunk(d.info, pieceIndex, int(c-pieceStart))
-			if _, requested := d.endgameRequested.Load(req); !requested {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func pieceChunksCount(info meta.Info, index uint32) int64 {

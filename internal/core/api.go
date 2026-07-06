@@ -494,7 +494,6 @@ func (c *Client) DebugHandlers() http.Handler {
 		)
 
 		d.corruptedPiecesMu.Lock()
-		d.piecePeerMu.Lock()
 		if len(d.corruptedPieces) > 0 {
 			fmt.Fprintf(w, "failing pieces: %d\n", len(d.corruptedPieces))
 			type kv struct {
@@ -504,18 +503,14 @@ func (c *Client) DebugHandlers() http.Handler {
 			}
 			var top []kv
 			for idx, count := range d.corruptedPieces {
-				blockedBy := 0
-				if peers, ok := d.piecePeerAssignments[idx]; ok {
-					blockedBy = len(peers)
-				}
+				blockedBy := d.picker.countBusyBlocks(idx, d.info)
 				top = append(top, kv{idx, count, blockedBy})
 			}
 			slices.SortFunc(top, func(a, b kv) int { return b.count - a.count })
 			for i := 0; i < len(top) && i < 10; i++ {
-				fmt.Fprintf(w, "  piece %d: %d failures, %d peers blocked\n", top[i].idx, top[i].count, top[i].blockedBy)
+				fmt.Fprintf(w, "  piece %d: %d failures, %d busy blocks\n", top[i].idx, top[i].count, top[i].blockedBy)
 			}
 		}
-		d.piecePeerMu.Unlock()
 		d.corruptedPiecesMu.Unlock()
 
 		debugPrintTrackers(w, d)
@@ -577,7 +572,7 @@ func debugPrintPeers(w io.Writer, d *Download) {
 			humanize.IBytes(uint64(p.pieceDownloadRate.Status().CurRate)) + "/s",
 			humanize.IBytes(uint64(p.pieceUploadRate.Status().CurRate)) + "/s",
 			p.myRequests.Size(),
-			len(p.ourPieceRequests),
+			len(p.blockRequests),
 			*p.UserAgent.Load(),
 			fmt.Sprintf("%6.1f %%", float64(p.Bitmap.Count())/float64(d.info.NumPieces)*100),
 			p.peerChoking.Load(),
@@ -643,16 +638,17 @@ func debugPrintFiles(w io.Writer, d *Download) {
 }
 
 func debugPrintPendingPeers(w io.Writer, d *Download) {
-	d.pendingPeersMutex.Lock()
-	defer d.pendingPeersMutex.Unlock()
-
 	t := table.NewWriter()
 	t.AppendHeader(table.Row{colAddress})
 	t.SortBy([]table.SortBy{{Name: colAddress}})
 
-	for _, item := range d.pendingPeers.Data {
-		t.AppendRow(table.Row{item.addrPort.String()})
+	d.peerList.mu.Lock()
+	for _, pp := range d.peerList.peers {
+		if pp.connection == nil {
+			t.AppendRow(table.Row{pp.addrPort.String()})
+		}
 	}
+	d.peerList.mu.Unlock()
 
 	_, _ = io.WriteString(w, t.Render())
 	_, _ = fmt.Fprintln(w)

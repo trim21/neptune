@@ -12,12 +12,10 @@ import (
 	"sync"
 	"time"
 
-	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/kelindar/bitmap"
 	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"github.com/samber/lo"
 	"go.uber.org/atomic"
 
 	"neptune/internal/core/tracker"
@@ -120,30 +118,25 @@ type Download struct {
 	downloadLimiter        *ratelimit.Limiter
 	uploadLimiter          *ratelimit.Limiter
 	peers                  *xsync.Map[netip.AddrPort, *Peer]
-	connectionHistory      *lru.Cache[netip.AddrPort, connHistory]
+	peerList               *peerList // persistent peer list (libtorrent-style)
 	bm                     *bm.Bitmap
-	pieceInFlight          *bm.Bitmap // pieces currently assigned to a peer, matching libtorrent's untouched_bitfield
+	picker                 *piecePicker // global block-level piece picker (libtorrent-style)
 	err                    atomic.Pointer[error]
-	pendingPeers           *heap.Heap[peerWithPriority]
 	cancel                 context.CancelFunc
 	scheduleRequestSignal  chan empty.Empty
-	rarePieceQueue         *heap.Heap[pieceRare]
 	scheduleResponseSignal chan empty.Empty
 	pendingPeersSignal     chan empty.Empty
 	buildNetworkPieces     chan empty.Empty
 	pexAdd                 chan []pexPeer
 	pexDrop                chan []netip.AddrPort
-	endgameRequested       *xsync.Map[proto.ChunkRequest, empty.Empty]
 	selectedFilesSet       map[int]struct{}
 	custom                 map[string]string
 	Trk                    *tracker.Trackers
 	corruptedPieces        map[uint32]int
-	piecePeerAssignments   map[uint32]map[uint32]struct{}
 	downloadDir            string
 	basePath               string
 	pieceInfo              pieceInfo
 	tags                   []string
-	pieceAvailability      []int32
 	chunk                  chunkState
 	info                   meta.Info
 	backgroundWg           sync.WaitGroup
@@ -155,7 +148,6 @@ type Download struct {
 	uploadAtStart          int64
 	downloadAtStart        int64
 	endGameMode            atomic.Bool
-	seq                    atomic.Bool
 	AddAt                  int64
 	peerLeechers           atomic.Int64
 	CompletedAt            atomic.Int64
@@ -164,27 +156,11 @@ type Download struct {
 	unchokeSlotIdx         int
 	unchokeCycleOffset     int // rotating offset for slot cycling
 	m                      sync.RWMutex
-	pendingPeersMutex      sync.Mutex
-	ratePieceMutex         sync.Mutex
 	corruptedPiecesMu      sync.Mutex
-	piecePeerMu            sync.Mutex
 	normalChunkLen         uint32
 	bitfieldSize           uint32
 	peerID                 proto.PeerID
 	private                bool
-}
-
-type pieceRare struct {
-	index    uint32
-	priority int32
-}
-
-func (p pieceRare) Less(o pieceRare) bool {
-	if p.priority == o.priority {
-		return p.index < o.index
-	}
-	// higher priority first
-	return p.priority > o.priority
 }
 
 type chunkState struct {
@@ -251,8 +227,6 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 
 		normalChunkLen: as.Uint32((info.PieceLength + defaultBlockSize - 1) / defaultBlockSize),
 
-		seq: *atomic.NewBool(true),
-
 		AddAt: time.Now().Unix(),
 
 		ResChan: make(chan *proto.ChunkResponse, 1),
@@ -262,21 +236,20 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 		pieceUploadRate:   flowrate.New(time.Second, time.Second),
 
 		peers:             xsync.NewMap[netip.AddrPort, *Peer](),
-		connectionHistory: lo.Must(lru.New[netip.AddrPort, connHistory](256)),
+		peerList:          newPeerList(nil), // d set below
+
+		picker: newPiecePicker(info),
 
 		chunk: chunkState{
 			done: make(bitmap.Bitmap, (int64(info.NumPieces)*((info.PieceLength+defaultBlockSize-1)/defaultBlockSize)+63)/64),
 		},
-		endgameRequested: xsync.NewMap[proto.ChunkRequest, empty.Empty](),
-		pendingPeers:     heap.New[peerWithPriority](),
 
 		// will use about 1mb per torrent, can be optimized later
 		pieceInfo: buildPieceInfos(info),
 
 		private: info.Private,
 
-		bm:            bm.New(info.NumPieces),
-		pieceInFlight: bm.New(info.NumPieces),
+		bm: bm.New(info.NumPieces),
 
 		bitfieldSize: (info.NumPieces + 7) / 8,
 
@@ -293,8 +266,7 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 		downloadLimiter: ratelimit.New(0),
 		uploadLimiter:   ratelimit.New(0),
 
-		corruptedPieces:      make(map[uint32]int),
-		piecePeerAssignments: make(map[uint32]map[uint32]struct{}),
+		corruptedPieces: make(map[uint32]int),
 	}
 
 	d.state.Store(uint32(Checking))
@@ -310,6 +282,8 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 	d.selectedSize.Store(d.computeSelectedSizeUnsafe())
 	d.buildSelectedPiecesBmUnsafe()
 
+	d.peerList.d = d
+
 	d.Trk = tracker.New(d.ctx, tracker.Config{
 		Key:             random.URLSafeStr(16),
 		HTTP:            c.http,
@@ -324,14 +298,9 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 		SelectedSize:    &d.selectedSize,
 		Debug:           c.debug,
 		OnPeers: func(peers []netip.AddrPort) {
-			d.pendingPeersMutex.Lock()
-			for _, p := range peers {
-				d.pendingPeers.Push(peerWithPriority{
-					addrPort: p,
-					priority: c.PeerPriority(p),
-				})
+			for _, addr := range peers {
+				d.peerList.addPeer(addr, peerSourceTracker, true)
 			}
-			d.pendingPeersMutex.Unlock()
 
 			select {
 			case d.pendingPeersSignal <- empty.Empty{}:
