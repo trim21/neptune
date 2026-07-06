@@ -87,6 +87,7 @@ func newPeer(
 		pieceUploadRate:   flowrate.New(time.Second, time.Second),
 		pieceDownloadRate: flowrate.New(time.Second, time.Second),
 		Address:           addr,
+		id:                d.c.peerIDCounter.Add(1),
 		QueueLimit:        *atomic.NewUint32(200),
 		Incoming:          skipReadHandshake,
 
@@ -144,7 +145,8 @@ type Peer struct {
 	Conn              net.Conn
 	lastSend          atomic.Time
 	snubbedAt         atomic.Time
-	peerRequests      *xsync.Map[proto.ChunkRequest, empty.Empty]
+	r                 *bufio.Reader
+	pieceUploadRate   *flowrate.Monitor
 	pieceDownloadRate *flowrate.Monitor
 	Bitmap            *bm.Bitmap
 	myRequests        *xsync.Map[proto.ChunkRequest, time.Time]
@@ -152,7 +154,7 @@ type Peer struct {
 	d                 *Download
 	Rejected          *xsync.Map[proto.ChunkRequest, empty.Empty]
 	allowFast         *bm.Bitmap
-	pieceUploadRate   *flowrate.Monitor
+	peerRequests      *xsync.Map[proto.ChunkRequest, empty.Empty]
 	cancel            context.CancelFunc
 	UserAgent         atomic.Pointer[string]
 	ourPieceRequests  chan uint32
@@ -160,11 +162,11 @@ type Peer struct {
 	peerID            atomic.Pointer[proto.PeerID]
 	pieceDone         chan struct{}
 	w                 *bufio.Writer
-	r                 *bufio.Reader
 	Address           netip.AddrPort
 	Requested         bitmap.Bitmap
 	rttAverage        sizedSlice[time.Duration]
 	slowStart         atomic.Bool
+	ourChoking        atomic.Bool
 	QueueLimit        atomic.Uint32
 	lastRate          atomic.Int64
 	desiredQueueSize  atomic.Int32
@@ -174,7 +176,7 @@ type Peer struct {
 	isSeed            atomic.Bool
 	peerChoking       atomic.Bool
 	peerInterested    atomic.Bool
-	ourChoking        atomic.Bool
+	id                uint32
 	rttMutex          sync.RWMutex
 	wm                sync.Mutex
 	extDontHaveID     gsync.AtomicUint[proto.ExtensionMessage]

@@ -110,8 +110,8 @@ func validTransition(from, to State) bool {
 type Download struct {
 	log                    zerolog.Logger
 	ctx                    context.Context
-	err                    atomic.Pointer[error]
-	cancel                 context.CancelFunc
+	selectedPiecesBm       *bm.Bitmap
+	stateCond              *gsync.Cond
 	c                      *Client
 	pieceDownloadRate      *flowrate.Monitor
 	ioDownloadRate         *flowrate.Monitor
@@ -122,31 +122,32 @@ type Download struct {
 	peers                  *xsync.Map[netip.AddrPort, *Peer]
 	connectionHistory      *lru.Cache[netip.AddrPort, connHistory]
 	bm                     *bm.Bitmap
-	selectedPiecesBm       *bm.Bitmap
+	err                    atomic.Pointer[error]
 	pendingPeers           *heap.Heap[peerWithPriority]
-	rarePieceQueue         *heap.Heap[pieceRare]
-	buildNetworkPieces     chan empty.Empty
+	cancel                 context.CancelFunc
 	scheduleRequestSignal  chan empty.Empty
+	rarePieceQueue         *heap.Heap[pieceRare]
 	scheduleResponseSignal chan empty.Empty
 	pendingPeersSignal     chan empty.Empty
-	stateCond              *gsync.Cond
+	buildNetworkPieces     chan empty.Empty
 	pexAdd                 chan []pexPeer
 	pexDrop                chan []netip.AddrPort
 	endgameRequested       *xsync.Map[proto.ChunkRequest, empty.Empty]
 	selectedFilesSet       map[int]struct{}
-	basePath               string
-	downloadDir            string
-	chunk                  chunkState
-	tags                   []string
 	custom                 map[string]string
-	pieceInfo              pieceInfo
 	Trk                    *tracker.Trackers
+	corruptedPieces        map[uint32]int
+	piecePeerAssignments   map[uint32]map[uint32]struct{}
+	downloadDir            string
+	basePath               string
+	pieceInfo              pieceInfo
+	tags                   []string
 	pieceAvailability      []int32
+	chunk                  chunkState
 	info                   meta.Info
-	completed              atomic.Int64
-	selectedSize           atomic.Int64
-	AddAt                  int64
-	CompletedAt            atomic.Int64
+	backgroundWg           sync.WaitGroup
+	peerSeeds              atomic.Int64
+	state                  atomic.Uint32
 	downloaded             atomic.Int64
 	corrupted              atomic.Int64
 	uploaded               atomic.Int64
@@ -154,14 +155,17 @@ type Download struct {
 	downloadAtStart        int64
 	endGameMode            atomic.Bool
 	seq                    atomic.Bool
-	peerSeeds              atomic.Int64
+	AddAt                  int64
 	peerLeechers           atomic.Int64
-	state                  atomic.Uint32
-	m                      sync.RWMutex
-	backgroundWg           sync.WaitGroup
-	ratePieceMutex         sync.Mutex
-	pendingPeersMutex      sync.Mutex
+	CompletedAt            atomic.Int64
+	completed              atomic.Int64
+	selectedSize           atomic.Int64
 	unchokeSlotIdx         int
+	m                      sync.RWMutex
+	pendingPeersMutex      sync.Mutex
+	ratePieceMutex         sync.Mutex
+	corruptedPiecesMu      sync.Mutex
+	piecePeerMu            sync.Mutex
 	normalChunkLen         uint32
 	bitfieldSize           uint32
 	peerID                 proto.PeerID
@@ -285,6 +289,9 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 
 		downloadLimiter: ratelimit.New(0),
 		uploadLimiter:   ratelimit.New(0),
+
+		corruptedPieces:      make(map[uint32]int),
+		piecePeerAssignments: make(map[uint32]map[uint32]struct{}),
 	}
 
 	d.state.Store(uint32(Checking))

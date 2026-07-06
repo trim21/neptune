@@ -380,6 +380,9 @@ func (d *Download) checkPiece(pieceIndex uint32) error {
 	copy(digest[:], hasher.Sum(nil))
 
 	if digest != d.info.Pieces[pieceIndex] {
+		d.corruptedPiecesMu.Lock()
+		d.corruptedPieces[pieceIndex]++
+		d.corruptedPiecesMu.Unlock()
 		d.corrupted.Add(pieceSize)
 		start := pieceIndex * d.normalChunkLen
 		end := start + uint32(pieceChunksCount(d.info, pieceIndex))
@@ -395,6 +398,12 @@ func (d *Download) checkPiece(pieceIndex uint32) error {
 
 	if notHave {
 		d.completed.Add(pieceSize)
+		d.corruptedPiecesMu.Lock()
+		delete(d.corruptedPieces, pieceIndex)
+		d.corruptedPiecesMu.Unlock()
+		d.piecePeerMu.Lock()
+		delete(d.piecePeerAssignments, pieceIndex)
+		d.piecePeerMu.Unlock()
 		d.log.Trace().Msgf("piece %d done", pieceIndex)
 		d.have(pieceIndex)
 	}
@@ -654,6 +663,21 @@ func (d *Download) assignPiecesToPeers(nextPiece func() (uint32, bool)) {
 			} else if !pi.peer.Bitmap.Contains(pieceIndex) {
 				continue
 			}
+
+			// skip peers that previously sent corrupted data for this piece
+			d.piecePeerMu.Lock()
+			if peers, ok := d.piecePeerAssignments[pieceIndex]; ok {
+				if _, bad := peers[pi.peer.id]; bad {
+					d.piecePeerMu.Unlock()
+					continue
+				}
+			}
+			// record this assignment
+			if d.piecePeerAssignments[pieceIndex] == nil {
+				d.piecePeerAssignments[pieceIndex] = make(map[uint32]struct{})
+			}
+			d.piecePeerAssignments[pieceIndex][pi.peer.id] = struct{}{}
+			d.piecePeerMu.Unlock()
 
 			select {
 			case pi.peer.ourPieceRequests <- pieceIndex:

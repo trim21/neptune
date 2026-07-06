@@ -124,41 +124,33 @@ type incomingConn struct {
 }
 
 type Client struct {
-	ctx         context.Context
-	http        *resty.Client
-	cancel      context.CancelFunc
-	downloadMap map[metainfo.Hash]*Download
-	connChan    chan incomingConn
-	sem         *semaphore.Weighted
-	uploadQ     chan uploadTask
-	fh          map[string]*os.File
-
+	ctx               context.Context
+	uploadLimiter     *ratelimit.Limiter
+	ipv4              atomic.Pointer[netip.Addr]
+	downloadMap       map[metainfo.Hash]*Download
+	connChan          chan incomingConn
+	sem               *semaphore.Weighted
+	uploadQ           chan uploadTask
+	fh                map[string]*os.File
 	pieceDownloadRate *flowrate.Monitor
 	pieceUploadRate   *flowrate.Monitor
-
-	downloadLimiter *ratelimit.Limiter
-	uploadLimiter   *ratelimit.Limiter
-
-	filePool *filepool.FilePool
-
-	ipv4 atomic.Pointer[netip.Addr]
-	ipv6 atomic.Pointer[netip.Addr]
-
-	dht *dht.DHT
-
-	resumePath  string
-	torrentPath string
-
-	infoHashes []metainfo.Hash
-	downloads  []*Download
-	checkQueue []metainfo.Hash
-
-	randKey []byte
-
-	Config          config.Config
-	connectionCount atomic.Uint32
-	m               sync.RWMutex
-	debug           bool
+	dht               *dht.DHT
+	downloadLimiter   *ratelimit.Limiter
+	http              *resty.Client
+	cancel            context.CancelFunc
+	filePool          *filepool.FilePool
+	ipv6              atomic.Pointer[netip.Addr]
+	torrentPath       string
+	resumePath        string
+	downloads         []*Download
+	infoHashes        []metainfo.Hash
+	checkQueue        []metainfo.Hash
+	randKey           []byte
+	Config            config.Config
+	peerIDCounter     atomic.Uint32
+	connectionCount   atomic.Uint32
+	m                 sync.RWMutex
+	debug             bool
 }
 
 type DownloadInfo struct {
