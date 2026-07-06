@@ -84,7 +84,7 @@ func newPeer(
 		d:                 d,
 		Bitmap:            bm.New(d.info.NumPieces),
 		pieceUploadRate:   flowrate.New(time.Second, time.Second),
-		pieceDownloadRate: flowrate.New(100*time.Millisecond, 100*time.Millisecond),
+		pieceDownloadRate: flowrate.New(time.Second, time.Second),
 		Address:           addr,
 		id:                d.c.peerIDCounter.Add(1),
 		QueueLimit:        *atomic.NewUint32(2000),
