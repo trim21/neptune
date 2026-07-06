@@ -516,6 +516,8 @@ func (c *Client) DebugHandlers() http.Handler {
 		debugPrintTrackers(w, d)
 		debugPrintPeers(w, d)
 
+		debugPrintPickerStats(w, d)
+
 		if r.URL.Query().Get("mode") == "full" {
 			debugPrintFiles(w, d)
 			// Show compressed piece ranges: have, wanted, and missing.
@@ -563,7 +565,7 @@ func debugPrintPeers(w io.Writer, d *Download) {
 	t := table.NewWriter()
 
 	t.AppendHeader(table.Row{colAddress, "down rate", "up rate", "our req",
-		"queue piece", "client", "progress",
+		"req Q", "client", "progress",
 		"peer choke", "peer interest", "our choke", "our interest", "fast", "peer req", "peer id"})
 
 	d.peers.Range(func(addr netip.AddrPort, p *Peer) bool {
@@ -572,7 +574,7 @@ func debugPrintPeers(w io.Writer, d *Download) {
 			humanize.IBytes(uint64(p.pieceDownloadRate.Status().CurRate)) + "/s",
 			humanize.IBytes(uint64(p.pieceUploadRate.Status().CurRate)) + "/s",
 			p.myRequests.Size(),
-			len(p.blockRequests),
+			len(p.requestQueue),
 			*p.UserAgent.Load(),
 			fmt.Sprintf("%6.1f %%", float64(p.Bitmap.Count())/float64(d.info.NumPieces)*100),
 			p.peerChoking.Load(),
@@ -635,6 +637,16 @@ func debugPrintFiles(w io.Writer, d *Download) {
 
 	_, _ = io.WriteString(w, t.Render())
 	_, _ = fmt.Fprintln(w)
+}
+
+func debugPrintPickerStats(w io.Writer, d *Download) {
+	st := d.picker.DebugStats(d.info)
+	totalBlocks := st.FreeBlocks + st.RequestedBlocks + st.WritingBlocks + st.FinishedBlocks
+
+	fmt.Fprintf(w, "picker: %d open pieces, %d downloading pieces\n", st.OpenPieces, st.Downloading)
+	fmt.Fprintf(w, "blocks: %d free, %d requested, %d writing, %d finished (total %d)\n",
+		st.FreeBlocks, st.RequestedBlocks, st.WritingBlocks, st.FinishedBlocks, totalBlocks)
+	fmt.Fprintf(w, "downloadQueue: %d\n\n", st.DownloadQueue)
 }
 
 func debugPrintPendingPeers(w io.Writer, d *Download) {

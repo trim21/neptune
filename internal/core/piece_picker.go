@@ -257,41 +257,20 @@ func (pp *piecePicker) isFinished(pieceIndex uint32, blockIndex int) bool {
 }
 
 // rebuildPriorities re-sorts the piece priority array.
+// Only fully-completed pieces (all blocks finished) are excluded.
+// Partially downloaded pieces stay in the array — pickPieces handles them
+// via the partial-pieces phase first, then falls back to the priority list.
 func (pp *piecePicker) rebuildPriorities() {
 	if !pp.dirty {
 		return
 	}
 
-	// filter out pieces that are already downloaded or downloading
-	available := make([]uint32, 0, len(pp.pieces))
+	available := pp.pieces[:0]
 	for _, pi := range pp.pieces {
-		idx := pp.blockInfoIdx(pi)
-		// check if this piece is already downloading
-		isDownloading := false
-		for i := range int(pp.blocksPerPiece) {
-			s := pp.blockInfos[idx+i].state
-			if s == blockStateRequested || s == blockStateWriting {
-				isDownloading = true
-				break
-			}
-			if s == blockStateFinished && i == 0 {
-				// first block finished means piece is likely downloaded
-				allFinished := true
-				for j := range int(pp.blocksPerPiece) {
-					if pp.blockInfos[idx+j].state != blockStateFinished {
-						allFinished = false
-						break
-					}
-				}
-				if allFinished {
-					isDownloading = true
-					break
-				}
-			}
+		if pp.allBlocksFinished(pi) {
+			continue
 		}
-		if !isDownloading {
-			available = append(available, pi)
-		}
+		available = append(available, pi)
 	}
 
 	// sort by priority descending, then by piece index
@@ -313,6 +292,17 @@ func (pp *piecePicker) rebuildPriorities() {
 	pp.pieces = available
 	pp.numWantLeft = len(available)
 	pp.dirty = false
+}
+
+// allBlocksFinished returns true if every block of the given piece is finished.
+func (pp *piecePicker) allBlocksFinished(pieceIndex uint32) bool {
+	idx := pp.blockInfoIdx(pieceIndex)
+	for i := range int(pp.blocksPerPiece) {
+		if pp.blockInfos[idx+i].state != blockStateFinished {
+			return false
+		}
+	}
+	return true
 }
 
 // updatePiecePriority recalculates the priority for a piece based on its availability.
@@ -593,6 +583,44 @@ func (pp *piecePicker) countBusyBlocks(pieceIndex uint32, info meta.Info) int {
 		}
 	}
 	return count
+}
+
+// PickerStats holds summary block-state counts for debug output.
+type PickerStats struct {
+	OpenPieces      int
+	Downloading     int
+	RequestedBlocks int
+	WritingBlocks   int
+	FinishedBlocks  int
+	FreeBlocks      int
+	DownloadQueue   int
+}
+
+// DebugStats returns picker state summary for debugging.
+func (pp *piecePicker) DebugStats(info meta.Info) PickerStats {
+	pp.mu.Lock()
+	defer pp.mu.Unlock()
+
+	st := PickerStats{
+		OpenPieces:    len(pp.pieces),
+		Downloading:   len(pp.downloadingPieces),
+		DownloadQueue: pp.downloadQueueSize,
+	}
+
+	totalBlocks := int(pp.numPieces) * int(pp.blocksPerPiece)
+	for i := range totalBlocks {
+		switch pp.blockInfos[i].state {
+		case blockStateNone:
+			st.FreeBlocks++
+		case blockStateRequested:
+			st.RequestedBlocks++
+		case blockStateWriting:
+			st.WritingBlocks++
+		case blockStateFinished:
+			st.FinishedBlocks++
+		}
+	}
+	return st
 }
 
 // resetPiece resets all blocks in a piece to state none (for hash check failure).

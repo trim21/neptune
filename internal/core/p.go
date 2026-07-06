@@ -264,6 +264,13 @@ func (p *Peer) close() {
 			default:
 			}
 		}
+
+		// Signal scheduler: blocks freed by abortDownload are now available
+		// for other peers to pick up immediately.
+		select {
+		case p.d.scheduleRequestSignal <- empty.Empty{}:
+		default:
+		}
 	}
 }
 
