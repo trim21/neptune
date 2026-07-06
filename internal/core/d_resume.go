@@ -37,6 +37,7 @@ type resume struct {
 	CompletedAt        int64
 	Downloaded         int64
 	Uploaded           int64
+	Corrupted          int64
 	State              State
 }
 
@@ -86,6 +87,7 @@ func (d *Download) MarshalBinary() (data []byte, err error) {
 		BasePath:           basePath,
 		Downloaded:         d.downloaded.Load(),
 		Uploaded:           d.uploaded.Load(),
+		Corrupted:          d.corrupted.Load(),
 		Tags:               d.tags,
 		Custom:             d.custom,
 		State:              d.GetState(),
@@ -143,6 +145,7 @@ func (c *Client) UnmarshalResume(data []byte, totalDownloads int) error {
 	d.downloadAtStart = r.Downloaded
 
 	d.uploaded.Store(r.Uploaded)
+	d.corrupted.Store(r.Corrupted)
 	d.uploadAtStart = r.Uploaded
 
 	d.downloadLimiter.Update(r.DownloadSpeedLimit)
