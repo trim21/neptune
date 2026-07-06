@@ -224,7 +224,9 @@ func (d *Download) handleResEndgame(res *proto.ChunkResponse) {
 		chunk := d.chunk.heap.Pop()
 		index := chunk.res.PieceIndex
 		err := d.writeChunkToDist(int64(index)*d.info.PieceLength+int64(chunk.res.Begin), chunk.res.Data)
+		d.chunk.mu.Lock()
 		d.chunk.done.Set(chunk.pi)
+		d.chunk.mu.Unlock()
 		proto.PiecePool.Put(chunk.res)
 
 		if err != nil {
