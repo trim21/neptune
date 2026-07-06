@@ -323,6 +323,8 @@ func (d *Download) writeChunkToDist(begin int64, data []byte) error {
 			return errgo.Wrap(err, "failed to write chunk")
 		}
 
+		_ = f.File.Sync()
+
 		f.Release()
 		offset += chunk.length
 	}
