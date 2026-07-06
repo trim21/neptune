@@ -137,6 +137,7 @@ type Download struct {
 	custom                 map[string]string
 	Trk                    *tracker.Trackers
 	corruptedPieces        map[uint32]int
+	piecePeerAssignments   map[uint32]map[uint64]struct{}
 	downloadDir            string
 	basePath               string
 	pieceInfo              pieceInfo
@@ -164,6 +165,7 @@ type Download struct {
 	pendingPeersMutex      sync.Mutex
 	ratePieceMutex         sync.Mutex
 	corruptedPiecesMu      sync.Mutex
+	piecePeerMu            sync.Mutex
 	normalChunkLen         uint32
 	bitfieldSize           uint32
 	peerID                 proto.PeerID
@@ -288,7 +290,8 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 		downloadLimiter: ratelimit.New(0),
 		uploadLimiter:   ratelimit.New(0),
 
-		corruptedPieces: make(map[uint32]int),
+		corruptedPieces:      make(map[uint32]int),
+		piecePeerAssignments: make(map[uint32]map[uint64]struct{}),
 	}
 
 	d.state.Store(uint32(Checking))

@@ -471,22 +471,28 @@ func (c *Client) DebugHandlers() http.Handler {
 		)
 
 		d.corruptedPiecesMu.Lock()
+		d.piecePeerMu.Lock()
 		if len(d.corruptedPieces) > 0 {
 			fmt.Fprintf(w, "failing pieces: %d\n", len(d.corruptedPieces))
-			// show top 10 pieces with most failures
 			type kv struct {
-				idx   uint32
-				count int
+				idx       uint32
+				count     int
+				blockedBy int
 			}
 			var top []kv
 			for idx, count := range d.corruptedPieces {
-				top = append(top, kv{idx, count})
+				blockedBy := 0
+				if peers, ok := d.piecePeerAssignments[idx]; ok {
+					blockedBy = len(peers)
+				}
+				top = append(top, kv{idx, count, blockedBy})
 			}
 			slices.SortFunc(top, func(a, b kv) int { return b.count - a.count })
 			for i := 0; i < len(top) && i < 10; i++ {
-				fmt.Fprintf(w, "  piece %d: %d failures\n", top[i].idx, top[i].count)
+				fmt.Fprintf(w, "  piece %d: %d failures, %d peers blocked\n", top[i].idx, top[i].count, top[i].blockedBy)
 			}
 		}
+		d.piecePeerMu.Unlock()
 		d.corruptedPiecesMu.Unlock()
 
 		debugPrintTrackers(w, d)

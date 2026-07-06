@@ -399,14 +399,11 @@ func (d *Download) checkPiece(pieceIndex uint32) error {
 	if notHave {
 		d.completed.Add(pieceSize)
 		d.corruptedPiecesMu.Lock()
-		if fc := d.corruptedPieces[pieceIndex]; fc > 0 {
-			d.log.Info().
-				Uint32("piece", pieceIndex).
-				Int("prev_failures", fc).
-				Msg("piece passed hash after previous failures")
-		}
 		delete(d.corruptedPieces, pieceIndex)
 		d.corruptedPiecesMu.Unlock()
+		d.piecePeerMu.Lock()
+		delete(d.piecePeerAssignments, pieceIndex)
+		d.piecePeerMu.Unlock()
 		d.log.Trace().Msgf("piece %d done", pieceIndex)
 		d.have(pieceIndex)
 	}
@@ -667,13 +664,20 @@ func (d *Download) assignPiecesToPeers(nextPiece func() (uint32, bool)) {
 				continue
 			}
 
-			// if this piece has failed before, don't re-request from the same peer
-			d.corruptedPiecesMu.Lock()
-			failCount := d.corruptedPieces[pieceIndex]
-			d.corruptedPiecesMu.Unlock()
-			if failCount >= 3 && pi.peer.Requested.Contains(pieceIndex) {
-				continue
+			// skip peers that previously sent corrupted data for this piece
+			d.piecePeerMu.Lock()
+			if peers, ok := d.piecePeerAssignments[pieceIndex]; ok {
+				if _, bad := peers[pi.peer.id]; bad {
+					d.piecePeerMu.Unlock()
+					continue
+				}
 			}
+			// record this assignment
+			if d.piecePeerAssignments[pieceIndex] == nil {
+				d.piecePeerAssignments[pieceIndex] = make(map[uint64]struct{})
+			}
+			d.piecePeerAssignments[pieceIndex][pi.peer.id] = struct{}{}
+			d.piecePeerMu.Unlock()
 
 			select {
 			case pi.peer.ourPieceRequests <- pieceIndex:
