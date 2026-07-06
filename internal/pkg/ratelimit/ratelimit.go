@@ -40,11 +40,8 @@ type Limiter struct {
 }
 
 func computeBurst(rate float64) float64 {
-	// Burst of 2 seconds worth of tokens provides smooth traffic shaping
-	// while absorbing TCP window fluctuations.
-	// Minimum 512 KB ensures reasonable burst even at very low rates.
-	const minBurst = 512 * 1024
-	burst := rate * 2
+	const minBurst = 128 * 1024
+	burst := rate * 0.05
 	if burst < minBurst {
 		burst = minBurst
 	}
