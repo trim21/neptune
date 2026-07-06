@@ -123,17 +123,24 @@ func (d *Download) startBackground() {
 	d.goBackground(d.backgroundReqHandler)
 
 	d.goBackground(func() {
+		// Periodic reconnect timer so backoff-expired peers get retried.
+		// libtorrent does this every 10s via receive_connect_peers.
+		reconnectTicker := time.NewTicker(10 * time.Second)
+		defer reconnectTicker.Stop()
+
 		for {
 			select {
 			case <-d.ctx.Done():
 				return
 			case <-d.pendingPeersSignal:
-				if !d.wait(Seeding | Downloading) {
-					continue
-				}
-
-				d.connectToPeers()
+			case <-reconnectTicker.C:
 			}
+
+			if !d.wait(Seeding | Downloading) {
+				continue
+			}
+
+			d.connectToPeers()
 		}
 	})
 

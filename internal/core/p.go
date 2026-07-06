@@ -247,6 +247,22 @@ func (p *Peer) close() {
 		p.cancel()
 		_ = p.Conn.Close()
 		p.d.buildNetworkPieces <- empty.Empty{}
+
+		// Re-queue for reconnect so connectToPeers gets another chance.
+		// canRetry backoff prevents tight reconnect loops.
+		if !p.Incoming && p.d.HasState(Downloading|Seeding) {
+			p.d.pendingPeersMutex.Lock()
+			p.d.pendingPeers.Push(peerWithPriority{
+				addrPort: p.Address,
+				priority: p.d.c.PeerPriority(p.Address),
+			})
+			p.d.pendingPeersMutex.Unlock()
+
+			select {
+			case p.d.pendingPeersSignal <- empty.Empty{}:
+			default:
+			}
+		}
 	}
 }
 

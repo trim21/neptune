@@ -56,11 +56,17 @@ func (d *Download) connectToPeers() {
 	d.pendingPeersMutex.Lock()
 	defer d.pendingPeersMutex.Unlock()
 
+	// Collect skipped peers (e.g., backoff not expired) so we can re-push
+	// them after the loop. This mirrors libtorrent's persistent available_list
+	// where peers stay until they can be retried.
+	var retryLater []peerWithPriority
+
 	for d.pendingPeers.Len() > 0 {
 		pp := d.pendingPeers.Pop()
 
 		if item, ok := d.connectionHistory.Get(pp.addrPort); ok {
 			if d.canRetry(item) {
+				retryLater = append(retryLater, pp)
 				continue
 			}
 		}
@@ -70,6 +76,7 @@ func (d *Download) connectToPeers() {
 		}
 
 		if !d.c.sem.TryAcquire(1) {
+			retryLater = append(retryLater, pp)
 			break
 		}
 		d.c.connectionCount.Add(1)
@@ -110,6 +117,12 @@ func (d *Download) connectToPeers() {
 
 			NewOutgoingPeer(conn, d, pp.addrPort)
 		})
+	}
+
+	// Re-push peers that were skipped (backoff not expired or sem full)
+	// so they can be retried on the next signal.
+	for _, pp := range retryLater {
+		d.pendingPeers.Push(pp)
 	}
 }
 
