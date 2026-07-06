@@ -380,6 +380,9 @@ func (d *Download) checkPiece(pieceIndex uint32) error {
 	copy(digest[:], hasher.Sum(nil))
 
 	if digest != d.info.Pieces[pieceIndex] {
+		d.corruptedPiecesMu.Lock()
+		d.corruptedPieces[pieceIndex]++
+		d.corruptedPiecesMu.Unlock()
 		d.corrupted.Add(pieceSize)
 		start := pieceIndex * d.normalChunkLen
 		end := start + uint32(pieceChunksCount(d.info, pieceIndex))
@@ -395,6 +398,15 @@ func (d *Download) checkPiece(pieceIndex uint32) error {
 
 	if notHave {
 		d.completed.Add(pieceSize)
+		d.corruptedPiecesMu.Lock()
+		if fc := d.corruptedPieces[pieceIndex]; fc > 0 {
+			d.log.Info().
+				Uint32("piece", pieceIndex).
+				Int("prev_failures", fc).
+				Msg("piece passed hash after previous failures")
+		}
+		delete(d.corruptedPieces, pieceIndex)
+		d.corruptedPiecesMu.Unlock()
 		d.log.Trace().Msgf("piece %d done", pieceIndex)
 		d.have(pieceIndex)
 	}
@@ -652,6 +664,14 @@ func (d *Download) assignPiecesToPeers(nextPiece func() (uint32, bool)) {
 					continue
 				}
 			} else if !pi.peer.Bitmap.Contains(pieceIndex) {
+				continue
+			}
+
+			// if this piece has failed before, don't re-request from the same peer
+			d.corruptedPiecesMu.Lock()
+			failCount := d.corruptedPieces[pieceIndex]
+			d.corruptedPiecesMu.Unlock()
+			if failCount >= 3 && pi.peer.Requested.Contains(pieceIndex) {
 				continue
 			}
 

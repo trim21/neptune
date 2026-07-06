@@ -470,6 +470,25 @@ func (c *Client) DebugHandlers() http.Handler {
 			humanize.IBytes(uint64(d.corrupted.Load())),
 		)
 
+		d.corruptedPiecesMu.Lock()
+		if len(d.corruptedPieces) > 0 {
+			fmt.Fprintf(w, "failing pieces: %d\n", len(d.corruptedPieces))
+			// show top 10 pieces with most failures
+			type kv struct {
+				idx   uint32
+				count int
+			}
+			var top []kv
+			for idx, count := range d.corruptedPieces {
+				top = append(top, kv{idx, count})
+			}
+			slices.SortFunc(top, func(a, b kv) int { return b.count - a.count })
+			for i := 0; i < len(top) && i < 10; i++ {
+				fmt.Fprintf(w, "  piece %d: %d failures\n", top[i].idx, top[i].count)
+			}
+		}
+		d.corruptedPiecesMu.Unlock()
+
 		debugPrintTrackers(w, d)
 		debugPrintPeers(w, d)
 
