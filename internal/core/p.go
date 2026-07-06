@@ -253,7 +253,6 @@ func (p *Peer) close() {
 
 		p.cancel()
 		_ = p.Conn.Close()
-		p.d.buildNetworkPieces <- empty.Empty{}
 
 		// Signal connection loop to fill the freed slot.
 		if p.d.HasState(Downloading | Seeding) {

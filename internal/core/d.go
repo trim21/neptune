@@ -128,7 +128,6 @@ type Download struct {
 	scheduleRequestSignal  chan empty.Empty
 	scheduleResponseSignal chan empty.Empty
 	pendingPeersSignal     chan empty.Empty
-	buildNetworkPieces     chan empty.Empty
 	pexAdd                 chan []pexPeer
 	pexDrop                chan []netip.AddrPort
 	selectedFilesSet       map[int]struct{}
@@ -259,7 +258,6 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 		scheduleRequestSignal:  make(chan empty.Empty, 1),
 		scheduleResponseSignal: make(chan empty.Empty, 1),
 		pendingPeersSignal:     make(chan empty.Empty),
-		buildNetworkPieces:     make(chan empty.Empty, 1),
 
 		pexAdd:  make(chan []pexPeer, 1),
 		pexDrop: make(chan []netip.AddrPort, 1),
