@@ -175,10 +175,14 @@ func (c *Client) AddTorrent(raw []byte, m *metainfo.MetaInfo, info meta.Info, do
 		return errgo.Wrap(err, "failed to save torrent to disk")
 	}
 
+	d := c.NewDownload(m, info, downloadPath, tags, custom, selectedFiles)
+
 	c.m.Lock()
 	defer c.m.Unlock()
 
-	d := c.NewDownload(m, info, downloadPath, tags, custom, selectedFiles)
+	if _, ok := c.downloadMap[info.Hash]; ok {
+		return fmt.Errorf("torrent %s exists", info.Hash)
+	}
 
 	c.downloads = append(c.downloads, d)
 

@@ -416,7 +416,9 @@ func (pl *peerList) connectPeers(sessionTime int64, n int) []*persistentPeer {
 	result := make([]*persistentPeer, 0, min(n, len(pl.candidateCache)))
 	for len(result) < n && len(pl.candidateCache) > 0 {
 		pp := pl.candidateCache[0].p
-		pl.candidateCache = pl.candidateCache[1:]
+		// Shift left to preserve backing array capacity.
+		remaining := copy(pl.candidateCache, pl.candidateCache[1:])
+		pl.candidateCache = pl.candidateCache[:remaining]
 		result = append(result, pp)
 	}
 
