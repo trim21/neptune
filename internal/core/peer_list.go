@@ -315,11 +315,6 @@ func (pl *peerList) connectOnePeer(sessionTime int64) *persistentPeer {
 	pl.mu.Lock()
 	defer pl.mu.Unlock()
 
-	// purge stale entries from candidate cache
-	pl.candidateCache = slices.DeleteFunc(pl.candidateCache, func(p *persistentPeer) bool {
-		return !p.isConnectCandidate(pl.finished, pl.maxFailcount)
-	})
-
 	if len(pl.candidateCache) == 0 {
 		pl.findConnectCandidates(sessionTime)
 		if len(pl.candidateCache) == 0 {
@@ -337,8 +332,7 @@ func (pl *peerList) connectOnePeer(sessionTime int64) *persistentPeer {
 // findConnectCandidates rebuilds the candidate cache by scanning the peer list.
 // Mirrors libtorrent's peer_list::find_connect_candidates().
 func (pl *peerList) findConnectCandidates(sessionTime int64) {
-	const candidateCount = 10
-	pl.candidateCache = make([]*persistentPeer, 0, candidateCount)
+	pl.candidateCache = pl.candidateCache[:0]
 
 	if len(pl.peers) == 0 {
 		return
@@ -348,7 +342,7 @@ func (pl *peerList) findConnectCandidates(sessionTime int64) {
 		pl.roundRobin = 0
 	}
 
-	// scan up to 300 peers starting from roundRobin
+	// scan up to 300 peers starting from roundRobin, collect all eligible
 	maxIter := min(len(pl.peers), 300)
 	for range maxIter {
 		if pl.roundRobin >= len(pl.peers) {
@@ -371,16 +365,7 @@ func (pl *peerList) findConnectCandidates(sessionTime int64) {
 			}
 		}
 
-		// Skip if hadTrans (these get immediate reconnect and shouldn't
-		// be waiting in the general candidate pool)
-		if pp.hadTrans {
-			continue
-		}
-
 		pl.candidateCache = append(pl.candidateCache, pp)
-		if len(pl.candidateCache) >= candidateCount {
-			break
-		}
 	}
 
 	// sort by priority: failcount ascending, then source rank, then BEP40
@@ -410,6 +395,8 @@ func (pl *peerList) findConnectCandidates(sessionTime int64) {
 
 		return 0
 	})
+
+	pl.numConnectCandidates = len(pl.candidateCache)
 }
 
 // incFailcount increments a peer's failcount. Called when a connection attempt fails.
