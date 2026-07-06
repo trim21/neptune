@@ -87,7 +87,10 @@ type debugPeer struct {
 	PeerID       string
 	OurReq       int
 	ReqQ         int
+	DesiredQ     int
 	PeerReq      int
+	Snubbed      bool
+	Endgame      bool
 	PeerChoke    bool
 	PeerInterest bool
 	OurChoke     bool
@@ -182,8 +185,11 @@ func buildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 			UpRate:       humanize.IBytes(uint64(p.pieceUploadRate.Status().CurRate)) + "/s",
 			OurReq:       p.myRequests.Size(),
 			ReqQ:         len(p.requestQueue),
+			DesiredQ:     int(p.desiredQueueSize.Load()),
 			Client:       *p.UserAgent.Load(),
 			Progress:     fmt.Sprintf("%.1f%%", float64(p.Bitmap.Count())/float64(d.info.NumPieces)*100),
+			Snubbed:      p.snubbed.Load(),
+			Endgame:      p.endgame.Load(),
 			PeerChoke:    p.peerChoking.Load(),
 			PeerInterest: p.peerInterested.Load(),
 			OurChoke:     p.ourChoking.Load(),

@@ -95,9 +95,9 @@ async function reannounce(e) {
 
 <h2>Peers</h2>
 <table>
-<tr><th>Address</th><th>Down Rate</th><th>Up Rate</th><th class="num">Our Req</th><th class="num">Req Q</th>
+<tr><th>Address</th><th>Down Rate</th><th>Up Rate</th><th class="num">Our Req</th><th class="num">Req Q</th><th class="num">DesiredQ</th>
     <th>Client</th><th class="num">Progress</th>
-    <th>Peer Choke</th><th>Peer Interest</th><th>Our Choke</th><th>Our Interest</th>
+    <th>Snubbed</th><th>Endgame</th><th>Peer Choke</th><th>Peer Interest</th><th>Our Choke</th><th>Our Interest</th>
     <th>Fast</th><th class="num">Peer Req</th><th>Peer ID</th></tr>
 {{range .Peers}}<tr>
   <td>{{.Address}}</td>
@@ -105,8 +105,11 @@ async function reannounce(e) {
   <td>{{.UpRate}}</td>
   <td class="num">{{.OurReq}}</td>
   <td class="num">{{.ReqQ}}</td>
+  <td class="num">{{.DesiredQ}}</td>
   <td>{{.Client}}</td>
   <td class="num">{{.Progress}}</td>
+  <td>{{.Snubbed}}</td>
+  <td>{{.Endgame}}</td>
   <td>{{.PeerChoke}}</td>
   <td>{{.PeerInterest}}</td>
   <td>{{.OurChoke}}</td>
@@ -137,7 +140,7 @@ async function reannounce(e) {
 {{if .PendingPeers}}
 <h2>Pending Peers</h2>
 <table>
-<tr><th>Address</th><th class="num">Fail</th><th>Last Seen</th><th>HadTrans</th><th>Connectable</th></tr>
+<tr><th>Address</th><th class="num">FailCount</th><th>Last Seen</th><th>HadTrans</th><th>Connectable</th></tr>
 {{range .PendingPeers}}<tr><td>{{.Address}}</td><td class="num">{{.Failcount}}</td><td>{{.LastSeen}}</td><td>{{.HadTrans}}</td><td>{{.Connectable}}</td></tr>
 {{end}}</table>
 {{end}}
