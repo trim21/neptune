@@ -95,9 +95,6 @@ func newPeer(
 		peerChoking:    *atomic.NewBool(true),
 		peerInterested: *atomic.NewBool(false),
 
-		blockRequests: make(chan pieceBlock, 50),
-
-		pieceDone:        make(chan struct{}, 1),
 		desiredQueueSize: *atomic.NewInt32(1),
 
 		UserAgent: *atomic.NewPointer(&ua),
@@ -153,10 +150,8 @@ type Peer struct {
 	peerRequests      *xsync.Map[proto.ChunkRequest, empty.Empty]
 	cancel            context.CancelFunc
 	UserAgent         atomic.Pointer[string]
-	blockRequests     chan pieceBlock
 	responseCond      *gsync.Cond
 	peerID            atomic.Pointer[proto.PeerID]
-	pieceDone         chan struct{}
 	w                 *bufio.Writer
 	r                 *bufio.Reader
 	pieceUploadRate   *flowrate.Monitor
@@ -274,32 +269,6 @@ func (p *Peer) close() {
 	}
 }
 
-func (p *Peer) ourRequestHandle() {
-	// Request initial blocks immediately after handshake completes.
-	p.d.requestABlock(p)
-
-	for {
-		select {
-		case <-p.ctx.Done():
-			return
-		case block := <-p.blockRequests:
-			p.rqMu.Lock()
-			p.requestQueue = append(p.requestQueue, block)
-			p.rqMu.Unlock()
-			p.sendBlockRequests()
-		case <-p.pieceDone:
-			// Piece completed, may need to request more
-			p.sendBlockRequests()
-			select {
-			case p.d.scheduleRequestSignal <- empty.Empty{}:
-			default:
-			}
-		}
-	}
-}
-
-// sendBlockRequests drains the peer's requestQueue and sends wire requests
-// up to the peer's queue limit. Mirrors libtorrent's send_block_requests().
 func (p *Peer) sendBlockRequests() {
 	if p.closed.Load() || p.isDisconnecting() {
 		return
@@ -542,7 +511,6 @@ func (p *Peer) start(skipHandshake bool) {
 		}
 	}
 
-	go p.ourRequestHandle()
 	go p.checkRequestTimeouts()
 
 	for {
@@ -614,11 +582,8 @@ func (p *Peer) start(skipHandshake bool) {
 
 			// Request more blocks for this peer immediately (libtorrent
 			// calls request_a_block from incoming_piece).
+			// requestABlock calls sendBlockRequests internally.
 			p.d.requestABlock(p)
-
-			// Drain requestQueue in case requestABlock was unable to push
-			// new blocks (e.g. numRequests already saturated).
-			p.sendBlockRequests()
 
 			p.responseCond.Signal()
 			p.pieceDownloadRate.Update(len(event.Res.Data))
@@ -724,8 +689,8 @@ func (p *Peer) start(skipHandshake bool) {
 			}
 			p.rqMu.Unlock()
 
-			// Drain requestQueue to replace the rejected block.
-			p.sendBlockRequests()
+			// Libtorrent: request_a_block if queue is empty, then send_block_requests.
+			p.d.requestABlock(p)
 		case proto.AllowedFast:
 			if event.Index >= p.d.info.NumPieces {
 				p.log.Debug().Uint32("index", event.Index).Msg("peer send 'AllowedFast' message with invalid index")

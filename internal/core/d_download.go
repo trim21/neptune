@@ -443,14 +443,11 @@ func (d *Download) checkPiece(pieceIndex uint32) error {
 		d.log.Trace().Msgf("piece %d done", pieceIndex)
 		d.have(pieceIndex)
 
-		// Signal peers that a piece completed so they can request more blocks.
-		d.peers.Range(func(_ netip.AddrPort, p *Peer) bool {
-			select {
-			case p.pieceDone <- empty.Empty{}:
-			default:
-			}
-			return true
-		})
+		// Notify scheduler that piece completed so peers can request new blocks.
+		select {
+		case d.scheduleRequestSignal <- empty.Empty{}:
+		default:
+		}
 	}
 
 	return nil
@@ -488,7 +485,7 @@ func (d *Download) checkDone() {
 // it may also pick busy blocks (already requested by other peers).
 func (d *Download) requestABlock(p *Peer) {
 	if d.bm.Count() == d.info.NumPieces {
-		return // we're a seed, nothing to request
+		return
 	}
 	if p.closed.Load() || p.isDisconnecting() {
 		return
@@ -497,65 +494,50 @@ func (d *Download) requestABlock(p *Peer) {
 		return
 	}
 
-	// Determine desired queue size
 	desiredQueueSize := p.updateDesiredQueueSize()
 
-	// Already have enough outstanding requests
 	numRequests := desiredQueueSize - p.myRequests.Size() - p.requestQueueLen()
 	if numRequests <= 0 {
 		return
 	}
 
-	// Cap at channel capacity so pickPieces doesn't mark more blocks than
-	// we can push through blockRequests.
-	if numRequests > cap(p.blockRequests) {
-		numRequests = cap(p.blockRequests)
-	}
-
-	// Check if we should enter endgame mode
 	remaining := d.SelectedSize() - d.completed.Load()
 	if remaining <= units.MiB*100 {
 		d.endGameMode.Store(true)
 	}
 
-	// Build bitfield of pieces peer has
 	choked := p.peerChoking.Load()
 
-	// Call the piece picker
 	result := d.picker.pickPieces(
 		p.Bitmap,
 		choked,
 		p.allowFast,
 		numRequests,
-		0,   // prefer_contiguous_blocks (can be enabled for fast peers later)
-		nil, // suggested pieces (not yet implemented)
+		0,
+		nil,
 		d.info,
 	)
 
-	// Pick free blocks first
+	// add_request: push picked blocks directly to requestQueue.
 	freeBlocksPicked := 0
 	for _, fb := range result.freeBlocks {
 		if numRequests <= 0 {
 			break
 		}
 
-		// Check if the block is already in the peer's queues
 		chunk := pieceChunk(d.info, fb.pieceIndex, fb.blockIndex)
 		if p.isInQueue(chunk) {
 			continue
 		}
 
-		// Check if block is already finished
 		if d.picker.isFinished(fb.pieceIndex, fb.blockIndex) {
 			continue
 		}
 
-		// Check if piece is already downloaded
 		if d.bm.Contains(fb.pieceIndex) {
 			continue
 		}
 
-		// Check if chunk is already written to disk
 		chunkPi := fb.pieceIndex*d.normalChunkLen + uint32(fb.blockIndex)
 		d.chunk.mu.RLock()
 		done := d.chunk.done.Contains(chunkPi)
@@ -564,82 +546,70 @@ func (d *Download) requestABlock(p *Peer) {
 			continue
 		}
 
-		// Mark block as requesting in the picker
 		d.picker.markAsRequesting(fb.pieceIndex, fb.blockIndex, p)
 		d.picker.addDownloadingPiece(fb.pieceIndex, d.info)
 
-		// Push block to peer's request queue
-		select {
-		case p.blockRequests <- pieceBlock{pieceIndex: fb.pieceIndex, blockIndex: fb.blockIndex}:
-			numRequests--
-			freeBlocksPicked++
-		default:
-			// Channel full — abort this block and all remaining freeBlocks
-			// that pickPieces already marked stateRequested.
-			d.picker.abortDownload(fb.pieceIndex, fb.blockIndex)
-			// Abort the rest too (they were also marked requesting by pickPieces)
-			for j := freeBlocksPicked + 1; j < len(result.freeBlocks); j++ {
-				d.picker.abortDownload(result.freeBlocks[j].pieceIndex, result.freeBlocks[j].blockIndex)
-			}
-			return
-		}
+		p.rqMu.Lock()
+		p.requestQueue = append(p.requestQueue, pieceBlock{pieceIndex: fb.pieceIndex, blockIndex: fb.blockIndex})
+		p.rqMu.Unlock()
+
+		numRequests--
+		freeBlocksPicked++
 	}
 
-	// If we could pick enough free blocks, we're not in endgame for this peer
+	// send_block_requests: drain requestQueue immediately.
+	p.sendBlockRequests()
+
 	if numRequests <= 0 {
 		p.setEndgame(false)
 		return
 	}
 
-	// If we couldn't find enough free blocks, this peer enters endgame.
-	// Only set endgame if we're not choked (choked means only allowed-fast,
-	// which doesn't count as endgame).
 	if !p.peerChoking.Load() {
 		p.setEndgame(true)
 		d.endGameMode.Store(true)
 	}
 
-	// In endgame, also try busy blocks, but only if we have
-	// no outstanding requests already (to avoid all peers
-	// fighting over the same blocks).
-	// Mirrors libtorrent: dq.size() + rq.size() > 0 check.
 	if !d.endGameMode.Load() || p.myRequests.Size()+p.requestQueueLen() > 0 {
 		return
 	}
 
-	if len(result.busyBlocks) > 0 {
-		for _, bb := range result.busyBlocks {
-			chunk := pieceChunk(d.info, bb.pieceIndex, bb.blockIndex)
-			if p.isInQueue(chunk) {
-				continue
-			}
+	if len(result.busyBlocks) == 0 {
+		return
+	}
 
-			if d.picker.isFinished(bb.pieceIndex, bb.blockIndex) {
-				continue
-			}
-
-			if d.bm.Contains(bb.pieceIndex) {
-				continue
-			}
-
-			chunkPi := bb.pieceIndex*d.normalChunkLen + uint32(bb.blockIndex)
-			d.chunk.mu.RLock()
-			done := d.chunk.done.Contains(chunkPi)
-			d.chunk.mu.RUnlock()
-			if done {
-				continue
-			}
-
-			d.picker.markAsRequesting(bb.pieceIndex, bb.blockIndex, p)
-			d.picker.addDownloadingPiece(bb.pieceIndex, d.info)
-
-			select {
-			case p.blockRequests <- pieceBlock{pieceIndex: bb.pieceIndex, blockIndex: bb.blockIndex}:
-			default:
-				d.picker.abortDownload(bb.pieceIndex, bb.blockIndex)
-			}
-			return
+	for _, bb := range result.busyBlocks {
+		chunk := pieceChunk(d.info, bb.pieceIndex, bb.blockIndex)
+		if p.isInQueue(chunk) {
+			continue
 		}
+
+		if d.picker.isFinished(bb.pieceIndex, bb.blockIndex) {
+			continue
+		}
+
+		if d.bm.Contains(bb.pieceIndex) {
+			continue
+		}
+
+		chunkPi := bb.pieceIndex*d.normalChunkLen + uint32(bb.blockIndex)
+		d.chunk.mu.RLock()
+		done := d.chunk.done.Contains(chunkPi)
+		d.chunk.mu.RUnlock()
+		if done {
+			continue
+		}
+
+		d.picker.markAsRequesting(bb.pieceIndex, bb.blockIndex, p)
+		d.picker.addDownloadingPiece(bb.pieceIndex, d.info)
+
+		p.rqMu.Lock()
+		p.requestQueue = append(p.requestQueue, pieceBlock{pieceIndex: bb.pieceIndex, blockIndex: bb.blockIndex})
+		p.rqMu.Unlock()
+
+		// Drain after adding a busy block too.
+		p.sendBlockRequests()
+		return
 	}
 }
 
