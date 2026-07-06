@@ -7,8 +7,6 @@ import (
 	"net/netip"
 	"slices"
 	"sync"
-
-	"neptune/internal/pkg/heap"
 )
 
 // peerSource mirrors libtorrent's peer_source_flags_t.
@@ -77,45 +75,48 @@ func (p *persistentPeer) isConnectCandidate(finished bool, maxFailcount int) boo
 	return true
 }
 
-// candidateEntry is a heap entry wrapping a persistentPeer.
-// Lower values of Less mean higher connection priority.
+// candidateEntry wraps a persistentPeer for the sorted candidate cache.
 type candidateEntry struct {
 	p *persistentPeer
 }
 
-func (e candidateEntry) Less(o candidateEntry) bool {
-	a, b := e.p, o.p
-
-	// lower failcount first
-	if a.failcount != b.failcount {
-		return a.failcount < b.failcount
+// comparePeer returns true if lhs is a better connect candidate than rhs.
+// Mirrors libtorrent's compare_peer().
+func comparePeer(lhs, rhs *persistentPeer) bool {
+	// prefer peers with lower failcount
+	if lhs.failcount != rhs.failcount {
+		return lhs.failcount < rhs.failcount
 	}
 
-	// local peers first (simplified)
-	// TODO: proper is_local check
+	// prefer peers not recently tried (lower lastSeen = longer ago or never tried)
+	// This replaces libtorrent's last_connected comparison and handles fast reconnect:
+	// peers with hadTrans keep their old lastSeen, so they get prioritized.
+	if lhs.lastSeen != rhs.lastSeen {
+		return lhs.lastSeen < rhs.lastSeen
+	}
 
-	// source rank (tracker > LSD > DHT > PEX) — cached on persistentPeer
-	if a.cachedSourceRank != b.cachedSourceRank {
-		return a.cachedSourceRank > b.cachedSourceRank
+	// source rank (tracker > LSD > DHT > PEX)
+	if lhs.cachedSourceRank != rhs.cachedSourceRank {
+		return lhs.cachedSourceRank > rhs.cachedSourceRank
 	}
 
 	// BEP40 priority (higher is better for swarm diversity)
-	if a.priority != b.priority {
-		return a.priority > b.priority
+	if lhs.priority != rhs.priority {
+		return lhs.priority > rhs.priority
 	}
 
 	return false
 }
 
 // peerList mirrors libtorrent's peer_list — persistent storage of all known
-// peers with pre-computed connect candidate cache.
+// peers with a pre-computed connect candidate cache.
 //
 // Peers are stored sorted by address for O(log n) lookup. Candidates are kept
-// in a min-heap for O(log n) push/pop instead of repeated O(n log n) full sorts.
+// in a small sorted vector (max 10) that is lazily populated by
+// findConnectCandidates when empty.
 type peerList struct {
 	d                    *Download
-	candidates           *heap.Heap[candidateEntry]
-	hadTransPeers        []*persistentPeer // peers with hadTrans=true for fast reconnect
+	candidateCache       []candidateEntry // sorted cache of top candidates (max 10)
 	peers                []*persistentPeer
 	numConnectCandidates int
 	roundRobin           int
@@ -125,33 +126,20 @@ type peerList struct {
 	finished             bool
 }
 
+const candidateCount = 10
+
 func newPeerList(d *Download) *peerList {
 	return &peerList{
 		d:                d,
-		candidates:       heap.New[candidateEntry](),
+		candidateCache:   make([]candidateEntry, 0, candidateCount),
 		maxFailcount:     3,
 		minReconnectTime: 60,
 	}
 }
 
-// pushCandidateLocked pushes a peer onto the candidate heap if eligible.
-// Caller holds pl.mu.
-func (pl *peerList) pushCandidateLocked(pp *persistentPeer, sessionTime int64) {
-	if !pp.isConnectCandidate(pl.finished, pl.maxFailcount) {
-		return
-	}
-	// Check reconnect time: failcount-based backoff.
-	if pp.lastSeen > 0 {
-		backoff := int64(pp.failcount+1) * pl.minReconnectTime
-		if sessionTime-pp.lastSeen < backoff {
-			return
-		}
-	}
-	pl.candidates.Push(candidateEntry{p: pp})
-}
-
 // addPeer adds or updates a peer.
 // Mirrors libtorrent's peer_list::add_peer().
+// Does NOT touch candidateCache — only findConnectCandidates populates it.
 func (pl *peerList) addPeer(addr netip.AddrPort, source peerSource, connectable bool) {
 	pl.mu.Lock()
 	defer pl.mu.Unlock()
@@ -176,7 +164,6 @@ func (pl *peerList) addPeer(addr netip.AddrPort, source peerSource, connectable 
 
 	if p.isConnectCandidate(pl.finished, pl.maxFailcount) {
 		pl.numConnectCandidates++
-		pl.candidates.Push(candidateEntry{p: p})
 	}
 }
 
@@ -200,7 +187,6 @@ func (pl *peerList) updatePeerLocked(p *persistentPeer, source peerSource, conne
 		pl.numConnectCandidates--
 	} else if !wasConnCand && isConnCand {
 		pl.numConnectCandidates++
-		pl.candidates.Push(candidateEntry{p: p})
 	}
 }
 
@@ -309,6 +295,7 @@ func (pl *peerList) newConnection(addr netip.AddrPort, conn *Peer, sessionTime i
 
 // connectionClosed is called when a peer connection closes.
 // Mirrors libtorrent's peer_list::connection_closed().
+// Does NOT touch candidateCache.
 func (pl *peerList) connectionClosed(addr netip.AddrPort, sessionTime int64, hadTrans bool, failed bool) {
 	pl.mu.Lock()
 	defer pl.mu.Unlock()
@@ -321,10 +308,10 @@ func (pl *peerList) connectionClosed(addr netip.AddrPort, sessionTime int64, had
 	pp := pl.peers[idx]
 	pp.connection = nil
 	pp.hadTrans = pp.hadTrans || hadTrans
-	if pp.hadTrans {
-		pl.hadTransPeers = append(pl.hadTransPeers, pp)
-	}
 
+	// Only update lastSeen if no transfer happened.
+	// Peers with hadTrans keep their old lastSeen, giving them priority
+	// in comparePeer (lower lastSeen = not recently tried = preferred).
 	if !hadTrans {
 		pp.lastSeen = sessionTime
 	}
@@ -337,52 +324,12 @@ func (pl *peerList) connectionClosed(addr netip.AddrPort, sessionTime int64, had
 
 	if pp.isConnectCandidate(pl.finished, pl.maxFailcount) {
 		pl.numConnectCandidates++
-		pl.pushCandidateLocked(pp, sessionTime)
 	}
 }
 
-// connectPeers returns up to n best connect candidates in a single locked call.
-// Uses lazy deletion: stale entries are skipped on pop.
-func (pl *peerList) connectPeers(sessionTime int64, n int) []*persistentPeer {
-	pl.mu.Lock()
-	defer pl.mu.Unlock()
-
-	result := make([]*persistentPeer, 0, n)
-
-	for len(result) < n {
-		if pl.candidates.Len() == 0 {
-			pl.findConnectCandidates(sessionTime)
-			if pl.candidates.Len() == 0 {
-				break
-			}
-		}
-
-		for pl.candidates.Len() > 0 && len(result) < n {
-			e := pl.candidates.Pop()
-			pp := e.p
-
-			if !pp.isConnectCandidate(pl.finished, pl.maxFailcount) {
-				pl.numConnectCandidates--
-				continue
-			}
-
-			if pp.lastSeen > 0 {
-				backoff := int64(pp.failcount+1) * pl.minReconnectTime
-				if sessionTime-pp.lastSeen < backoff {
-					pl.pushCandidateLocked(pp, sessionTime)
-					continue
-				}
-			}
-
-			result = append(result, pp)
-		}
-	}
-
-	return result
-}
-
-// findConnectCandidates rebuilds the candidate heap by scanning the peer list.
-// Called when the heap is empty. Mirrors libtorrent's peer_list::find_connect_candidates().
+// findConnectCandidates rebuilds the candidate cache by scanning the peer list.
+// Inserts at most candidateCount (10) entries into a sorted slice.
+// Mirrors libtorrent's peer_list::find_connect_candidates().
 func (pl *peerList) findConnectCandidates(sessionTime int64) {
 	if len(pl.peers) == 0 {
 		return
@@ -392,8 +339,8 @@ func (pl *peerList) findConnectCandidates(sessionTime int64) {
 		pl.roundRobin = 0
 	}
 
-	// scan up to 50 peers starting from roundRobin
-	maxIter := min(len(pl.peers), 50)
+	// scan up to 300 peers starting from roundRobin
+	maxIter := min(len(pl.peers), 300)
 	for range maxIter {
 		if pl.roundRobin >= len(pl.peers) {
 			pl.roundRobin = 0
@@ -402,10 +349,78 @@ func (pl *peerList) findConnectCandidates(sessionTime int64) {
 		pp := pl.peers[pl.roundRobin]
 		pl.roundRobin++
 
-		pl.pushCandidateLocked(pp, sessionTime)
+		if !pp.isConnectCandidate(pl.finished, pl.maxFailcount) {
+			continue
+		}
+
+		// Reconnect time check: failcount-based backoff.
+		if pp.lastSeen > 0 {
+			backoff := int64(pp.failcount+1) * pl.minReconnectTime
+			if sessionTime-pp.lastSeen < backoff {
+				continue
+			}
+		}
+
+		// If cache is full and the worst cached candidate is better than pp, skip.
+		if len(pl.candidateCache) == candidateCount &&
+			comparePeer(pl.candidateCache[len(pl.candidateCache)-1].p, pp) {
+			continue
+		}
+
+		// Trim cache if at capacity.
+		if len(pl.candidateCache) >= candidateCount {
+			pl.candidateCache = pl.candidateCache[:candidateCount-1]
+		}
+
+		// Insert sorted: find position and insert.
+		insertIdx := len(pl.candidateCache)
+		for i, entry := range pl.candidateCache {
+			if comparePeer(pp, entry.p) {
+				insertIdx = i
+				break
+			}
+		}
+
+		// Grow and shift right.
+		pl.candidateCache = pl.candidateCache[:len(pl.candidateCache)+1]
+		copy(pl.candidateCache[insertIdx+1:], pl.candidateCache[insertIdx:len(pl.candidateCache)-1])
+		pl.candidateCache[insertIdx] = candidateEntry{p: pp}
+	}
+}
+
+// connectPeers returns up to n best connect candidates in a single locked call.
+// Mirrors libtorrent's connect_one_peer logic:
+// 1. Clean cache (remove non-candidates)
+// 2. Refill if empty via findConnectCandidates
+// 3. Pop from front.
+func (pl *peerList) connectPeers(sessionTime int64, n int) []*persistentPeer {
+	pl.mu.Lock()
+	defer pl.mu.Unlock()
+
+	// Clean cache: remove entries that are no longer connect candidates.
+	cleaned := pl.candidateCache[:0]
+	for _, entry := range pl.candidateCache {
+		if entry.p.isConnectCandidate(pl.finished, pl.maxFailcount) {
+			cleaned = append(cleaned, entry)
+		}
+	}
+	pl.candidateCache = cleaned
+
+	if len(pl.candidateCache) == 0 {
+		pl.findConnectCandidates(sessionTime)
+		if len(pl.candidateCache) == 0 {
+			return nil
+		}
 	}
 
-	pl.numConnectCandidates = pl.candidates.Len()
+	result := make([]*persistentPeer, 0, min(n, len(pl.candidateCache)))
+	for len(result) < n && len(pl.candidateCache) > 0 {
+		pp := pl.candidateCache[0].p
+		pl.candidateCache = pl.candidateCache[1:]
+		result = append(result, pp)
+	}
+
+	return result
 }
 
 // incFailcount increments a peer's failcount. Called when a connection attempt fails.
@@ -433,6 +448,9 @@ func (pl *peerList) setFinished(v bool) {
 		return
 	}
 	pl.finished = v
+
+	// Invalidate cache since candidate eligibility may change.
+	pl.candidateCache = pl.candidateCache[:0]
 
 	// recalculate candidates
 	pl.numConnectCandidates = 0
@@ -528,21 +546,4 @@ func (pl *peerList) peerTurnover(count int) []*Peer {
 	}
 
 	return toDisconnect
-}
-
-// immediateCandidate returns a single peer that has hadTrans=true for immediate
-// fast reconnect. Returns nil if none found.
-func (pl *peerList) immediateCandidate() *persistentPeer {
-	pl.mu.Lock()
-	defer pl.mu.Unlock()
-
-	for len(pl.hadTransPeers) > 0 {
-		pp := pl.hadTransPeers[len(pl.hadTransPeers)-1]
-		pl.hadTransPeers = pl.hadTransPeers[:len(pl.hadTransPeers)-1]
-		if pp.connection == nil && pp.connectable {
-			pp.hadTrans = false
-			return pp
-		}
-	}
-	return nil
 }
