@@ -30,26 +30,22 @@ const minRequestQueue = 2
 const maxRequestQueue = 2000
 
 func (d *Download) backgroundReqScheduler() {
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
-
 	for {
 		select {
 		case <-d.ctx.Done():
 			return
 		case <-d.scheduleRequestSignal:
-		case <-ticker.C:
 		}
 
 		if !d.wait(Downloading) {
 			continue
 		}
 
-		// Reset endgame each cycle; set again when remaining pieces are low
+		// Endgame is set inside requestABlock when remaining pieces are low
 		// or a peer runs out of free blocks.
-		d.endGameMode.Store(false)
-
-		// Iterate peers and request blocks for each
+		// We do not reset it here — peer self-driven scheduling handles the
+		// normal case; this goroutine is a safety net for edge cases
+		// (new peers from tracker/PEX, timeout recovery).
 		d.peers.Range(func(_ uint64, p *Peer) bool {
 			if p.closed.Load() {
 				return true
@@ -70,13 +66,20 @@ func (d *Download) have(index uint32) {
 }
 
 type responseChunk struct {
-	res *proto.ChunkResponse
-	pi  uint32
+	res    *proto.ChunkResponse
+	pi     uint32
+	recvAt time.Time
 }
 
 func (r responseChunk) Less(o responseChunk) bool {
 	return r.pi < o.pi
 }
+
+// maxMergeBlocks is the upper bound for contiguous block coalescing.
+// Smaller values reduce handler latency; larger values reduce syscall count.
+// Cap at 32 blocks (~512 KiB) to keep flush pauses short.
+const maxMergeBlocks = 10
+const maxChunkAge = 5 * time.Second
 
 func (d *Download) backgroundResHandler() {
 	d.chunk.heap = heap.Heap[responseChunk]{}
@@ -139,25 +142,40 @@ func (d *Download) handleRes(res *proto.ChunkResponse) {
 	}
 
 	c := responseChunk{
-		res: res,
-		pi:  res.Begin/defaultBlockSize + res.PieceIndex*d.normalChunkLen,
+		res:    res,
+		pi:     res.Begin/defaultBlockSize + res.PieceIndex*d.normalChunkLen,
+		recvAt: time.Now(),
 	}
 
 	d.chunk.heap.Push(c)
 	d.chunk.pending.Set(c.pi)
 
-	if d.chunk.heap.Len() < defaultChunkHeapSizeLimit {
-		piecePiStart := res.Begin/defaultBlockSize + res.PieceIndex*d.normalChunkLen
-		piecePiEnd := piecePiStart + uint32(pieceChunksCount(d.info, res.PieceIndex))
-		for i := piecePiStart; i < piecePiEnd; i++ {
-			if !d.chunk.pending.Contains(i) {
-				return
-			}
+	// Check if this chunk completes a piece — extract and flush early.
+	piecePiStart := res.Begin/defaultBlockSize + res.PieceIndex*d.normalChunkLen
+	piecePiEnd := piecePiStart + uint32(pieceChunksCount(d.info, res.PieceIndex))
+	pieceComplete := true
+	for i := piecePiStart; i < piecePiEnd; i++ {
+		if !d.chunk.pending.Contains(i) {
+			pieceComplete = false
+			break
 		}
+	}
+	if pieceComplete {
 		d.handlePieceFromHeap(res.PieceIndex)
 		return
 	}
 
+	// Flush when heap is full or oldest chunk is older than maxChunkAge.
+	oldestAge := time.Since(d.chunk.heap.Data[0].recvAt)
+	if d.chunk.heap.Len() >= defaultChunkHeapSizeLimit || oldestAge > maxChunkAge {
+		d.flushContiguousFromHeap()
+	}
+}
+
+// flushContiguousFromHeap pops the head of the chunk heap and merges as many
+// contiguous blocks as possible (up to maxMergeBlocks), then writes them to
+// disk in a single call. Completed pieces are checked after the write.
+func (d *Download) flushContiguousFromHeap() {
 	head := d.chunk.heap.Pop()
 	headPi := head.pi
 	headPiece := head.res.PieceIndex
@@ -178,13 +196,15 @@ func (d *Download) handleRes(res *proto.ChunkResponse) {
 
 	proto.PiecePool.Put(head.res)
 
+	mergeLimit := d.mergeLimit()
+
 	for d.chunk.heap.Len() != 0 {
 		peak := d.chunk.heap.Peek()
 		if tailPi+1 != peak.pi {
 			break
 		}
 
-		if tailPi-headPi >= 10 {
+		if tailPi-headPi >= mergeLimit {
 			break
 		}
 
@@ -232,6 +252,25 @@ func (d *Download) handleRes(res *proto.ChunkResponse) {
 			d.checkDone()
 		})
 	}
+}
+
+// mergeLimit returns the maximum number of contiguous blocks to merge in one
+// write. On fast storage more blocks can be merged to reduce syscall count;
+// on slow storage a smaller limit avoids blocking the handler too long.
+func (d *Download) mergeLimit() uint32 {
+	rate := d.ioDownloadRate.Status().CurRate
+	if rate <= 0 {
+		return maxMergeBlocks
+	}
+	// Estimate how many blocks can be written in ~1ms.
+	msBlocks := uint32(rate / defaultBlockSize / 1000)
+	if msBlocks < 4 {
+		return 4
+	}
+	if msBlocks > 32 {
+		return 32
+	}
+	return msBlocks
 }
 
 func (d *Download) handleResEndgame(res *proto.ChunkResponse) {
@@ -503,10 +542,13 @@ func (d *Download) requestABlock(p *Peer) {
 		return
 	}
 
-	// Enter global endgame when few pieces remain. Use piece count rather than
-	// byte count to work correctly regardless of torrent size.
+	// Enter global endgame when few pieces remain. Two conditions:
+	//   1. Very few pieces left (<= 20).
+	//   2. Enough active peers that each could handle ~2 pieces.
 	remainingPieces := int(d.wantedBm.WithAndNot(d.completedBm).Count())
-	if remainingPieces <= 20 {
+	activePeers := d.peers.Size()
+
+	if remainingPieces <= 20 || remainingPieces <= max(activePeers*2, 5) {
 		d.endGameMode.Store(true)
 	}
 

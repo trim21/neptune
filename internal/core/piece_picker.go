@@ -4,7 +4,9 @@
 package core
 
 import (
+	"math/rand/v2"
 	"slices"
+	"sort"
 	"sync"
 
 	"neptune/internal/meta"
@@ -54,18 +56,19 @@ const priorityFactor = 3
 //
 // All public methods are safe for concurrent use.
 type piecePicker struct {
-	availability      []uint16
-	pieces            []uint32
-	piecePriorities   []uint32
-	downloadingPieces []downloadingPiece
-	blockInfos        []blockInfo
-	blockSize         int64
-	downloadQueueSize int
-	numWantLeft       int
-	mu                sync.Mutex
-	numPieces         uint32
-	blocksPerPiece    uint32
-	dirty             bool
+	availability       []uint16
+	pieces             []uint32
+	piecePriorities    []uint32
+	downloadingPieces  []downloadingPiece
+	blockInfos         []blockInfo
+	blockSize          int64
+	downloadQueueSize  int
+	numWantLeft        int
+	numCompletedPieces uint32
+	mu                 sync.Mutex
+	numPieces          uint32
+	blocksPerPiece     uint32
+	dirty              bool
 }
 
 // newPiecePicker creates a new piece picker for the given torrent info.
@@ -138,7 +141,7 @@ func (pp *piecePicker) decRefcount(pieceIndex uint32) {
 }
 
 // weHave marks a piece as completed (we now have it).
-// It clears all block states for that piece.
+// It clears all block states for that piece and increments the completed counter.
 func (pp *piecePicker) weHave(pieceIndex uint32) {
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
@@ -154,6 +157,7 @@ func (pp *piecePicker) weHave(pieceIndex uint32) {
 		bi.peer = nil
 		bi.numPeers = 0
 	}
+	pp.numCompletedPieces++
 	pp.dirty = true
 }
 
@@ -356,6 +360,15 @@ func (pp *piecePicker) pickPieces(
 
 	var result pickResult
 
+	// ── Startup mode: no completed pieces and no partial pieces yet ──
+	// Pick a random medium-rarity piece to quickly get something to upload.
+	if pp.numCompletedPieces == 0 && len(pp.downloadingPieces) == 0 {
+		pp.pickStartupBlock(bitfield, choked, allowedFast, &result)
+		if len(result.freeBlocks) > 0 {
+			return result
+		}
+	}
+
 	// Build list of pieces that are open (not yet downloading) and the peer has them
 	var openPieces []uint32
 	for _, pi := range pp.pieces {
@@ -403,14 +416,31 @@ func (pp *piecePicker) pickPieces(
 		}
 	}
 
-	// Sort partials by priority (using rarest-first on availability)
+	// Sort partials: highest completion ratio first (finish started pieces),
+	// then rarest-first on availability as tiebreaker.
 	slices.SortFunc(partials, func(a, b partialInfo) int {
+		dpA := pp.findDownloadingPiece(a.pieceIndex)
+		dpB := pp.findDownloadingPiece(b.pieceIndex)
+
+		// Primary: completion ratio (descending).
+		if dpA != nil && dpB != nil {
+			rA := float64(dpA.finished) / float64(dpA.blocksInPiece)
+			rB := float64(dpB.finished) / float64(dpB.blocksInPiece)
+			if rA != rB {
+				if rA > rB {
+					return -1
+				}
+				return 1
+			}
+		}
+
+		// Tiebreaker: rarest-first (higher priority = rarer).
 		pa := pp.piecePriorities[a.pieceIndex]
 		pb := pp.piecePriorities[b.pieceIndex]
-		if pa > pb {
-			return -1
-		}
-		if pa < pb {
+		if pa != pb {
+			if pa > pb {
+				return -1
+			}
 			return 1
 		}
 		return 0
@@ -478,6 +508,56 @@ func (pp *piecePicker) pickPieces(
 	}
 
 	return result
+}
+
+// pickStartupBlock implements the startup mode strategy:
+// when we have zero completed pieces, pick a random piece of medium rarity
+// (not too rare to avoid stalling, not too common to be worth trading later).
+//
+// Caller must hold pp.mu.
+func (pp *piecePicker) pickStartupBlock(
+	bitfield *bm.Bitmap,
+	choked bool,
+	allowedFast *bm.Bitmap,
+	result *pickResult,
+) {
+	// Collect all pieces the peer has that we want.
+	var candidates []uint32
+	for _, pi := range pp.pieces {
+		if !bitfield.Contains(pi) {
+			continue
+		}
+		if choked && !allowedFast.Contains(pi) {
+			continue
+		}
+		if pp.allBlocksFinished(pi) {
+			continue
+		}
+		candidates = append(candidates, pi)
+	}
+	if len(candidates) == 0 {
+		return
+	}
+
+	// Sort by availability ascending (rarest first).
+	sort.Slice(candidates, func(i, j int) bool {
+		return pp.availability[candidates[i]] < pp.availability[candidates[j]]
+	})
+
+	// Exclude the top 25% rarest and bottom 25% most common.
+	// Pick randomly from the middle 50% to avoid extremes.
+	lo := len(candidates) / 4
+	hi := len(candidates) * 3 / 4
+	if hi <= lo {
+		lo = 0
+		hi = len(candidates)
+	}
+
+	pieceIdx := candidates[lo+rand.IntN(hi-lo)]
+
+	// Pick the first free block from the chosen piece.
+	// In startup mode no blocks are in flight, so the first block is always free.
+	result.freeBlocks = append(result.freeBlocks, pieceBlock{pieceIdx, 0})
 }
 
 // pickBlocksFromPiece picks free blocks from a specific piece.
@@ -656,6 +736,7 @@ func (pp *piecePicker) resetAll() {
 	}
 	pp.downloadingPieces = pp.downloadingPieces[:0]
 	pp.downloadQueueSize = 0
+	pp.numCompletedPieces = 0
 	pp.dirty = true
 }
 

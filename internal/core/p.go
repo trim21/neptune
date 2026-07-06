@@ -304,15 +304,37 @@ func (p *Peer) sendBlockRequests() {
 	}
 }
 
+// requestBlocks is called from the peer event loop to fill the download pipeline.
+// It is the peer's self-driven entrypoint to the global piece picker:
+// when we learn about new pieces (Bitfield/Have), get unchoked, or receive data
+// (Piece), we immediately ask the picker for more blocks and flush them to the wire.
+func (p *Peer) requestBlocks() {
+	if p.closed.Load() || p.isDisconnecting() {
+		return
+	}
+	if !p.d.HasState(Downloading) {
+		return
+	}
+	// If choked and no allowed-fast pieces, nothing to request.
+	if p.peerChoking.Load() && p.allowFast.Count() == 0 {
+		return
+	}
+	p.d.requestABlock(p)
+}
+
 // updateDesiredQueueSize computes the desired number of outstanding requests
 // based on the peer's download rate. Mirrors libtorrent's update_desired_queue_size().
 //
 // Formula: desired = queue_time * download_rate / block_size
 // Clamped between [minRequestQueue, maxRequestQueue].
 // updateDesiredQueueSize computes the desired number of outstanding requests
-// updateDesiredQueueSize returns a fixed queue size based on the peer's advertised
-// limit. Slow peers are handled by the 30s timeout / snubbing, not by
-// artificially restricting their queue.
+// updateDesiredQueueSize computes the desired number of outstanding requests
+// based on the peer's download rate. Fast peers get a deeper pipeline so they
+// stay saturated; slow peers naturally get fewer slots.
+//
+// Formula: desired = downloadRate * queueTime / blockSize
+// Clamped between [minRequestQueue, maxRequestQueue] and capped by peer's
+// advertised queue limit.
 func (p *Peer) updateDesiredQueueSize() int {
 	if p.snubbed.Load() {
 		return 1
@@ -322,13 +344,18 @@ func (p *Peer) updateDesiredQueueSize() int {
 		return 1
 	}
 
-	peerLimit := int(p.QueueLimit.Load())
-	if peerLimit <= 0 {
-		peerLimit = 2000
-	}
-	maxQ := min(peerLimit/2, maxRequestQueue, 500)
+	// Rate-based pipeline sizing: aim for ~30 seconds of data in flight.
+	const queueTime = 30 // seconds
+	rate := p.pieceDownloadRate.Status().CurRate
+	desired := int(float64(rate) * queueTime / float64(defaultBlockSize))
+	desired = max(desired, minRequestQueue)
+	desired = min(desired, maxRequestQueue)
 
-	desired := max(maxQ, minRequestQueue)
+	// Respect the peer's advertised queue limit as an upper bound.
+	peerLimit := int(p.QueueLimit.Load())
+	if peerLimit > 0 {
+		desired = min(desired, peerLimit/2)
+	}
 
 	p.desiredQueueSize.Store(int32(desired))
 	return desired
@@ -366,9 +393,13 @@ func (p *Peer) isDisconnecting() bool {
 }
 
 func (p *Peer) checkRequestTimeouts() {
-	const pieceTimeout = 30 * time.Second
+	const blockTimeout = 30 * time.Second
+	const snubThreshold = 5 // consecutive timeouts before snubbing
+
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
+
+	consecutiveTimeouts := 0
 
 	for {
 		select {
@@ -376,47 +407,66 @@ func (p *Peer) checkRequestTimeouts() {
 			return
 		case <-ticker.C:
 			now := time.Now()
-			timedOut := false
+
+			// Collect timed-out block requests (per-block, not all-or-nothing).
+			var timedOutReqs []proto.ChunkRequest
 			p.myRequests.Range(func(req proto.ChunkRequest, reqTime time.Time) bool {
-				if now.Sub(reqTime) > pieceTimeout {
-					timedOut = true
-					return false // stop iterating
+				if now.Sub(reqTime) > blockTimeout {
+					timedOutReqs = append(timedOutReqs, req)
 				}
 				return true
 			})
 
-			if timedOut && !p.snubbed.Load() {
-				p.snubbed.Store(true)
-				p.snubbedAt.Store(now)
-				p.log.Warn().Msg("peer snubbed: request timeout")
-
-				// abort all pending downloads so other peers can pick them up
-				p.myRequests.Range(func(req proto.ChunkRequest, _ time.Time) bool {
+			if len(timedOutReqs) > 0 {
+				// Abort each timed-out block individually so other peers can pick them up.
+				for _, req := range timedOutReqs {
 					bi := int(req.Begin / uint32(defaultBlockSize))
 					p.d.picker.abortDownload(req.PieceIndex, bi)
-					return true
-				})
-
-				// Clear myRequests — entries are now stale and would
-				// inflate Size() preventing new requests.
-				p.myRequests.Range(func(req proto.ChunkRequest, _ time.Time) bool {
 					p.myRequests.Delete(req)
-					return true
-				})
+				}
 
-				// Clear requestQueue — stale blocks would be resent on un-snub.
-				p.rqMu.Lock()
-				p.requestQueue = p.requestQueue[:0]
-				p.rqMu.Unlock()
+				consecutiveTimeouts += len(timedOutReqs)
 
-				// trigger reschedule
+				// Snub only after repeated consecutive timeouts (>= snubThreshold).
+				if consecutiveTimeouts >= snubThreshold && !p.snubbed.Load() {
+					p.snubbed.Store(true)
+					p.snubbedAt.Store(now)
+					p.log.Warn().Int("consecutive", consecutiveTimeouts).Msg("peer snubbed: repeated timeouts")
+
+					// Clear all remaining in-flight requests on snub.
+					p.myRequests.Range(func(req proto.ChunkRequest, _ time.Time) bool {
+						bi := int(req.Begin / uint32(defaultBlockSize))
+						p.d.picker.abortDownload(req.PieceIndex, bi)
+						p.myRequests.Delete(req)
+						return true
+					})
+
+					// Clear requestQueue — stale blocks would be resent on un-snub.
+					p.rqMu.Lock()
+					p.requestQueue = p.requestQueue[:0]
+					p.rqMu.Unlock()
+				}
+
+				// Trigger reschedule so other peers can take over the freed blocks.
 				select {
 				case p.d.scheduleRequestSignal <- empty.Empty{}:
 				default:
 				}
+			} else {
+				// No timeouts this tick — auto un-snub if we were previously snubbed.
+				if consecutiveTimeouts < snubThreshold {
+					consecutiveTimeouts = 0
+				}
+				if p.snubbed.Load() {
+					p.snubbed.Store(false)
+					p.desiredQueueSize.Store(1)
+					p.log.Info().Msg("peer un-snubbed: no recent timeouts")
+					consecutiveTimeouts = 0
+				}
 			}
 		}
 	}
+
 }
 
 func (p *Peer) start(skipHandshake bool) {
@@ -544,11 +594,8 @@ func (p *Peer) start(skipHandshake bool) {
 			if !p.isSeed.Load() && p.Bitmap.Count() == p.d.info.NumPieces {
 				p.isSeed.Store(true)
 			}
-			// Ask scheduler to request blocks now that we know what this peer has.
-			select {
-			case p.d.scheduleRequestSignal <- empty.Empty{}:
-			default:
-			}
+			// Peer now has pieces we know about — ask for blocks immediately.
+			p.requestBlocks()
 		case proto.Have:
 			if event.Index >= p.d.info.NumPieces {
 				p.log.Debug().Uint32("index", event.Index).Msg("peer send 'Have' message with invalid index")
@@ -560,10 +607,7 @@ func (p *Peer) start(skipHandshake bool) {
 			if !p.isSeed.Load() && p.Bitmap.Count() == p.d.info.NumPieces {
 				p.isSeed.Store(true)
 			}
-			select {
-			case p.d.scheduleRequestSignal <- empty.Empty{}:
-			default:
-			}
+			p.requestBlocks()
 		case proto.Interested:
 			p.peerInterested.Store(true)
 			p.d.onPeerInterested(p)
@@ -574,7 +618,7 @@ func (p *Peer) start(skipHandshake bool) {
 			p.peerChoking.Store(true)
 		case proto.Unchoke:
 			p.peerChoking.Store(false)
-			p.d.scheduleRequestSignal <- empty.Empty{}
+			p.requestBlocks()
 		case proto.Piece:
 			p.hadTransfer = true
 			if !p.resIsValid(event.Res) {
@@ -585,8 +629,7 @@ func (p *Peer) start(skipHandshake bool) {
 
 			// Request more blocks for this peer immediately (libtorrent
 			// calls request_a_block from incoming_piece).
-			// requestABlock calls sendBlockRequests internally.
-			p.d.requestABlock(p)
+			p.requestBlocks()
 
 			p.responseCond.Signal()
 			p.pieceDownloadRate.Update(len(event.Res.Data))
