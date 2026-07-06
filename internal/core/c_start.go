@@ -6,7 +6,6 @@ package core
 import (
 	"fmt"
 	"io/fs"
-	"net"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -16,7 +15,6 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/samber/lo"
 	"github.com/trim21/conntrack"
-	"github.com/trim21/errgo"
 
 	"neptune/internal/pkg/global"
 	"neptune/internal/pkg/global/tasks"
@@ -108,18 +106,9 @@ func (c *Client) Start() error {
 }
 
 func (c *Client) startListen() error {
-	var lc = net.ListenConfig{
-		Control:   nil,
-		KeepAlive: time.Minute,
-	}
-
-	l, err := lc.Listen(c.ctx, "tcp", fmt.Sprintf(":%d", c.Config.App.P2PPort))
-	if err != nil {
-		return errgo.Wrap(err, "failed to listen on p2p port")
-	}
-
-	// add x/net/trace only in debug mode
-	l = conntrack.NewListener(l, conntrack.TrackWithTracing(), conntrack.TrackWithName("p2p"))
+	// The listener was already bound during port resolution in New().
+	// Wrap it with conntrack for tracing and use it directly — no rebind.
+	l := conntrack.NewListener(c.p2pListener, conntrack.TrackWithTracing(), conntrack.TrackWithName("p2p"))
 
 	go c.handleConn()
 

@@ -3,23 +3,49 @@
 
 package config
 
+import (
+	"fmt"
+	"strconv"
+	"strings"
+)
+
 type Application struct {
-	DownloadDir     string `toml:"download-dir"`
-	MaxHTTPParallel int    `toml:"max-http-parallel"`
-	P2PPort         uint16 `toml:"p2p-port"`
-	NumWant         uint16 `toml:"num-want"`
-	// hard global connection limit
-	GlobalConnectionLimit uint16 `toml:"global-connections-limit"`
-	// hard global upload slot limit (across all torrents)
-	// 0 means auto (derived from GlobalConnectionLimit).
-	GlobalUploadSlots uint16 `toml:"global-upload-slots"`
-	// Global download speed limit in bytes per second. 0 means unlimited.
-	GlobalDownloadSpeedLimit int64 `toml:"global-download-speed-limit"`
-	// Global upload speed limit in bytes per second. 0 means unlimited.
-	GlobalUploadSpeedLimit int64 `toml:"global-upload-speed-limit"`
-	Fallocate              bool  `toml:"fallocate"`
+	DownloadDir              string `toml:"download-dir"`
+	P2PPort                  string `toml:"p2p-port"`
+	MaxHTTPParallel          int    `toml:"max-http-parallel"`
+	GlobalDownloadSpeedLimit int64  `toml:"global-download-speed-limit"`
+	GlobalUploadSpeedLimit   int64  `toml:"global-upload-speed-limit"`
+	NumWant                  uint16 `toml:"num-want"`
+	GlobalConnectionLimit    uint16 `toml:"global-connections-limit"`
+	GlobalUploadSlots        uint16 `toml:"global-upload-slots"`
+	Fallocate                bool   `toml:"fallocate"`
 }
 
 type Config struct {
 	App Application `toml:"application"`
+}
+
+// ValidateP2PPort checks that s is a valid port ("50047") or port range ("50047-50100").
+func ValidateP2PPort(s string) (uint16, uint16, error) {
+	parts := strings.SplitN(s, "-", 2)
+
+	start, err := strconv.ParseUint(parts[0], 10, 16)
+	if err != nil {
+		return 0, 0, fmt.Errorf("invalid p2p port %q: %w", s, err)
+	}
+
+	if len(parts) == 1 {
+		return uint16(start), uint16(start), nil
+	}
+
+	end, err := strconv.ParseUint(parts[1], 10, 16)
+	if err != nil {
+		return 0, 0, fmt.Errorf("invalid p2p port range %q: %w", s, err)
+	}
+
+	if end <= start {
+		return 0, 0, fmt.Errorf("invalid p2p port range %q: end must be > start", s)
+	}
+
+	return uint16(start), uint16(end), nil
 }

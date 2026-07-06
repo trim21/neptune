@@ -466,7 +466,6 @@ func (p *Peer) checkRequestTimeouts() {
 			}
 		}
 	}
-
 }
 
 func (p *Peer) start(skipHandshake bool) {

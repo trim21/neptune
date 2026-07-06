@@ -66,9 +66,9 @@ func (d *Download) have(index uint32) {
 }
 
 type responseChunk struct {
+	recvAt time.Time
 	res    *proto.ChunkResponse
 	pi     uint32
-	recvAt time.Time
 }
 
 func (r responseChunk) Less(o responseChunk) bool {

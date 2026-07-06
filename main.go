@@ -196,7 +196,7 @@ func setupFlagsAndEnvParser() {
 
 	pflag.String("web", "127.0.0.1:8002", "web interface address")
 	pflag.String("web-secret-token", "", "web interface address secret token")
-	pflag.Uint16("p2p-port", 50047, "p2p listen port")
+	pflag.String("p2p-port", "50047", "p2p listen port or range (e.g. '50047' or '50047-50100')")
 
 	pflag.Bool("log-json", false, "log as json format")
 	pflag.String("log-level", "info", "log level")
@@ -379,7 +379,7 @@ func mustParseConfig(sessionPath string) config.Config {
 		errExit("failed to load config", err)
 	}
 
-	cfg.App.P2PPort = viper.GetUint16("p2p-port")
+	cfg.App.P2PPort = viper.GetString("p2p-port")
 
 	log.Info().Str("path", configPath).Msg("config loaded")
 

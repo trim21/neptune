@@ -290,7 +290,7 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 		HTTP:            c.http,
 		InfoHash:        info.Hash.AsString(),
 		PeerID:          d.peerID.AsString(),
-		Port:            c.Config.App.P2PPort,
+		Port:            c.p2pPort,
 		Uploaded:        &d.uploaded,
 		UploadedStart:   d.uploadAtStart,
 		Downloaded:      &d.downloaded,

@@ -23,7 +23,7 @@ func TestLoadFromLua_SimpleSet(t *testing.T) {
 
 	cfg, err := LoadFromLua(script)
 	require.NoError(t, err)
-	assert.Equal(t, uint16(12345), cfg.App.P2PPort)
+	assert.Equal(t, "12345", cfg.App.P2PPort)
 	assert.True(t, cfg.App.Fallocate)
 	assert.Equal(t, "/custom/downloads", cfg.App.DownloadDir)
 }

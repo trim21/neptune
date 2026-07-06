@@ -170,14 +170,24 @@ var configFields = map[string]configField{
 	},
 	"application.p2p-port": {
 		setter: func(a *Application, v lua.LValue) error {
-			n, err := toGoUint16(v)
-			if err != nil {
+			s, ok := v.(lua.LString)
+			if !ok {
+				// Also accept a number (backward compat).
+				if n, ok := v.(lua.LNumber); ok {
+					a.P2PPort = strconv.Itoa(int(n))
+					return nil
+				}
+				return fmt.Errorf("expected string or number, got %s", v.Type())
+			}
+			// Validate format: single port or range.
+			raw := string(s)
+			if _, _, err := ValidateP2PPort(raw); err != nil {
 				return err
 			}
-			a.P2PPort = n
+			a.P2PPort = raw
 			return nil
 		},
-		getter: func(a *Application) lua.LValue { return lua.LNumber(a.P2PPort) },
+		getter: func(a *Application) lua.LValue { return lua.LString(a.P2PPort) },
 	},
 	"application.num-want": {
 		setter: func(a *Application, v lua.LValue) error {

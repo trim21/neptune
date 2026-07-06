@@ -6,6 +6,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"math/rand/v2"
 	"net"
 	"net/http"
 	"net/netip"
@@ -53,17 +54,24 @@ func New(cfg config.Config, sessionPath string, debug bool) *Client {
 	//	only 'prefer'(default) 'prefer-not', 'disable' or 'force' are allowed", cfg.App.Crypto))
 	//}
 
-	conn, err := (&net.ListenConfig{}).ListenPacket(ctx, "udp", fmt.Sprintf(":%d", cfg.App.P2PPort))
+	p2pPort, p2pListener, err := parseAndResolvePort(cfg.App.P2PPort)
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to resolve p2p port")
+	}
+
+	conn, err := (&net.ListenConfig{}).ListenPacket(ctx, "udp", fmt.Sprintf(":%d", p2pPort))
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to listen on dht")
 	}
 
-	d := dht.Start(conn, cfg.App.P2PPort)
+	d := dht.Start(conn, p2pPort)
 
 	v4, v6, _ := util.GetIPAddress()
 
 	c := &Client{
 		Config:      cfg,
+		p2pPort:     p2pPort,
+		p2pListener: p2pListener,
 		ctx:         ctx,
 		cancel:      cancel,
 		sem:         semaphore.NewWeighted(int64(cfg.App.GlobalConnectionLimit)),
@@ -125,9 +133,9 @@ type incomingConn struct {
 
 type Client struct {
 	ctx               context.Context
-	uploadLimiter     *ratelimit.Limiter
-	ipv4              atomic.Pointer[netip.Addr]
-	downloadMap       map[metainfo.Hash]*Download
+	p2pListener       net.Listener
+	filePool          *filepool.FilePool
+	downloadLimiter   *ratelimit.Limiter
 	connChan          chan incomingConn
 	sem               *semaphore.Weighted
 	uploadQ           chan uploadTask
@@ -135,20 +143,22 @@ type Client struct {
 	pieceDownloadRate *flowrate.Monitor
 	pieceUploadRate   *flowrate.Monitor
 	dht               *dht.DHT
-	downloadLimiter   *ratelimit.Limiter
+	ipv4              atomic.Pointer[netip.Addr]
 	http              *resty.Client
 	cancel            context.CancelFunc
-	filePool          *filepool.FilePool
+	downloadMap       map[metainfo.Hash]*Download
+	uploadLimiter     *ratelimit.Limiter
 	ipv6              atomic.Pointer[netip.Addr]
-	torrentPath       string
 	resumePath        string
-	downloads         []*Download
-	infoHashes        []metainfo.Hash
-	checkQueue        []metainfo.Hash
+	torrentPath       string
 	randKey           []byte
+	infoHashes        []metainfo.Hash
+	downloads         []*Download
+	checkQueue        []metainfo.Hash
 	Config            config.Config
 	connectionCount   atomic.Uint32
 	m                 sync.RWMutex
+	p2pPort           uint16
 	debug             bool
 }
 
@@ -181,7 +191,7 @@ func (c *Client) PeerPriority(peer netip.AddrPort) uint32 {
 			return bep40.SimplePriority(c.randKey, unsafe.Bytes(peer.String()))
 		}
 
-		return bep40.Priority4(netip.AddrPortFrom(*localV4, c.Config.App.P2PPort), peer)
+		return bep40.Priority4(netip.AddrPortFrom(*localV4, c.p2pPort), peer)
 	}
 
 	if peer.Addr().Is6() {
@@ -190,8 +200,47 @@ func (c *Client) PeerPriority(peer netip.AddrPort) uint32 {
 			return bep40.SimplePriority(c.randKey, unsafe.Bytes(peer.String()))
 		}
 
-		return bep40.Priority6(netip.AddrPortFrom(*localV6, c.Config.App.P2PPort), peer)
+		return bep40.Priority6(netip.AddrPortFrom(*localV6, c.p2pPort), peer)
 	}
 
 	panic(fmt.Sprintf("unexpected addrPort address format %+v", peer))
+}
+
+// parseAndResolvePort parses a P2PPort config value that can be a single port
+// ("50047") or a range ("50047-50100"). It binds a TCP listener and returns
+// both the port and the open listener — no TOCTOU race with a later bind.
+// When a range is given, ports are shuffled randomly and the first available
+// one wins.
+func parseAndResolvePort(s string) (uint16, net.Listener, error) {
+	start, end, err := config.ValidateP2PPort(s)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	if start == end {
+		l, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", fmt.Sprintf(":%d", start))
+		if err != nil {
+			return 0, nil, fmt.Errorf("failed to bind port %d: %w", start, err)
+		}
+		return start, l, nil
+	}
+
+	// Randomly shuffle ports in the range and try to bind TCP.
+	n := int(end - start + 1)
+	ports := make([]uint16, n)
+	for i := range n {
+		ports[i] = start + uint16(i)
+	}
+	rand.Shuffle(len(ports), func(i, j int) { ports[i], ports[j] = ports[j], ports[i] })
+
+	var lastErr error
+	for _, port := range ports {
+		l, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", fmt.Sprintf(":%d", port))
+		if err == nil {
+			return port, l, nil
+		}
+		lastErr = err
+	}
+
+	return 0, nil, fmt.Errorf("no available port in range %d-%d: %w", start, end, lastErr)
 }

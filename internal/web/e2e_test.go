@@ -101,7 +101,7 @@ func TestE2E(t *testing.T) {
 		App: config.Application{
 			DownloadDir:              downloadDir,
 			MaxHTTPParallel:          10,
-			P2PPort:                  0,
+			P2PPort:                  "0",
 			NumWant:                  50,
 			GlobalConnectionLimit:    10,
 			GlobalUploadSlots:        4,
