@@ -560,15 +560,11 @@ func (d *Download) requestABlock(p *Peer) {
 	p.sendBlockRequests()
 
 	if numRequests <= 0 {
-		p.setEndgame(false)
 		return
 	}
 
-	if !p.peerChoking.Load() {
-		p.setEndgame(true)
-		d.endGameMode.Store(true)
-	}
-
+	// Only enter endgame when download is nearly complete, not just because
+	// this peer ran out of unique free blocks.
 	if !d.endGameMode.Load() || p.myRequests.Size()+p.requestQueueLen() > 0 {
 		return
 	}

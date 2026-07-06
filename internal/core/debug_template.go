@@ -189,7 +189,7 @@ func buildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 			Client:       *p.UserAgent.Load(),
 			Progress:     fmt.Sprintf("%.1f%%", float64(p.Bitmap.Count())/float64(d.info.NumPieces)*100),
 			Snubbed:      p.snubbed.Load(),
-			Endgame:      p.endgame.Load(),
+			Endgame:      p.d.endGameMode.Load(),
 			PeerChoke:    p.peerChoking.Load(),
 			PeerInterest: p.peerInterested.Load(),
 			OurChoke:     p.ourChoking.Load(),

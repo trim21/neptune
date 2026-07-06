@@ -169,7 +169,6 @@ type Peer struct {
 	ourChoking        atomic.Bool
 	preferred         atomic.Bool
 	peerChoking       atomic.Bool
-	endgame           atomic.Bool
 	rttMutex          sync.RWMutex
 	wm                sync.Mutex
 	rqMu              sync.Mutex
@@ -319,7 +318,7 @@ func (p *Peer) updateDesiredQueueSize() int {
 		return 1
 	}
 
-	if p.endgame.Load() {
+	if p.d.endGameMode.Load() {
 		return 1
 	}
 
@@ -360,11 +359,6 @@ func (p *Peer) isInQueue(chunk proto.ChunkRequest) bool {
 	}
 
 	return false
-}
-
-// setEndgame sets whether the peer is in endgame mode.
-func (p *Peer) setEndgame(v bool) {
-	p.endgame.Store(v)
 }
 
 // isDisconnecting returns true if the peer is in the process of disconnecting.
