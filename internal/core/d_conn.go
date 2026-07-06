@@ -35,29 +35,44 @@ func (d *Download) connectToPeers(maxSlots int) int {
 	for connected < maxSlots {
 		// 1. Try immediate (hadTrans) candidates first — fast reconnect
 		candidate := d.peerList.immediateCandidate()
-		if candidate == nil {
-			candidate = d.peerList.connectOnePeer(now)
-		}
-		if candidate == nil {
-			break
-		}
-
-		// Check if already connected
-		if _, ok := d.connectedAddrs.Load(candidate.addrPort); ok {
+		if candidate != nil {
+			if _, ok := d.connectedAddrs.Load(candidate.addrPort); ok {
+				continue
+			}
+			if !d.c.sem.TryAcquire(1) {
+				break
+			}
+			d.c.connectionCount.Add(1)
+			tasks.Submit(func() {
+				d.tryDial(candidate)
+			})
+			connected++
 			continue
 		}
 
-		// Check global connection limit
-		if !d.c.sem.TryAcquire(1) {
+		// 2. Batch get candidates from heap
+		remaining := maxSlots - connected
+		candidates := d.peerList.connectPeers(now, remaining)
+		if len(candidates) == 0 {
 			break
 		}
-		d.c.connectionCount.Add(1)
 
-		tasks.Submit(func() {
-			d.tryDial(candidate)
-		})
-
-		connected++
+		for _, candidate = range candidates {
+			if _, ok := d.connectedAddrs.Load(candidate.addrPort); ok {
+				continue
+			}
+			if !d.c.sem.TryAcquire(1) {
+				return connected
+			}
+			d.c.connectionCount.Add(1)
+			tasks.Submit(func() {
+				d.tryDial(candidate)
+			})
+			connected++
+			if connected >= maxSlots {
+				return connected
+			}
+		}
 	}
 
 	return connected
