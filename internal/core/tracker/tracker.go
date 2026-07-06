@@ -159,6 +159,20 @@ func (t *Trackers) Announce(event AnnounceEvent) {
 	}
 }
 
+// ForceReannounce resets NextAnnounce for all trackers and triggers an immediate
+// announce with the given event. Useful for manual reannounce requests from the API.
+func (t *Trackers) ForceReannounce(event AnnounceEvent) {
+	now := time.Now()
+	t.mu.Lock()
+	for _, tier := range t.tiers {
+		for _, tr := range tier.Trackers {
+			tr.NextAnnounce = now
+		}
+	}
+	t.mu.Unlock()
+	t.Announce(event)
+}
+
 // Totals returns the max seeders and leechers across all trackers.
 func (t *Trackers) Totals() (seeders, leechers int) {
 	t.Seeds.Range(func(_ string, s int) bool {
