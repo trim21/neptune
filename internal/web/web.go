@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
+	"runtime"
 	"runtime/debug"
 	"strings"
 
@@ -90,6 +91,8 @@ func New(c *core.Client, token string, enableDebug bool) http.Handler {
 	r.HandleFunc("/debug/events", trace.Events)
 
 	if enableDebug {
+		runtime.SetBlockProfileRate(100)
+		runtime.SetMutexProfileFraction(100)
 		r.Mount("/debug", middleware.Profiler())
 	}
 
@@ -158,7 +161,7 @@ func New(c *core.Client, token string, enableDebug bool) http.Handler {
 }
 
 func addPing(h *jsonrpc.Handler) {
-	u := usecase.NewInteractor[*struct{}, struct{}](
+	u := usecase.NewInteractor(
 		func(ctx context.Context, req *struct{}, res *struct{}) error {
 			return nil
 		},
