@@ -380,8 +380,7 @@ func (d *Download) checkPiece(pieceIndex uint32) error {
 	copy(digest[:], hasher.Sum(nil))
 
 	if digest != d.info.Pieces[pieceIndex] {
-		d.corrupted.Add(d.info.PieceLength)
-		d.corruptedBytes.Add(pieceSize)
+		d.corrupted.Add(pieceSize)
 		start := pieceIndex * d.normalChunkLen
 		end := start + uint32(pieceChunksCount(d.info, pieceIndex))
 		d.chunk.mu.Lock()

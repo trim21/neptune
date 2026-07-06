@@ -36,12 +36,12 @@ func TestPeerResponseSendsOnceAndCountsOnce(t *testing.T) {
 	})
 
 	p := &Peer{
-		Conn:         c1,
-		w:            bufio.NewWriterSize(c1, 64*1024),
-		log:          zerolog.New(io.Discard),
-		lastSend:     *atomic.NewTime(time.Now()),
+		Conn:            c1,
+		w:               bufio.NewWriterSize(c1, 64*1024),
+		log:             zerolog.New(io.Discard),
+		lastSend:        *atomic.NewTime(time.Now()),
 		pieceUploadRate: flowrate.New(time.Second, time.Second),
-		peerRequests: xsync.NewMap[proto.ChunkRequest, empty.Empty](),
+		peerRequests:    xsync.NewMap[proto.ChunkRequest, empty.Empty](),
 	}
 
 	data := []byte{1, 2, 3, 4, 5, 6, 7}
@@ -64,12 +64,12 @@ func TestPeerResponseNoRequestDoesNotWrite(t *testing.T) {
 	defer c2.Close()
 
 	p := &Peer{
-		Conn:         c1,
-		w:            bufio.NewWriterSize(c1, 64*1024),
-		log:          zerolog.New(io.Discard),
-		lastSend:     *atomic.NewTime(time.Now()),
+		Conn:            c1,
+		w:               bufio.NewWriterSize(c1, 64*1024),
+		log:             zerolog.New(io.Discard),
+		lastSend:        *atomic.NewTime(time.Now()),
 		pieceUploadRate: flowrate.New(time.Second, time.Second),
-		peerRequests: xsync.NewMap[proto.ChunkRequest, empty.Empty](),
+		peerRequests:    xsync.NewMap[proto.ChunkRequest, empty.Empty](),
 	}
 
 	data := []byte{9, 9, 9, 9}

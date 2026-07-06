@@ -62,6 +62,7 @@ type MainDataTorrent struct {
 	AddedAt              int64             `json:"add_at"`
 	CompletedAt          int64             `json:"completed_at"`
 	Private              bool              `json:"private"`
+	Corrupted            int64             `json:"corrupted"`
 	TotalSeeding         int               `json:"total_seeding"`
 	TotalDownloading     int               `json:"total_downloading"`
 	ConnectedSeeding     int               `json:"connected_seeding"`
@@ -113,6 +114,7 @@ func (c *Client) GetTorrentList(keys []string) TorrentList {
 			CompletedAt:          d.CompletedAt.Load(),
 			DirectoryBase:        d.downloadDir,
 			Private:              d.info.Private,
+			Corrupted:            d.corrupted.Load(),
 			Tags:                 d.tags,
 			Custom:               custom,
 			ConnectionCount:      peers,
@@ -451,7 +453,7 @@ func (c *Client) DebugHandlers() http.Handler {
 		w.WriteHeader(http.StatusOK)
 
 		fmt.Fprintf(w, "%q\n\n", d.info.Name)
- 		fmt.Fprintf(w, "download %9s (net %9s)      upload %9s\n\n",
+		fmt.Fprintf(w, "download %9s (net %9s)      upload %9s\n\n",
 			humanize.IBytes(uint64(d.pieceDownloadRate.Status().CurRate))+"/s",
 			humanize.IBytes(uint64(d.ioDownloadRate.Status().CurRate))+"/s",
 			humanize.IBytes(uint64(d.pieceUploadRate.Status().CurRate))+"/s",
@@ -464,9 +466,8 @@ func (c *Client) DebugHandlers() http.Handler {
 			humanize.IBytes(uint64(d.completed.Load())),
 			humanize.IBytes(uint64(d.downloaded.Load()-d.completed.Load())),
 		)
-		fmt.Fprintf(w, "corrupted: %s (pieces)  corrupted_bytes: %s\n",
+		fmt.Fprintf(w, "corrupted: %s\n",
 			humanize.IBytes(uint64(d.corrupted.Load())),
-			humanize.IBytes(uint64(d.corruptedBytes.Load())),
 		)
 
 		debugPrintTrackers(w, d)

@@ -28,6 +28,7 @@ class MainDataTorrent:
     selected_size: int
     add_at: int
     completed_at: int
+    corrupted: int
     private: bool
     total_seeding: int
     total_downloading: int

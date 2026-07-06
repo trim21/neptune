@@ -149,7 +149,6 @@ type Download struct {
 	CompletedAt            atomic.Int64
 	downloaded             atomic.Int64
 	corrupted              atomic.Int64
-	corruptedBytes         atomic.Int64 // bytes received for pieces that failed hash check
 	uploaded               atomic.Int64
 	uploadAtStart          int64
 	downloadAtStart        int64
