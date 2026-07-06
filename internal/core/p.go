@@ -141,55 +141,60 @@ var ErrPeerSendInvalidData = errors.New("addrPort send invalid data")
 
 type Peer struct {
 	log               zerolog.Logger
+	closeErr          error
 	ctx               context.Context
 	Conn              net.Conn
 	lastSend          atomic.Time
 	snubbedAt         atomic.Time
-	r                 *bufio.Reader
-	pieceUploadRate   *flowrate.Monitor
-	pieceDownloadRate *flowrate.Monitor
-	Bitmap            *bm.Bitmap
+	lastUnchokeAt     atomic.Time
+	Rejected          *xsync.Map[proto.ChunkRequest, empty.Empty]
+	UserAgent         atomic.Pointer[string]
 	myRequests        *xsync.Map[proto.ChunkRequest, time.Time]
 	myRequestHistory  *xsync.Map[proto.ChunkRequest, empty.Empty]
 	d                 *Download
-	Rejected          *xsync.Map[proto.ChunkRequest, empty.Empty]
+	pieceDownloadRate *flowrate.Monitor
 	allowFast         *bm.Bitmap
 	peerRequests      *xsync.Map[proto.ChunkRequest, empty.Empty]
 	cancel            context.CancelFunc
-	UserAgent         atomic.Pointer[string]
+	Bitmap            *bm.Bitmap
 	ourPieceRequests  chan uint32
 	responseCond      *gsync.Cond
 	peerID            atomic.Pointer[proto.PeerID]
 	pieceDone         chan struct{}
 	w                 *bufio.Writer
+	r                 *bufio.Reader
+	pieceUploadRate   *flowrate.Monitor
 	Address           netip.AddrPort
 	Requested         bitmap.Bitmap
 	rttAverage        sizedSlice[time.Duration]
-	slowStart         atomic.Bool
-	ourChoking        atomic.Bool
+	isSeed            atomic.Bool
 	QueueLimit        atomic.Uint32
-	lastRate          atomic.Int64
 	desiredQueueSize  atomic.Int32
 	ourInterested     atomic.Bool
 	snubbed           atomic.Bool
 	closed            atomic.Bool
-	isSeed            atomic.Bool
-	peerChoking       atomic.Bool
 	peerInterested    atomic.Bool
-	id                uint32
+	ourChoking        atomic.Bool
+	lastRate          atomic.Int64
+	preferred         atomic.Bool
+	slowStart         atomic.Bool
+	peerChoking       atomic.Bool
 	rttMutex          sync.RWMutex
 	wm                sync.Mutex
 	extDontHaveID     gsync.AtomicUint[proto.ExtensionMessage]
 	extPexID          gsync.AtomicUint[proto.ExtensionMessage]
-	readBuf           [4]byte
+	id                uint32
 	writeBuf          [4]byte
+	readBuf           [4]byte
 	Incoming          bool
 	fastExtension     bool
 	dhtEnabled        bool
 	subExtensions     bool
+	hadTransfer       bool
 }
 
 func (p *Peer) Response(res *proto.ChunkResponse) bool {
+	p.hadTransfer = true
 	_, ok := p.peerRequests.LoadAndDelete(res.Request())
 	if !ok {
 		// Request might be canceled concurrently (Cancel) or already served.
@@ -229,6 +234,13 @@ func (p *Peer) Unchoke() {
 func (p *Peer) close() {
 	if p.closed.CompareAndSwap(false, true) {
 		p.log.Trace().Caller(1).Msg("close")
+
+		// Record disconnect reason for future retry decisions.
+		// Only record for outgoing peers; incoming peers don't need retry logic.
+		if !p.Incoming {
+			p.d.recordDisconnect(p.Address, p.hadTransfer, p.closeErr)
+		}
+
 		p.d.peers.Delete(p.Address)
 		p.d.c.sem.Release(1)
 		p.d.c.connectionCount.Sub(1)
@@ -505,6 +517,7 @@ func (p *Peer) start(skipHandshake bool) {
 		event, err := p.DecodeEvents()
 		if err != nil {
 			p.log.Trace().Err(err).Msg("failed to decode event")
+			p.closeErr = err
 			return
 		}
 
@@ -532,6 +545,7 @@ func (p *Peer) start(skipHandshake bool) {
 			}
 		case proto.Interested:
 			p.peerInterested.Store(true)
+			p.d.onPeerInterested(p)
 			p.d.scheduleResponseSignal <- empty.Empty{}
 		case proto.NotInterested:
 			p.peerInterested.Store(false)
@@ -541,6 +555,7 @@ func (p *Peer) start(skipHandshake bool) {
 			p.peerChoking.Store(false)
 			p.d.scheduleRequestSignal <- empty.Empty{}
 		case proto.Piece:
+			p.hadTransfer = true
 			if !p.resIsValid(event.Res) {
 				p.log.Trace().Msg("failed to validate response")
 				// send response without myRequests

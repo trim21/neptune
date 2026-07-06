@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"net/netip"
 	"slices"
 	"sort"
@@ -26,88 +27,234 @@ type uploadReq struct {
 var errUploadPaused = errors.New("upload paused")
 
 const (
-	uploadSlots        = 4 // default number of upload slots
-	optimisticUnchokeN = 1 // number of optimistic unchoke slots
-	unchokeInterval    = 10 * time.Second
+	uploadSlots          = 4 // default number of upload slots
+	optimisticUnchokeN   = 1 // reserved for optimistic unchoke
+	unchokeInterval      = 10 * time.Second
+	unchokeGracePeriod   = 50 * time.Second // don't choke peers recently unchoked
+	unchokeCycleFraction = 8                // cycle ~1/8 = ~12.5% of slots per round
 )
 
-func (d *Download) recalculateUnchokeSlots() {
-	type peerRate struct {
-		peer *Peer
-		rate int64
+// peerUploadScore computes a weighted score for unchoke priority.
+// Aligns with libtorrent's calculate_unchoke_upload_leech_experimental:
+//   - Peers that have unchoked us (reciprocating) get order_base + rate bonus
+//   - Peers that haven't unchoked us get random weight (optimistic queue)
+//   - Preferred peers get a multiplier
+func peerUploadScore(p *Peer) (score uint32, isReciprocal bool) {
+	const orderBase uint32 = 1 << 30
+
+	multiplier := uint32(1)
+	if p.preferred.Load() {
+		multiplier = 4
 	}
 
-	var candidates []peerRate
-	var unchokable []*Peer
+	// Peer has unchoked us — they're reciprocating.
+	if !p.peerChoking.Load() {
+		downRate := uint32(p.pieceDownloadRate.Status().CurRate) / 64
+		score = orderBase + downRate*multiplier
+		return score, true
+	}
+
+	// Peer hasn't unchoked us — optimistic, random weight.
+	// Lower weight for stingy peers (those we upload to at < 1KB/s).
+	upRate := uint32(p.pieceUploadRate.Status().CurRate) / 64
+	if upRate < 2048/64 {
+		score = upRate * multiplier
+	} else {
+		base := uint32(1 << 10)
+		if p.preferred.Load() {
+			base *= 4
+		}
+		score = rand.Uint32N(base) * multiplier
+	}
+	return score, false
+}
+
+// recalculateUnchokeSlots re-evaluates which peers should be unchoked.
+//
+// Strategy (aligned with libtorrent):
+//  1. Always choke snubbed and uninterested peers.
+//  2. Sort candidates by weighted score (prefer reciprocating peers).
+//  3. Unchoke top-N candidates, respecting grace period for recently unchoked.
+//  4. Reserve one slot for optimistic unchoke (randomized, cycling).
+//  5. Rotate a fraction of slots each round to discover faster peers.
+func (d *Download) recalculateUnchokeSlots() {
+	now := time.Now()
+
+	type candidate struct {
+		peer        *Peer
+		score       uint32
+		reciprocal  bool // peer has unchoked us
+		recentlyUnc bool // unchoked within grace period
+	}
+
+	var candidates []candidate
 
 	d.peers.Range(func(addr netip.AddrPort, p *Peer) bool {
 		if p.closed.Load() {
 			return true
 		}
-		// A peer is eligible for unchoking if:
-		// - it is interested in us (wants our data), OR
-		// - we are interested in it AND it is unchoking us (tit-for-tat reciprocation)
-		eligible := p.peerInterested.Load() || (!p.peerChoking.Load() && p.ourInterested.Load())
-		if eligible {
-			candidates = append(candidates, peerRate{
-				peer: p,
-				rate: p.pieceUploadRate.Status().CurRate,
-			})
-		}
-		if !eligible || p.snubbed.Load() {
-			// choke peers that are not eligible or snubbed
+
+		// Always choke snubbed peers.
+		if p.snubbed.Load() {
 			if p.ourChoking.CompareAndSwap(false, true) {
 				go p.sendEventX(Event{Event: proto.Choke})
 			}
+			return true
 		}
+
+		// Always choke uninterested peers — libtorrent only queues peers
+		// that explicitly signaled Interested.
+		if !p.peerInterested.Load() {
+			if p.ourChoking.CompareAndSwap(false, true) {
+				go p.sendEventX(Event{Event: proto.Choke})
+			}
+			return true
+		}
+
+		score, reciprocal := peerUploadScore(p)
+		recently := now.Sub(p.lastUnchokeAt.Load()) < unchokeGracePeriod
+
+		candidates = append(candidates, candidate{
+			peer:        p,
+			score:       score,
+			reciprocal:  reciprocal,
+			recentlyUnc: recently,
+		})
 		return true
 	})
 
-	// sort by upload rate descending (fastest first)
-	slices.SortFunc(candidates, func(a, b peerRate) int {
-		if a.rate > b.rate {
-			return -1
-		}
-		if a.rate < b.rate {
-			return 1
-		}
-		return 0
-	})
-
-	// unchoke top-N peers by rate
-	normalSlots := uploadSlots - optimisticUnchokeN
-	for i, c := range candidates {
-		if i >= normalSlots {
-			break
-		}
-		unchokable = append(unchokable, c.peer)
+	if len(candidates) == 0 {
+		return
 	}
 
-	// optimistic unchoke: pick the peer that has been waiting longest
-	if len(candidates) > normalSlots {
-		// rotate through candidates beyond the normal slots
-		if d.unchokeSlotIdx >= len(candidates)-normalSlots {
-			d.unchokeSlotIdx = 0
+	// Sort by:
+	// 1. Recently unchoked peers first (grace period protection)
+	// 2. Reciprocal peers first (they're giving us data)
+	// 3. Score descending
+	sort.SliceStable(candidates, func(i, j int) bool {
+		a, b := candidates[i], candidates[j]
+		if a.recentlyUnc != b.recentlyUnc {
+			return a.recentlyUnc
 		}
-		if normalSlots+d.unchokeSlotIdx < len(candidates) {
-			unchokable = append(unchokable, candidates[normalSlots+d.unchokeSlotIdx].peer)
+		if a.reciprocal != b.reciprocal {
+			return a.reciprocal
+		}
+		return a.score > b.score
+	})
+
+	normalSlots := max(uploadSlots-optimisticUnchokeN, 1)
+
+	// ── Normal slots (rate-based) ──────────────────────────────────
+	// Rotate cycleSlotsToRotate slots each round to discover faster peers.
+	totalSlots := min(normalSlots, len(candidates))
+	cycleN := max(1, totalSlots/unchokeCycleFraction)
+	d.unchokeCycleOffset = (d.unchokeCycleOffset + cycleN) % max(totalSlots, 1)
+
+	var unchokeSet []*Peer
+
+	// Fill normal slots: take top (normalSlots - cycleN) by score,
+	// then cycle the remaining slots starting at cycleOffset.
+	topN := max(normalSlots-cycleN, 0)
+
+	for i := 0; i < topN && i < len(candidates); i++ {
+		unchokeSet = append(unchokeSet, candidates[i].peer)
+	}
+
+	// Cycled slots: starting from offset, wrapping around.
+	added := topN
+	for i := 0; i < cycleN && added < normalSlots && added < len(candidates); i++ {
+		idx := (d.unchokeCycleOffset + i) % len(candidates)
+		// Skip if already selected.
+		alreadySelected := slices.Contains(unchokeSet, candidates[idx].peer)
+		if !alreadySelected {
+			unchokeSet = append(unchokeSet, candidates[idx].peer)
+			added++
+		}
+	}
+
+	// ── Optimistic unchoke slot ─────────────────────────────────────
+	// Pick a random peer NOT already in the unchoke set.
+	if optimisticUnchokeN > 0 && len(candidates) > len(unchokeSet) {
+		// Collect peers not in unchokeSet.
+		var remaining []*Peer
+		inSet := make(map[*Peer]bool, len(unchokeSet))
+		for _, p := range unchokeSet {
+			inSet[p] = true
+		}
+		for _, c := range candidates {
+			if !inSet[c.peer] {
+				remaining = append(remaining, c.peer)
+			}
+		}
+		if len(remaining) > 0 {
+			optIdx := d.unchokeSlotIdx % len(remaining)
+			unchokeSet = append(unchokeSet, remaining[optIdx])
 			d.unchokeSlotIdx++
 		}
 	}
 
-	// apply: unchoke selected peers, choke the rest
-	for _, p := range unchokable {
+	// ── Apply ───────────────────────────────────────────────────────
+	for _, p := range unchokeSet {
 		if p.ourChoking.CompareAndSwap(true, false) {
+			p.lastUnchokeAt.Store(now)
 			go p.sendEventX(Event{Event: proto.Unchoke})
 		}
 	}
 
-	// trigger response scheduling for newly unchoked peers
+	// Choke everyone not in the unchoke set.
+	inSet := make(map[*Peer]bool, len(unchokeSet))
+	for _, p := range unchokeSet {
+		inSet[p] = true
+	}
+	for _, c := range candidates {
+		if !inSet[c.peer] {
+			if c.peer.ourChoking.CompareAndSwap(false, true) {
+				go c.peer.sendEventX(Event{Event: proto.Choke})
+			}
+		}
+	}
+
+	// Trigger response scheduling for newly unchoked peers.
 	select {
 	case d.scheduleResponseSignal <- empty.Empty{}:
 	default:
 	}
 }
+
+// setInterested is called when our interest in a peer changes.
+// If we become interested and the peer has free slots, we may unchoke
+// immediately (libtorrent's fast-path for new peers).
+func (d *Download) onPeerInterested(p *Peer) {
+	if !p.peerInterested.Load() || p.snubbed.Load() || p.closed.Load() {
+		return
+	}
+
+	// Count currently unchoked peers.
+	unchoked := 0
+	d.peers.Range(func(addr netip.AddrPort, p2 *Peer) bool {
+		if !p2.closed.Load() && !p2.ourChoking.Load() {
+			unchoked++
+		}
+		return true
+	})
+
+	if unchoked >= uploadSlots {
+		return
+	}
+
+	// Fast unchoke: new peer, slots available.
+	if p.ourChoking.CompareAndSwap(true, false) {
+		p.lastUnchokeAt.Store(time.Now())
+		go p.sendEventX(Event{Event: proto.Unchoke})
+
+		select {
+		case d.scheduleResponseSignal <- empty.Empty{}:
+		default:
+		}
+	}
+}
+
+// ── Upload dispatch helpers ────────────────────────────────────────────
 
 // backgroundReqHandler processes upload requests from peers.
 // It collects requests from unchoked peers, groups them by piece,

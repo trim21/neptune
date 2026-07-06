@@ -161,6 +161,7 @@ type Download struct {
 	completed              atomic.Int64
 	selectedSize           atomic.Int64
 	unchokeSlotIdx         int
+	unchokeCycleOffset     int // rotating offset for slot cycling
 	m                      sync.RWMutex
 	pendingPeersMutex      sync.Mutex
 	ratePieceMutex         sync.Mutex
