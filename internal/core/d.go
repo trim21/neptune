@@ -122,6 +122,7 @@ type Download struct {
 	peers                  *xsync.Map[netip.AddrPort, *Peer]
 	connectionHistory      *lru.Cache[netip.AddrPort, connHistory]
 	bm                     *bm.Bitmap
+	pieceInFlight          *bm.Bitmap // pieces currently assigned to a peer, matching libtorrent's untouched_bitfield
 	err                    atomic.Pointer[error]
 	pendingPeers           *heap.Heap[peerWithPriority]
 	cancel                 context.CancelFunc
@@ -274,7 +275,8 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 
 		private: info.Private,
 
-		bm: bm.New(info.NumPieces),
+		bm:            bm.New(info.NumPieces),
+		pieceInFlight: bm.New(info.NumPieces),
 
 		bitfieldSize: (info.NumPieces + 7) / 8,
 
