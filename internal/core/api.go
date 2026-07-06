@@ -6,6 +6,7 @@ package core
 import (
 	"bytes"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -16,11 +17,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"time"
 
-	"github.com/dustin/go-humanize"
 	"github.com/go-chi/chi/v5"
-	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/rs/zerolog/log"
 	"github.com/samber/lo"
 	"github.com/trim21/errgo"
@@ -33,8 +31,6 @@ import (
 	"neptune/internal/pkg/bm"
 	"neptune/internal/pkg/gslice"
 )
-
-const colAddress = "address"
 
 var (
 	errTrackerURLMissingHost = errors.New("tracker url must have a host")
@@ -450,6 +446,43 @@ func (c *Client) RemoveTorrent(h metainfo.Hash, removeData bool) error {
 
 func (c *Client) DebugHandlers() http.Handler {
 	router := chi.NewRouter()
+
+	// POST reannounce handler
+	router.Post("/{info_hash}/reannounce", func(w http.ResponseWriter, r *http.Request) {
+		// CSRF protection: only accept application/json.
+		if ct := r.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+			http.Error(w, "invalid content type", http.StatusUnsupportedMediaType)
+			return
+		}
+
+		var req struct {
+			InfoHash string `json:"info_hash"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid json", http.StatusBadRequest)
+			return
+		}
+		if len(req.InfoHash) != 40 {
+			http.Error(w, "invalid info_hash", http.StatusBadRequest)
+			return
+		}
+		hash, err := hex.DecodeString(req.InfoHash)
+		if err != nil {
+			http.Error(w, "invalid info_hash", http.StatusBadRequest)
+			return
+		}
+
+		if err := c.Reannounce(metainfo.Hash(hash)); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	})
+
 	router.Get("/{info_hash}", func(w http.ResponseWriter, r *http.Request) {
 		h := r.PathValue("info_hash")
 		if len(h) != 40 {
@@ -466,207 +499,24 @@ func (c *Client) DebugHandlers() http.Handler {
 		infoHash := metainfo.Hash(hash)
 
 		c.m.RLock()
-		defer c.m.RUnlock()
-
 		d, ok := c.downloadMap[infoHash]
+		c.m.RUnlock()
+
 		if !ok {
 			http.Error(w, "download not found", http.StatusNotFound)
 			return
 		}
 
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		data := buildDebugPageData(d, h, r.URL.Query().Get("mode") == "full")
+
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
 
-		fmt.Fprintf(w, "%q\n\n", d.info.Name)
-		fmt.Fprintf(w, "download %9s (net %9s)      upload %9s\n\n",
-			humanize.IBytes(uint64(d.pieceDownloadRate.Status().CurRate))+"/s",
-			humanize.IBytes(uint64(d.ioDownloadRate.Status().CurRate))+"/s",
-			humanize.IBytes(uint64(d.pieceUploadRate.Status().CurRate))+"/s",
-		)
-
-		fmt.Fprintf(w, "progress: %6.2f %%\n", float64(d.completed.Load())/float64(d.SelectedSize())*100)
-
-		fmt.Fprintf(w, "downloaded: %s  completed: %s  waste: %s\n",
-			humanize.IBytes(uint64(d.downloaded.Load())),
-			humanize.IBytes(uint64(d.completed.Load())),
-			humanize.IBytes(uint64(d.downloaded.Load()-d.completed.Load())),
-		)
-		fmt.Fprintf(w, "corrupted: %s\n",
-			humanize.IBytes(uint64(d.corrupted.Load())),
-		)
-
-		d.corruptedPiecesMu.Lock()
-		if len(d.corruptedPieces) > 0 {
-			fmt.Fprintf(w, "failing pieces: %d\n", len(d.corruptedPieces))
-			type kv struct {
-				idx       uint32
-				count     int
-				blockedBy int
-			}
-			var top []kv
-			for idx, count := range d.corruptedPieces {
-				blockedBy := d.picker.countBusyBlocks(idx, d.info)
-				top = append(top, kv{idx, count, blockedBy})
-			}
-			slices.SortFunc(top, func(a, b kv) int { return b.count - a.count })
-			for i := 0; i < len(top) && i < 10; i++ {
-				fmt.Fprintf(w, "  piece %d: %d failures, %d busy blocks\n", top[i].idx, top[i].count, top[i].blockedBy)
-			}
+		if err := renderDebugPage(w, data); err != nil {
+			log.Error().Err(err).Msg("failed to render debug page")
 		}
-		d.corruptedPiecesMu.Unlock()
-
-		debugPrintTrackers(w, d)
-		debugPrintPeers(w, d)
-
-		debugPrintPickerStats(w, d)
-
-		if r.URL.Query().Get("mode") == "full" {
-			debugPrintFiles(w, d)
-			// Show compressed piece ranges: have, wanted, and missing.
-			writePieceRanges(w, "have", d.bm)
-			writePieceRanges(w, "wanted", d.selectedPiecesBm)
-			missing := bm.New(d.info.NumPieces)
-			missing.Fill()
-			writePieceRanges(w, "missing", missing.WithAndNot(d.bm).WithAnd(d.selectedPiecesBm))
-		}
-
-		debugPrintPendingPeers(w, d)
 	})
 	return router
-}
-
-func debugPrintTrackers(w io.Writer, d *Download) {
-	t := table.NewWriter()
-
-	t.AppendHeader(table.Row{"tier", "url", "seeders", "leechers", "last announce", "scheduled", "earliest",
-		"pendingPeers", "msg", "error"})
-
-	t.SortBy([]table.SortBy{{Name: "tier"}, {Name: "url"}})
-
-	d.Trk.Each(func(tierIdx int, tr *tracker.Tracker) {
-		trackerSeed, _ := d.Trk.Seeds.Load(tr.URL)
-		trackerLeecher, _ := d.Trk.Leechers.Load(tr.URL)
-		t.AppendRow(table.Row{
-			tierIdx,
-			lo.Ellipsis(tr.URL, 40),
-			trackerSeed,
-			trackerLeecher,
-			tr.LastAnnounceTime.Format(time.RFC3339),
-			tr.NextAnnounce.Format(time.RFC3339),
-			tr.EarliestAnnounce.Format(time.RFC3339),
-			tr.PeerCount,
-			tr.FailureMessage,
-			tr.Err,
-		})
-	})
-
-	_, _ = io.WriteString(w, t.Render())
-	_, _ = fmt.Fprintln(w)
-}
-
-func debugPrintPeers(w io.Writer, d *Download) {
-	t := table.NewWriter()
-
-	t.AppendHeader(table.Row{colAddress, "down rate", "up rate", "our req",
-		"req Q", "client", "progress",
-		"peer choke", "peer interest", "our choke", "our interest", "fast", "peer req", "peer id"})
-
-	d.peers.Range(func(addr netip.AddrPort, p *Peer) bool {
-		t.AppendRow(table.Row{
-			lo.Ellipsis(addr.String(), 20),
-			humanize.IBytes(uint64(p.pieceDownloadRate.Status().CurRate)) + "/s",
-			humanize.IBytes(uint64(p.pieceUploadRate.Status().CurRate)) + "/s",
-			p.myRequests.Size(),
-			len(p.requestQueue),
-			*p.UserAgent.Load(),
-			fmt.Sprintf("%6.1f %%", float64(p.Bitmap.Count())/float64(d.info.NumPieces)*100),
-			p.peerChoking.Load(),
-			p.peerInterested.Load(),
-			p.ourChoking.Load(),
-			p.ourInterested.Load(),
-			p.allowFast.ToArray(),
-			p.peerRequests.Size(),
-			url.QueryEscape(p.peerID.Load().AsString()),
-		})
-
-		return true
-	})
-
-	t.SortBy([]table.SortBy{{Name: colAddress}})
-
-	_, _ = io.WriteString(w, t.Render())
-	_, _ = fmt.Fprintln(w)
-}
-
-func debugPrintFiles(w io.Writer, d *Download) {
-	t := table.NewWriter()
-	t.AppendHeader(table.Row{"#", "size", "progress", "selected", "path"})
-	t.SortBy([]table.SortBy{{Name: "#"}})
-
-	var offset int64
-	for i, file := range d.info.Files {
-		selected := "yes"
-		if d.selectedFilesSet != nil {
-			if _, ok := d.selectedFilesSet[i]; !ok {
-				selected = "no"
-			}
-		}
-
-		startPiece := as.Uint32(offset / d.info.PieceLength)
-		endPiece := min(as.Uint32((offset+file.Length+d.info.PieceLength-1)/d.info.PieceLength), d.info.NumPieces)
-
-		var doneCount uint32
-		for pi := startPiece; pi < endPiece; pi++ {
-			if d.bm.Contains(pi) {
-				doneCount++
-			}
-		}
-		totalPieces := endPiece - startPiece
-		progress := 0.0
-		if totalPieces > 0 {
-			progress = float64(doneCount) / float64(totalPieces) * 100
-		}
-
-		t.AppendRow(table.Row{
-			i,
-			humanize.IBytes(uint64(file.Length)),
-			fmt.Sprintf("%.1f%%", progress),
-			selected,
-			filepath.Join(file.RawPath...),
-		})
-
-		offset += file.Length
-	}
-
-	_, _ = io.WriteString(w, t.Render())
-	_, _ = fmt.Fprintln(w)
-}
-
-func debugPrintPickerStats(w io.Writer, d *Download) {
-	st := d.picker.DebugStats(d.info)
-	totalBlocks := st.FreeBlocks + st.RequestedBlocks + st.WritingBlocks + st.FinishedBlocks
-
-	fmt.Fprintf(w, "picker: %d open pieces, %d downloading pieces\n", st.OpenPieces, st.Downloading)
-	fmt.Fprintf(w, "blocks: %d free, %d requested, %d writing, %d finished (total %d)\n",
-		st.FreeBlocks, st.RequestedBlocks, st.WritingBlocks, st.FinishedBlocks, totalBlocks)
-	fmt.Fprintf(w, "downloadQueue: %d\n\n", st.DownloadQueue)
-}
-
-func debugPrintPendingPeers(w io.Writer, d *Download) {
-	t := table.NewWriter()
-	t.AppendHeader(table.Row{colAddress})
-	t.SortBy([]table.SortBy{{Name: colAddress}})
-
-	d.peerList.mu.Lock()
-	for _, pp := range d.peerList.peers {
-		if pp.connection == nil {
-			t.AppendRow(table.Row{pp.addrPort.String()})
-		}
-	}
-	d.peerList.mu.Unlock()
-
-	_, _ = io.WriteString(w, t.Render())
-	_, _ = fmt.Fprintln(w)
 }
 
 // writePieceRanges writes compressed piece ranges like "0-5726" instead of listing each piece.
