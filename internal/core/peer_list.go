@@ -52,6 +52,7 @@ type persistentPeer struct {
 	connectable bool
 	seed        bool
 	hadTrans    bool
+	priority    uint32 // cached BEP40 priority, computed once on add
 }
 
 // isConnectCandidate returns true if this peer is eligible for connection.
@@ -116,6 +117,7 @@ func (pl *peerList) addPeer(addr netip.AddrPort, source peerSource, connectable 
 		source:      source,
 		connectable: connectable,
 		lastSeen:    0,
+		priority:    pl.d.c.PeerPriority(addr),
 	}
 
 	// insert maintaining sorted order
@@ -237,6 +239,7 @@ func (pl *peerList) addOrUpdateIncoming(addr netip.AddrPort, sessionTime int64, 
 		connectable: false, // incoming peers are unknown until they advertise port
 		connection:  conn,
 		lastSeen:    sessionTime,
+		priority:    pl.d.c.PeerPriority(addr),
 	}
 	pl.peers = slices.Insert(pl.peers, idx, pp)
 	return false
@@ -387,10 +390,8 @@ func (pl *peerList) findConnectCandidates(sessionTime int64) {
 		}
 
 		// BEP40 priority (higher is better for swarm diversity)
-		pa := pl.d.c.PeerPriority(a.addrPort)
-		pb := pl.d.c.PeerPriority(b.addrPort)
-		if pa != pb {
-			return int(pb) - int(pa)
+		if a.priority != b.priority {
+			return int(b.priority) - int(a.priority)
 		}
 
 		return 0
