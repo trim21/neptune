@@ -114,8 +114,8 @@ func (e candidateEntry) Less(o candidateEntry) bool {
 // in a min-heap for O(log n) push/pop instead of repeated O(n log n) full sorts.
 type peerList struct {
 	d                    *Download
-	peers                []*persistentPeer
 	candidates           *heap.Heap[candidateEntry]
+	peers                []*persistentPeer
 	numConnectCandidates int
 	roundRobin           int
 	maxFailcount         int

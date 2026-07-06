@@ -52,8 +52,8 @@ type debugPageData struct {
 
 type debugPendingPeer struct {
 	Address     string
-	Failcount   uint8
 	LastSeen    string
+	Failcount   uint8
 	HadTrans    bool
 	Connectable bool
 }
