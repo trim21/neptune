@@ -48,6 +48,7 @@ TORRENT_JSON = {
     "upload_total": 0,
     "connection_count": 0,
     "completed": 0,
+    "corrupted": 0,
     "total_length": 100,
     "selected_size": 100,
     "add_at": 0,
