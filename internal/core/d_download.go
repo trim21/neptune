@@ -382,6 +382,7 @@ func (d *Download) checkPiece(pieceIndex uint32) error {
 	copy(digest[:], hasher.Sum(nil))
 
 	if digest != d.info.Pieces[pieceIndex] {
+		d.pieceInFlight.Unset(pieceIndex)
 		d.corruptedPiecesMu.Lock()
 		d.corruptedPieces[pieceIndex]++
 		d.corruptedPiecesMu.Unlock()
@@ -397,6 +398,7 @@ func (d *Download) checkPiece(pieceIndex uint32) error {
 	}
 
 	notHave := d.bm.SetX(pieceIndex)
+	d.pieceInFlight.Unset(pieceIndex)
 
 	if notHave {
 		d.completed.Add(pieceSize)
@@ -493,6 +495,11 @@ func (d *Download) updateRarePieces() {
 		}
 
 		if !d.selectedPiecesBm.Contains(uint32(index)) {
+			continue
+		}
+
+		// Skip pieces already assigned to another peer (mirrors libtorrent's untouched_bitfield).
+		if d.pieceInFlight.Contains(uint32(index)) {
 			continue
 		}
 
@@ -684,6 +691,7 @@ func (d *Download) assignPiecesToPeers(nextPiece func() (uint32, bool)) {
 			select {
 			case pi.peer.ourPieceRequests <- pieceIndex:
 				pi.peer.Requested.Set(pieceIndex)
+				d.pieceInFlight.Set(pieceIndex) // global tracking, mirrors libtorrent untouched_bitfield
 				pi.capacity--
 			default:
 				// channel full, move to next peer
