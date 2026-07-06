@@ -98,8 +98,8 @@ func (c *Client) uploadWorker() {
 			}
 
 			if p.Response(res) {
-				d.ioUp.Update(len(res.Data))
-				d.c.ioUp.Update(len(res.Data))
+				d.pieceUploadRate.Update(len(res.Data))
+				d.c.pieceUploadRate.Update(len(res.Data))
 				d.uploaded.Add(int64(len(res.Data)))
 			}
 			proto.PiecePool.Put(res)

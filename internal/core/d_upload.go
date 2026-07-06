@@ -47,7 +47,7 @@ func (d *Download) recalculateUnchokeSlots() {
 		if p.peerInterested.Load() {
 			candidates = append(candidates, peerRate{
 				peer: p,
-				rate: p.ioOut.Status().CurRate,
+				rate: p.pieceUploadRate.Status().CurRate,
 			})
 		}
 		if !p.peerInterested.Load() || p.snubbed.Load() {

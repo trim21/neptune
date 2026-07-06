@@ -84,8 +84,8 @@ func newPeer(
 		Conn:       conn,
 		d:          d,
 		Bitmap:     bm.New(d.info.NumPieces),
-		ioOut:      flowrate.New(time.Second, time.Second),
-		ioIn:       flowrate.New(time.Second, time.Second),
+		pieceUploadRate:   flowrate.New(time.Second, time.Second),
+		pieceDownloadRate: flowrate.New(time.Second, time.Second),
 		Address:    addr,
 		QueueLimit: *atomic.NewUint32(200),
 		Incoming:   skipReadHandshake,
@@ -114,7 +114,7 @@ func newPeer(
 
 		peerRequests: xsync.NewMap[proto.ChunkRequest, empty.Empty](),
 
-		r: bufio.NewReaderSize(conn, units.KiB*18),
+		r: bufio.NewReaderSize(d.ioDownloadRate.WrapReader(conn), units.KiB*18),
 		w: bufio.NewWriterSize(conn, units.KiB*8),
 
 		allowFast: bm.New(d.info.NumPieces),
@@ -145,14 +145,14 @@ type Peer struct {
 	lastSend         atomic.Time
 	snubbedAt        atomic.Time
 	peerRequests     *xsync.Map[proto.ChunkRequest, empty.Empty]
-	ioIn             *flowrate.Monitor
+	pieceDownloadRate *flowrate.Monitor
 	Bitmap           *bm.Bitmap
 	myRequests       *xsync.Map[proto.ChunkRequest, time.Time]
 	myRequestHistory *xsync.Map[proto.ChunkRequest, empty.Empty]
 	d                *Download
 	Rejected         *xsync.Map[proto.ChunkRequest, empty.Empty]
 	allowFast        *bm.Bitmap
-	ioOut            *flowrate.Monitor
+	pieceUploadRate   *flowrate.Monitor
 	cancel           context.CancelFunc
 	UserAgent        atomic.Pointer[string]
 	ourPieceRequests chan uint32
@@ -255,7 +255,7 @@ func (p *Peer) ourRequestHandleLoop() {
 			queueSize = int(p.desiredQueueSize.Load())
 		} else {
 			// rate-based: keep 3s of pipeline
-			queueSize = int(3*p.ioIn.Status().CurRate) / int(defaultBlockSize)
+			queueSize = int(3*p.pieceDownloadRate.Status().CurRate) / int(defaultBlockSize)
 		}
 		queueSize = max(queueSize, 1)
 		queueSize = min(queueSize, 20)
@@ -319,7 +319,7 @@ func (p *Peer) handleSlowStart() {
 		return
 	}
 
-	currentRate := p.ioIn.Status().CurRate
+	currentRate := p.pieceDownloadRate.Status().CurRate
 	lastRate := p.lastRate.Load()
 	p.lastRate.Store(currentRate)
 
@@ -539,7 +539,7 @@ func (p *Peer) start(skipHandshake bool) {
 			}
 
 			p.responseCond.Signal()
-			p.ioIn.Update(len(event.Res.Data))
+			p.pieceDownloadRate.Update(len(event.Res.Data))
 			p.d.ResChan <- event.Res
 		case proto.Request:
 			if !p.validateRequest(event.Req) {

@@ -70,7 +70,7 @@ func (d *Download) AsyncCheck() error {
 
 		d.markUnselectedPiecesDoneUnsafe()
 		d.completed.Store(d.computeCompletedUnsafe())
-		d.ioDown.Reset()
+		d.pieceDownloadRate.Reset()
 
 		if d.bm.Count() == d.info.NumPieces {
 			if err := d.transition(Seeding); err != nil {

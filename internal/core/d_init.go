@@ -79,7 +79,7 @@ func (d *Download) initCheck() error {
 			// Init check scans files sequentially; tell the kernel to prefetch.
 			_ = fadvise.Sequential(f, 0, 0)
 
-			_, err = d.ioDown.IO64(gfs.CopyReaderAt(w, f, chunk.offsetOfFile, chunk.length))
+			_, err = d.pieceDownloadRate.IO64(gfs.CopyReaderAt(w, f, chunk.offsetOfFile, chunk.length))
 			if err != nil {
 				f.Close()
 				return errgo.Wrap(err, "failed to read file "+f.Name())
@@ -228,7 +228,7 @@ func (d *Download) check(resumed bool, skipHashCheck bool) {
 		// unsafe methods are safe here because d hasn't been shared with other goroutines yet.
 		d.markUnselectedPiecesDoneUnsafe()
 		d.completed.Store(d.computeCompletedUnsafe())
-		d.ioDown.Reset()
+		d.pieceDownloadRate.Reset()
 
 		d.log.Debug().Msgf("done size %s", humanize.IBytes(uint64(d.bm.Count())*uint64(d.info.PieceLength)))
 

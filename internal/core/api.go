@@ -101,9 +101,9 @@ func (c *Client) GetTorrentList(keys []string) TorrentList {
 			InfoHash:             d.info.Hash.Hex(),
 			Name:                 d.info.Name,
 			State:                State(d.state.Load()).String(),
-			DownloadRate:         d.ioDown.Status().CurRate,
+			DownloadRate:         d.pieceDownloadRate.Status().CurRate,
 			DownloadTotal:        d.downloaded.Load(),
-			UploadRate:           d.ioUp.Status().CurRate,
+			UploadRate:           d.pieceUploadRate.Status().CurRate,
 			UploadTotal:          d.uploaded.Load(),
 			Completed:            d.completed.Load(),
 			TotalLength:          d.info.TotalLength,
@@ -140,8 +140,8 @@ type TransferSummary struct {
 }
 
 func (c *Client) GetTransferSummary() TransferSummary {
-	down := c.ioDown.Status()
-	up := c.ioUp.Status()
+	down := c.pieceDownloadRate.Status()
+	up := c.pieceUploadRate.Status()
 
 	return TransferSummary{
 		DownloadRate:  down.CurRate,
@@ -290,8 +290,8 @@ func (c *Client) GetTorrentPeers(h metainfo.Hash) []APIPeers {
 			Address:      addr.String(),
 			Client:       lo.FromPtrOr(p.UserAgent.Load(), ""),
 			Progress:     float64(p.Bitmap.Count()) / float64(d.info.NumPieces),
-			DownloadRate: p.ioIn.Status().CurRate,
-			UploadRate:   p.ioOut.Status().CurRate,
+			DownloadRate: p.pieceDownloadRate.Status().CurRate,
+			UploadRate:   p.pieceUploadRate.Status().CurRate,
 			IsIncoming:   p.Incoming,
 		})
 		return true
@@ -451,12 +451,23 @@ func (c *Client) DebugHandlers() http.Handler {
 		w.WriteHeader(http.StatusOK)
 
 		fmt.Fprintf(w, "%q\n\n", d.info.Name)
-		fmt.Fprintf(w, "download %9s                         upload %9s\n\n",
-			humanize.IBytes(uint64(d.ioDown.Status().CurRate))+"/s",
-			humanize.IBytes(uint64(d.ioUp.Status().CurRate))+"/s",
+ 		fmt.Fprintf(w, "download %9s (net %9s)      upload %9s\n\n",
+			humanize.IBytes(uint64(d.pieceDownloadRate.Status().CurRate))+"/s",
+			humanize.IBytes(uint64(d.ioDownloadRate.Status().CurRate))+"/s",
+			humanize.IBytes(uint64(d.pieceUploadRate.Status().CurRate))+"/s",
 		)
 
 		fmt.Fprintf(w, "progress: %6.2f %%\n", float64(d.completed.Load())/float64(d.SelectedSize())*100)
+
+		fmt.Fprintf(w, "downloaded: %s  completed: %s  waste: %s\n",
+			humanize.IBytes(uint64(d.downloaded.Load())),
+			humanize.IBytes(uint64(d.completed.Load())),
+			humanize.IBytes(uint64(d.downloaded.Load()-d.completed.Load())),
+		)
+		fmt.Fprintf(w, "corrupted: %s (pieces)  corrupted_bytes: %s\n",
+			humanize.IBytes(uint64(d.corrupted.Load())),
+			humanize.IBytes(uint64(d.corruptedBytes.Load())),
+		)
 
 		debugPrintTrackers(w, d)
 		debugPrintPeers(w, d)
@@ -516,8 +527,8 @@ func debugPrintPeers(w io.Writer, d *Download) {
 	d.peers.Range(func(addr netip.AddrPort, p *Peer) bool {
 		t.AppendRow(table.Row{
 			lo.Ellipsis(addr.String(), 20),
-			humanize.IBytes(uint64(p.ioIn.Status().CurRate)) + "/s",
-			humanize.IBytes(uint64(p.ioOut.Status().CurRate)) + "/s",
+			humanize.IBytes(uint64(p.pieceDownloadRate.Status().CurRate)) + "/s",
+			humanize.IBytes(uint64(p.pieceUploadRate.Status().CurRate)) + "/s",
 			p.myRequests.Size(),
 			len(p.ourPieceRequests),
 			*p.UserAgent.Load(),

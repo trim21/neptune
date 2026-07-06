@@ -110,9 +110,8 @@ func (d *Download) handleRes(res *proto.ChunkResponse) {
 		return
 	}
 
-	d.ioDown.Update(len(res.Data))
-	d.netDown.Update(len(res.Data))
-	d.c.ioDown.Update(len(res.Data))
+	d.pieceDownloadRate.Update(len(res.Data))
+	d.c.pieceDownloadRate.Update(len(res.Data))
 	d.downloaded.Add(int64(len(res.Data)))
 
 	// clear endgame tracking for this chunk
@@ -382,6 +381,7 @@ func (d *Download) checkPiece(pieceIndex uint32) error {
 
 	if digest != d.info.Pieces[pieceIndex] {
 		d.corrupted.Add(d.info.PieceLength)
+		d.corruptedBytes.Add(pieceSize)
 		start := pieceIndex * d.normalChunkLen
 		end := start + uint32(pieceChunksCount(d.info, pieceIndex))
 		d.chunk.mu.Lock()
@@ -413,7 +413,7 @@ func (d *Download) checkDone() {
 		return
 	}
 	d.CompletedAt.Store(time.Now().Unix())
-	d.ioDown.Reset()
+	d.pieceDownloadRate.Reset()
 
 	d.peers.Range(func(addr netip.AddrPort, p *Peer) bool {
 		if p.Bitmap.Count() == d.info.NumPieces {
@@ -634,7 +634,7 @@ func (d *Download) assignPiecesToPeers(nextPiece func() (uint32, bool)) {
 
 	// sort by download rate descending (fastest peer first)
 	slices.SortFunc(peers, func(a, b peerInfo) int {
-		return cmp.Compare(b.peer.ioIn.Status().CurRate, a.peer.ioIn.Status().CurRate)
+		return cmp.Compare(b.peer.pieceDownloadRate.Status().CurRate, a.peer.pieceDownloadRate.Status().CurRate)
 	})
 
 	for _, pi := range peers {

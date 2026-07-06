@@ -236,7 +236,7 @@ func (p *Peer) write(e Event) error {
 	case proto.Request:
 		return proto.SendRequest(p.w, e.Req)
 	case proto.Piece:
-		p.ioOut.Update(len(e.Res.Data))
+		p.pieceUploadRate.Update(len(e.Res.Data))
 		return proto.SendPiece(p.w, e.Res)
 	case proto.Cancel:
 		return proto.SendCancel(p.w, e.Req)
