@@ -137,8 +137,8 @@ async function reannounce(e) {
 {{if .PendingPeers}}
 <h2>Pending Peers</h2>
 <table>
-<tr><th>Address</th></tr>
-{{range .PendingPeers}}<tr><td>{{.}}</td></tr>
+<tr><th>Address</th><th class="num">Fail</th><th>Last Seen</th><th>HadTrans</th><th>Connectable</th></tr>
+{{range .PendingPeers}}<tr><td>{{.Address}}</td><td class="num">{{.Failcount}}</td><td>{{.LastSeen}}</td><td>{{.HadTrans}}</td><td>{{.Connectable}}</td></tr>
 {{end}}</table>
 {{end}}
 

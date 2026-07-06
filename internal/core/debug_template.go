@@ -46,8 +46,16 @@ type debugPageData struct {
 	PickerText    string
 	Files         []debugFile
 	PieceRanges   []debugPieceRange
-	PendingPeers  []string
+	PendingPeers  []debugPendingPeer
 	FullMode      bool
+}
+
+type debugPendingPeer struct {
+	Address     string
+	Failcount   uint8
+	LastSeen    string
+	HadTrans    bool
+	Connectable bool
 }
 
 type debugFailingPiece struct {
@@ -275,10 +283,24 @@ func buildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 	}
 
 	// Pending peers
+	now := time.Now().Unix()
 	d.peerList.mu.Lock()
 	for _, pp := range d.peerList.peers {
 		if pp.connection == nil {
-			data.PendingPeers = append(data.PendingPeers, pp.addrPort.String())
+			lastSeen := "never"
+			if pp.lastSeen > 0 {
+				backoff := int64(pp.failcount+1) * 60
+				nextTry := pp.lastSeen + backoff - now
+				lastSeen = fmt.Sprintf("%s ago (next try in %ds)",
+					time.Duration(now-pp.lastSeen)*time.Second, nextTry)
+			}
+			data.PendingPeers = append(data.PendingPeers, debugPendingPeer{
+				Address:     pp.addrPort.String(),
+				Failcount:   pp.failcount,
+				LastSeen:    lastSeen,
+				HadTrans:    pp.hadTrans,
+				Connectable: pp.connectable,
+			})
 		}
 	}
 	d.peerList.mu.Unlock()
