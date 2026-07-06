@@ -137,9 +137,38 @@ func newPeerList(d *Download) *peerList {
 	}
 }
 
+// insertCandidateCacheLocked inserts a peer into the sorted candidate cache
+// if there's room or it's better than the worst cached candidate.
+// Caller must hold pl.mu.
+func (pl *peerList) insertCandidateCacheLocked(pp *persistentPeer) {
+	// If cache is full and worst candidate is better, skip.
+	if len(pl.candidateCache) == candidateCount &&
+		comparePeer(pl.candidateCache[len(pl.candidateCache)-1].p, pp) {
+		return
+	}
+
+	// Trim cache if at capacity.
+	if len(pl.candidateCache) >= candidateCount {
+		pl.candidateCache = pl.candidateCache[:candidateCount-1]
+	}
+
+	// Find insertion point (sorted by comparePeer).
+	insertIdx := len(pl.candidateCache)
+	for i, entry := range pl.candidateCache {
+		if comparePeer(pp, entry.p) {
+			insertIdx = i
+			break
+		}
+	}
+
+	// Grow and shift right.
+	pl.candidateCache = pl.candidateCache[:len(pl.candidateCache)+1]
+	copy(pl.candidateCache[insertIdx+1:], pl.candidateCache[insertIdx:len(pl.candidateCache)-1])
+	pl.candidateCache[insertIdx] = candidateEntry{p: pp}
+}
+
 // addPeer adds or updates a peer.
 // Mirrors libtorrent's peer_list::add_peer().
-// Does NOT touch candidateCache — only findConnectCandidates populates it.
 func (pl *peerList) addPeer(addr netip.AddrPort, source peerSource, connectable bool) {
 	pl.mu.Lock()
 	defer pl.mu.Unlock()
@@ -164,6 +193,7 @@ func (pl *peerList) addPeer(addr netip.AddrPort, source peerSource, connectable 
 
 	if p.isConnectCandidate(pl.finished, pl.maxFailcount) {
 		pl.numConnectCandidates++
+		pl.insertCandidateCacheLocked(p)
 	}
 }
 
@@ -187,6 +217,7 @@ func (pl *peerList) updatePeerLocked(p *persistentPeer, source peerSource, conne
 		pl.numConnectCandidates--
 	} else if !wasConnCand && isConnCand {
 		pl.numConnectCandidates++
+		pl.insertCandidateCacheLocked(p)
 	}
 }
 
@@ -324,6 +355,7 @@ func (pl *peerList) connectionClosed(addr netip.AddrPort, sessionTime int64, had
 
 	if pp.isConnectCandidate(pl.finished, pl.maxFailcount) {
 		pl.numConnectCandidates++
+		pl.insertCandidateCacheLocked(pp)
 	}
 }
 
@@ -493,6 +525,7 @@ func (pl *peerList) updateConnectable(addr netip.AddrPort, connectable bool) {
 		pl.numConnectCandidates--
 	} else if !wasConnCand && isConnCand {
 		pl.numConnectCandidates++
+		pl.insertCandidateCacheLocked(p)
 	}
 }
 
