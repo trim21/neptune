@@ -65,7 +65,7 @@ func (d *Download) connectToPeers(maxSlots int) int {
 // On success, registers the connection in the peer list.
 // On failure, increments failcount and releases the semaphore.
 func (d *Download) tryDial(pp *persistentPeer) {
-	ctx, cancel := context.WithTimeout(context.Background(), peerConnectTimeout)
+	ctx, cancel := context.WithTimeout(d.ctx, peerConnectTimeout)
 	defer cancel()
 
 	d.log.Trace().Msgf("try to connect to peer %s", pp.addrPort)

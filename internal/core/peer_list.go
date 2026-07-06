@@ -55,12 +55,16 @@ type persistentPeer struct {
 	connectable      bool
 	seed             bool
 	hadTrans         bool
+	dialing          bool
 }
 
 // isConnectCandidate returns true if this peer is eligible for connection.
 // Mirrors libtorrent's is_connect_candidate().
 func (p *persistentPeer) isConnectCandidate(finished bool, maxFailcount int) bool {
 	if p.connection != nil {
+		return false
+	}
+	if p.dialing {
 		return false
 	}
 	if !p.connectable {
@@ -308,11 +312,13 @@ func (pl *peerList) newConnection(addr netip.AddrPort, conn *Peer, sessionTime i
 	pp := pl.peers[idx]
 
 	if pp.connection != nil {
+		pp.dialing = false
 		return false
 	}
 
 	wasConnCand := pp.isConnectCandidate(pl.finished, pl.maxFailcount)
 
+	pp.dialing = false
 	pp.connection = conn
 	pp.lastSeen = sessionTime
 	pp.connectable = true
@@ -451,6 +457,7 @@ func (pl *peerList) connectPeers(sessionTime int64, n int) []*persistentPeer {
 		// Shift left to preserve backing array capacity.
 		remaining := copy(pl.candidateCache, pl.candidateCache[1:])
 		pl.candidateCache = pl.candidateCache[:remaining]
+		pp.dialing = true
 		result = append(result, pp)
 	}
 
@@ -461,6 +468,8 @@ func (pl *peerList) connectPeers(sessionTime int64, n int) []*persistentPeer {
 func (pl *peerList) incFailcount(p *persistentPeer) {
 	pl.mu.Lock()
 	defer pl.mu.Unlock()
+
+	p.dialing = false
 
 	if p.failcount == 31 {
 		return
