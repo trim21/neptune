@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	peerConnectTimeout = time.Minute
+	peerConnectTimeout = 15 * time.Second
 )
 
 // AddConn adds an incoming connection from the listener.
