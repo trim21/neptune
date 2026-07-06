@@ -607,6 +607,10 @@ func (p *Peer) start(skipHandshake bool) {
 			// calls request_a_block from incoming_piece).
 			p.d.requestABlock(p)
 
+			// Drain requestQueue in case requestABlock was unable to push
+			// new blocks (e.g. numRequests already saturated).
+			p.sendBlockRequests()
+
 			p.responseCond.Signal()
 			p.pieceDownloadRate.Update(len(event.Res.Data))
 
@@ -706,6 +710,9 @@ func (p *Peer) start(skipHandshake bool) {
 				}
 			}
 			p.rqMu.Unlock()
+
+			// Drain requestQueue to replace the rejected block.
+			p.sendBlockRequests()
 		case proto.AllowedFast:
 			if event.Index >= p.d.info.NumPieces {
 				p.log.Debug().Uint32("index", event.Index).Msg("peer send 'AllowedFast' message with invalid index")

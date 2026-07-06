@@ -506,6 +506,12 @@ func (d *Download) requestABlock(p *Peer) {
 		return
 	}
 
+	// Cap at channel capacity so pickPieces doesn't mark more blocks than
+	// we can push through blockRequests.
+	if numRequests > cap(p.blockRequests) {
+		numRequests = cap(p.blockRequests)
+	}
+
 	// Check if we should enter endgame mode
 	remaining := d.SelectedSize() - d.completed.Load()
 	if remaining <= units.MiB*100 {
@@ -568,8 +574,13 @@ func (d *Download) requestABlock(p *Peer) {
 			numRequests--
 			freeBlocksPicked++
 		default:
-			// peer's request queue full, abort the mark
+			// Channel full — abort this block and all remaining freeBlocks
+			// that pickPieces already marked stateRequested.
 			d.picker.abortDownload(fb.pieceIndex, fb.blockIndex)
+			// Abort the rest too (they were also marked requesting by pickPieces)
+			for j := freeBlocksPicked + 1; j < len(result.freeBlocks); j++ {
+				d.picker.abortDownload(result.freeBlocks[j].pieceIndex, result.freeBlocks[j].blockIndex)
+			}
 			return
 		}
 	}
