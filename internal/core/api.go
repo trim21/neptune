@@ -522,11 +522,13 @@ func (c *Client) DebugHandlers() http.Handler {
 		debugPrintPeers(w, d)
 
 		if r.URL.Query().Get("mode") == "full" {
-			// Show compressed piece ranges: have and missing.
+			debugPrintFiles(w, d)
+			// Show compressed piece ranges: have, wanted, and missing.
 			writePieceRanges(w, "have", d.bm)
+			writePieceRanges(w, "wanted", d.selectedPiecesBm)
 			missing := bm.New(d.info.NumPieces)
 			missing.Fill()
-			writePieceRanges(w, "missing", missing.WithAndNot(d.bm))
+			writePieceRanges(w, "missing", missing.WithAndNot(d.bm).WithAnd(d.selectedPiecesBm))
 		}
 
 		debugPrintPendingPeers(w, d)
@@ -591,6 +593,50 @@ func debugPrintPeers(w io.Writer, d *Download) {
 	})
 
 	t.SortBy([]table.SortBy{{Name: colAddress}})
+
+	_, _ = io.WriteString(w, t.Render())
+	_, _ = fmt.Fprintln(w)
+}
+
+func debugPrintFiles(w io.Writer, d *Download) {
+	t := table.NewWriter()
+	t.AppendHeader(table.Row{"#", "size", "progress", "selected", "path"})
+	t.SortBy([]table.SortBy{{Name: "#"}})
+
+	var offset int64
+	for i, file := range d.info.Files {
+		selected := "yes"
+		if d.selectedFilesSet != nil {
+			if _, ok := d.selectedFilesSet[i]; !ok {
+				selected = "no"
+			}
+		}
+
+		startPiece := as.Uint32(offset / d.info.PieceLength)
+		endPiece := min(as.Uint32((offset+file.Length+d.info.PieceLength-1)/d.info.PieceLength), d.info.NumPieces)
+
+		var doneCount uint32
+		for pi := startPiece; pi < endPiece; pi++ {
+			if d.bm.Contains(pi) {
+				doneCount++
+			}
+		}
+		totalPieces := endPiece - startPiece
+		progress := 0.0
+		if totalPieces > 0 {
+			progress = float64(doneCount) / float64(totalPieces) * 100
+		}
+
+		t.AppendRow(table.Row{
+			i,
+			humanize.IBytes(uint64(file.Length)),
+			fmt.Sprintf("%.1f%%", progress),
+			selected,
+			filepath.Join(file.RawPath...),
+		})
+
+		offset += file.Length
+	}
 
 	_, _ = io.WriteString(w, t.Render())
 	_, _ = fmt.Fprintln(w)
