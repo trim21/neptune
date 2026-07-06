@@ -235,8 +235,8 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 		ioDownloadRate:    flowrate.New(time.Second, time.Second),
 		pieceUploadRate:   flowrate.New(time.Second, time.Second),
 
-		peers:             xsync.NewMap[netip.AddrPort, *Peer](),
-		peerList:          newPeerList(nil), // d set below
+		peers:    xsync.NewMap[netip.AddrPort, *Peer](),
+		peerList: newPeerList(nil), // d set below
 
 		picker: newPiecePicker(info),
 

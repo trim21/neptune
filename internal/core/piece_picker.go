@@ -34,14 +34,14 @@ type blockInfo struct {
 
 // downloadingPiece represents a piece that is partially downloaded.
 type downloadingPiece struct {
-	index              uint32 // piece index
-	infoIdx            int    // index into m_blockInfos where this piece's blocks start
-	blocksInPiece      uint16 // total number of blocks in this piece
-	finished           uint16 // number of blocks in the finished state
-	writing            uint16 // number of blocks in the writing state
-	requested          uint16 // number of blocks in the requested state
-	passedHashCheck    bool   // set to true after hash check passes
-	locked             bool   // set during hash checking/writing
+	infoIdx         int
+	index           uint32
+	blocksInPiece   uint16
+	finished        uint16
+	writing         uint16
+	requested       uint16
+	passedHashCheck bool
+	locked          bool
 }
 
 // piecePriority computes a score for a piece.
@@ -54,40 +54,18 @@ const priorityFactor = 3
 //
 // All public methods are safe for concurrent use.
 type piecePicker struct {
-	mu sync.Mutex
-
-	// number of pieces
-	numPieces uint32
-	// blocks per piece
-	blocksPerPiece uint32
-	// size of each block
-	blockSize int64
-
-	// piece availability: availability[i] = number of peers that have piece i
-	availability []uint16
-
-	// piece priority boundaries, sorted by priority descending.
-	// pieces[i] is a piece index in the open (not yet downloading) set.
-	pieces []uint32
-
-	// piece priorities
-	piecePriorities []uint32
-
-	// whether the priority array is dirty and needs re-sorting
-	dirty bool
-
-	// downloading pieces, sorted by piece index for O(log n) lookup
+	availability      []uint16
+	pieces            []uint32
+	piecePriorities   []uint32
 	downloadingPieces []downloadingPiece
-
-	// flat array of block info for all pieces. grouped by piece.
-	// blockInfos[piece_info_idx:piece_info_idx+blocksPerPiece] belong to the same piece.
-	blockInfos []blockInfo
-
-	// number of blocks in the requested state across all pieces
+	blockInfos        []blockInfo
+	blockSize         int64
 	downloadQueueSize int
-
-	// number of pieces we want that are not yet picked (mirrors num_want_left)
-	numWantLeft int
+	numWantLeft       int
+	mu                sync.Mutex
+	numPieces         uint32
+	blocksPerPiece    uint32
+	dirty             bool
 }
 
 // newPiecePicker creates a new piece picker for the given torrent info.
@@ -96,14 +74,14 @@ func newPiecePicker(info meta.Info) *piecePicker {
 	blocksPerPiece := uint32((info.PieceLength + defaultBlockSize - 1) / defaultBlockSize)
 
 	pp := &piecePicker{
-		numPieces:      numPieces,
-		blocksPerPiece: blocksPerPiece,
-		blockSize:      defaultBlockSize,
-		availability:   make([]uint16, numPieces),
+		numPieces:       numPieces,
+		blocksPerPiece:  blocksPerPiece,
+		blockSize:       defaultBlockSize,
+		availability:    make([]uint16, numPieces),
 		piecePriorities: make([]uint32, numPieces),
-		pieces:         make([]uint32, numPieces),
-		dirty:          true,
-		blockInfos:     make([]blockInfo, int(numPieces)*int(blocksPerPiece)),
+		pieces:          make([]uint32, numPieces),
+		dirty:           true,
+		blockInfos:      make([]blockInfo, int(numPieces)*int(blocksPerPiece)),
 	}
 
 	// initialize pieces array
@@ -269,10 +247,6 @@ func (pp *piecePicker) abortDownload(pieceIndex uint32, blockIndex int) {
 	}
 }
 
-
-
-
-
 // isFinished returns true if the block is finished.
 func (pp *piecePicker) isFinished(pieceIndex uint32, blockIndex int) bool {
 	pp.mu.Lock()
@@ -281,10 +255,6 @@ func (pp *piecePicker) isFinished(pieceIndex uint32, blockIndex int) bool {
 	idx := pp.blockInfoIdx(pieceIndex) + blockIndex
 	return pp.blockInfos[idx].state == blockStateFinished
 }
-
-
-
-
 
 // rebuildPriorities re-sorts the piece priority array.
 func (pp *piecePicker) rebuildPriorities() {
@@ -469,12 +439,13 @@ func (pp *piecePicker) pickPieces(
 		blocksInPiece := int(dp.blocksInPiece)
 		for i := range blocksInPiece {
 			bi := &pp.blockInfos[idx+i]
-			if bi.state == blockStateNone {
+			switch bi.state {
+			case blockStateNone:
 				if preferContiguous <= 0 && numBlocks > 0 {
 					result.freeBlocks = append(result.freeBlocks, pieceBlock{p.pieceIndex, i})
 					numBlocks--
 				}
-			} else if bi.state == blockStateRequested {
+			case blockStateRequested:
 				// busy block — only used in endgame
 				if bi.numPeers > 0 {
 					result.busyBlocks = append(result.busyBlocks, pieceBlock{p.pieceIndex, i})
@@ -494,7 +465,7 @@ func (pp *piecePicker) pickPieces(
 		if choked && !allowedFast.Contains(pi) {
 			continue
 		}
-		pp.pickBlocksFromPiece(pi, info, &numBlocks, preferContiguous, &result)
+		pp.pickBlocksFromPiece(pi, info, &numBlocks, &result)
 	}
 
 	// Phase 3: rarest-first from open pieces
@@ -513,7 +484,7 @@ func (pp *piecePicker) pickPieces(
 		if alreadyPicked {
 			continue
 		}
-		pp.pickBlocksFromPiece(pi, info, &numBlocks, preferContiguous, &result)
+		pp.pickBlocksFromPiece(pi, info, &numBlocks, &result)
 	}
 
 	return result
@@ -524,7 +495,6 @@ func (pp *piecePicker) pickBlocksFromPiece(
 	pieceIndex uint32,
 	info meta.Info,
 	numBlocks *int,
-	preferContiguous int,
 	result *pickResult,
 ) {
 	if *numBlocks <= 0 {
@@ -538,13 +508,14 @@ func (pp *piecePicker) pickBlocksFromPiece(
 	// find free blocks
 	for i := range blocksInPiece {
 		bi := &pp.blockInfos[idx+i]
-		if bi.state == blockStateNone {
+		switch bi.state {
+		case blockStateNone:
 			result.freeBlocks = append(result.freeBlocks, pieceBlock{pieceIndex, i})
 			*numBlocks--
 			if *numBlocks <= 0 {
 				return
 			}
-		} else if bi.state == blockStateRequested {
+		case blockStateRequested:
 			result.busyBlocks = append(result.busyBlocks, pieceBlock{pieceIndex, i})
 		}
 	}
@@ -624,12 +595,6 @@ func (pp *piecePicker) countBusyBlocks(pieceIndex uint32, info meta.Info) int {
 	return count
 }
 
-
-
-
-
-
-
 // resetPiece resets all blocks in a piece to state none (for hash check failure).
 func (pp *piecePicker) resetPiece(pieceIndex uint32, info meta.Info) {
 	pp.mu.Lock()
@@ -659,5 +624,3 @@ func (pp *piecePicker) removeDownloadingPieceLocked(pieceIndex uint32) {
 		}
 	}
 }
-
-

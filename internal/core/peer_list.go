@@ -44,14 +44,14 @@ func sourceRank(source peerSource) int {
 // persistentPeer mirrors libtorrent's torrent_peer — permanent peer metadata
 // that survives connection/disconnection cycles.
 type persistentPeer struct {
+	connection  *Peer
 	addrPort    netip.AddrPort
-	connection  *Peer // non-nil when connected
-	lastSeen    int64 // unix timestamp of last connect or disconnect
-	failcount   uint8 // number of consecutive failed connection attempts
+	lastSeen    int64
+	failcount   uint8
 	source      peerSource
-	connectable bool // has advertised a listen port
-	seed        bool // confirmed seed
-	hadTrans    bool // transferred data during last connection
+	connectable bool
+	seed        bool
+	hadTrans    bool
 }
 
 // isConnectCandidate returns true if this peer is eligible for connection.
@@ -78,30 +78,15 @@ func (p *persistentPeer) isConnectCandidate(finished bool, maxFailcount int) boo
 // Peers are stored sorted by address for O(log n) lookup. A separate candidate
 // cache holds connectable peers in priority order for O(1) pop.
 type peerList struct {
-	mu sync.Mutex
-
-	peers []*persistentPeer // sorted by addrPort for binary search
-
-	// pre-computed list of connect candidates, sorted by priority
-	candidateCache []*persistentPeer
-
-	// number of connect candidates (kept in sync with reality)
+	d                    *Download
+	peers                []*persistentPeer
+	candidateCache       []*persistentPeer
 	numConnectCandidates int
-
-	// whether we are finished downloading (seeds are excluded when true)
-	finished bool
-
-	// round-robin index for scanning the peer list
-	roundRobin int
-
-	// max failcount before a peer is excluded as candidate
-	maxFailcount int
-
-	// minimum time (seconds) between connection attempts to the same peer
-	minReconnectTime int64
-
-	// pointer to the torrent for session_time and priority computation
-	d *Download
+	roundRobin           int
+	maxFailcount         int
+	minReconnectTime     int64
+	mu                   sync.Mutex
+	finished             bool
 }
 
 func newPeerList(d *Download) *peerList {
@@ -112,9 +97,9 @@ func newPeerList(d *Download) *peerList {
 	}
 }
 
-// addPeer adds or updates a peer. Returns the persistentPeer (new or existing).
+// addPeer adds or updates a peer.
 // Mirrors libtorrent's peer_list::add_peer().
-func (pl *peerList) addPeer(addr netip.AddrPort, source peerSource, connectable bool) *persistentPeer {
+func (pl *peerList) addPeer(addr netip.AddrPort, source peerSource, connectable bool) {
 	pl.mu.Lock()
 	defer pl.mu.Unlock()
 
@@ -123,7 +108,7 @@ func (pl *peerList) addPeer(addr netip.AddrPort, source peerSource, connectable 
 	if found {
 		p := pl.peers[idx]
 		pl.updatePeerLocked(p, source, connectable)
-		return p
+		return
 	}
 
 	p := &persistentPeer{
@@ -142,8 +127,6 @@ func (pl *peerList) addPeer(addr netip.AddrPort, source peerSource, connectable 
 			pl.candidateCache = append(pl.candidateCache, p)
 		}
 	}
-
-	return p
 }
 
 // updatePeerLocked updates an existing peer's metadata. Caller holds pl.mu.
@@ -221,12 +204,7 @@ func (pl *peerList) removeFromCandidateCache(p *persistentPeer) {
 }
 
 func (pl *peerList) connectableListContains(p *persistentPeer) bool {
-	for _, c := range pl.candidateCache {
-		if c == p {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(pl.candidateCache, p)
 }
 
 // addOrUpdateIncoming ensures a peer entry exists for an incoming connection.
@@ -527,11 +505,9 @@ func (pl *peerList) peerTurnover(count int) []*Peer {
 	pl.mu.Lock()
 	defer pl.mu.Unlock()
 
-	var toDisconnect []*Peer
-
 	// collect connected peers sorted by upload rate (slowest first)
 	type connectedPeer struct {
-		p         *persistentPeer
+		p          *persistentPeer
 		uploadRate int64
 	}
 	var connected []connectedPeer
@@ -555,6 +531,7 @@ func (pl *peerList) peerTurnover(count int) []*Peer {
 		return 0
 	})
 
+	toDisconnect := make([]*Peer, 0, min(count, len(connected)))
 	for i := range min(count, len(connected)) {
 		toDisconnect = append(toDisconnect, connected[i].p.connection)
 	}
@@ -576,5 +553,3 @@ func (pl *peerList) immediateCandidate() *persistentPeer {
 	}
 	return nil
 }
-
-

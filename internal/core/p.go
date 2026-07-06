@@ -102,7 +102,6 @@ func newPeer(
 
 		UserAgent: *atomic.NewPointer(&ua),
 
-
 		responseCond: gsync.NewCond(gsync.EmptyLock{}),
 
 		//ResChan:   make(chan req.Response, 1),
@@ -144,17 +143,17 @@ type Peer struct {
 	lastSend          atomic.Time
 	snubbedAt         atomic.Time
 	lastUnchokeAt     atomic.Time
-	Rejected          *xsync.Map[proto.ChunkRequest, empty.Empty]
-	UserAgent         atomic.Pointer[string]
+	pieceDownloadRate *flowrate.Monitor
+	Bitmap            *bm.Bitmap
 	myRequests        *xsync.Map[proto.ChunkRequest, time.Time]
 	myRequestHistory  *xsync.Map[proto.ChunkRequest, empty.Empty]
 	d                 *Download
-	pieceDownloadRate *flowrate.Monitor
+	Rejected          *xsync.Map[proto.ChunkRequest, empty.Empty]
 	allowFast         *bm.Bitmap
 	peerRequests      *xsync.Map[proto.ChunkRequest, empty.Empty]
 	cancel            context.CancelFunc
-	Bitmap            *bm.Bitmap
-	blockRequests     chan pieceBlock // receives blocks from scheduler (replaces ourPieceRequests)
+	UserAgent         atomic.Pointer[string]
+	blockRequests     chan pieceBlock
 	responseCond      *gsync.Cond
 	peerID            atomic.Pointer[proto.PeerID]
 	pieceDone         chan struct{}
@@ -162,9 +161,9 @@ type Peer struct {
 	r                 *bufio.Reader
 	pieceUploadRate   *flowrate.Monitor
 	Address           netip.AddrPort
-	requestQueue      []pieceBlock // blocks to be sent as wire requests (mirrors m_request_queue)
-	rqMu              sync.Mutex
+	requestQueue      []pieceBlock
 	rttAverage        sizedSlice[time.Duration]
+	disconnecting     atomic.Bool
 	isSeed            atomic.Bool
 	QueueLimit        atomic.Uint32
 	desiredQueueSize  atomic.Int32
@@ -178,6 +177,7 @@ type Peer struct {
 	endgame           atomic.Bool
 	rttMutex          sync.RWMutex
 	wm                sync.Mutex
+	rqMu              sync.Mutex
 	extDontHaveID     gsync.AtomicUint[proto.ExtensionMessage]
 	extPexID          gsync.AtomicUint[proto.ExtensionMessage]
 	id                uint32
@@ -188,7 +188,6 @@ type Peer struct {
 	dhtEnabled        bool
 	subExtensions     bool
 	hadTransfer       bool
-	disconnecting     atomic.Bool
 }
 
 func (p *Peer) Response(res *proto.ChunkResponse) bool {
@@ -269,7 +268,6 @@ func (p *Peer) close() {
 }
 
 func (p *Peer) ourRequestHandle() {
-
 	for {
 		select {
 		case <-p.ctx.Done():
@@ -354,14 +352,7 @@ func (p *Peer) updateDesiredQueueSize() int {
 
 	// Rate-based: keep requestQueueTime seconds of pipeline
 	dlRate := p.pieceDownloadRate.Status().CurRate
-	queueSize := requestQueueTime * int(dlRate) / int(defaultBlockSize)
-
-	if queueSize < minRequestQueue {
-		queueSize = minRequestQueue
-	}
-	if queueSize > maxRequestQueue {
-		queueSize = maxRequestQueue
-	}
+	queueSize := min(max(requestQueueTime*int(dlRate)/int(defaultBlockSize), minRequestQueue), maxRequestQueue)
 
 	// Also respect peer's advertised queue limit
 	peerLimit := int(p.QueueLimit.Load())
@@ -408,7 +399,6 @@ func (p *Peer) setEndgame(v bool) {
 func (p *Peer) isDisconnecting() bool {
 	return p.disconnecting.Load()
 }
-
 
 func (p *Peer) checkRequestTimeouts() {
 	const pieceTimeout = 30 * time.Second
@@ -617,7 +607,7 @@ func (p *Peer) start(skipHandshake bool) {
 
 			if p.snubbed.Load() {
 				p.snubbed.Store(false)
-							p.desiredQueueSize.Store(1)
+				p.desiredQueueSize.Store(1)
 				p.log.Info().Msg("peer un-snubbed: responding again")
 			}
 

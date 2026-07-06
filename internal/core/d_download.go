@@ -7,6 +7,7 @@ import (
 	"crypto/sha1"
 	"io"
 	"net/netip"
+	"slices"
 	"time"
 
 	"github.com/docker/go-units"
@@ -125,7 +126,6 @@ func (d *Download) handleRes(res *proto.ChunkResponse) {
 	d.c.pieceDownloadRate.Update(len(res.Data))
 	d.downloaded.Add(int64(len(res.Data)))
 
-
 	// in endgame mode we may receive duplicated response, just ignore them
 	if d.bm.Contains(res.PieceIndex) {
 		return
@@ -217,13 +217,7 @@ func (d *Download) handleRes(res *proto.ChunkResponse) {
 
 		if d.checkPieceBitmapDone(pieceIdx) {
 			// avoid duplicates
-			already := false
-			for _, cp := range completedPieces {
-				if cp == pieceIdx {
-					already = true
-					break
-				}
-			}
+			already := slices.Contains(completedPieces, pieceIdx)
 			if !already {
 				completedPieces = append(completedPieces, pieceIdx)
 			}
@@ -507,7 +501,6 @@ func (d *Download) requestABlock(p *Peer) {
 		return
 	}
 
-
 	// Determine desired queue size
 	desiredQueueSize := p.updateDesiredQueueSize()
 
@@ -532,7 +525,7 @@ func (d *Download) requestABlock(p *Peer) {
 		choked,
 		p.allowFast,
 		numRequests,
-		0, // prefer_contiguous_blocks (can be enabled for fast peers later)
+		0,   // prefer_contiguous_blocks (can be enabled for fast peers later)
 		nil, // suggested pieces (not yet implemented)
 		d.info,
 	)
@@ -608,7 +601,6 @@ func (d *Download) requestABlock(p *Peer) {
 	}
 
 	if len(result.busyBlocks) > 0 {
-
 		for _, bb := range result.busyBlocks {
 			chunk := pieceChunk(d.info, bb.pieceIndex, bb.blockIndex)
 			if p.isInQueue(chunk) {
