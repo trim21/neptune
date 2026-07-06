@@ -376,6 +376,29 @@ func (c *Client) ReplaceTrackers(h metainfo.Hash, replacements map[string]string
 	return nil
 }
 
+func (c *Client) Reannounce(h metainfo.Hash) error {
+	c.m.RLock()
+	d, ok := c.downloadMap[h]
+	c.m.RUnlock()
+	if !ok {
+		return fmt.Errorf("torrent %s not exists", h)
+	}
+
+	var event tracker.AnnounceEvent
+	switch {
+	case d.HasState(Downloading):
+		event = tracker.EventStarted
+	case d.HasState(Seeding):
+		event = tracker.EventCompleted
+	default:
+		// Stopped, Checking, Moving, Error — send a regular update without event.
+		event = ""
+	}
+
+	d.Trk.ForceReannounce(event)
+	return nil
+}
+
 func (c *Client) RemoveTorrent(h metainfo.Hash, removeData bool) error {
 	c.m.Lock()
 
