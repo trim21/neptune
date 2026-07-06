@@ -11,6 +11,7 @@ import (
 	"net/netip"
 	"time"
 
+	"neptune/internal/pkg/empty"
 	"neptune/internal/pkg/global"
 	"neptune/internal/pkg/global/tasks"
 	"neptune/internal/proto"
@@ -75,6 +76,11 @@ func (d *Download) tryDial(pp *persistentPeer) {
 		d.peerList.incFailcount(pp)
 		d.c.sem.Release(1)
 		d.c.connectionCount.Sub(1)
+		// Wake up connection loop to try next candidate.
+		select {
+		case d.pendingPeersSignal <- empty.Empty{}:
+		default:
+		}
 		return
 	}
 
@@ -102,6 +108,12 @@ func (d *Download) recordDisconnect(p *Peer) {
 		!errors.Is(p.closeErr, context.Canceled)
 
 	d.peerList.connectionClosed(p.Address, time.Now().Unix(), p.hadTransfer, failed)
+
+	// Wake up connection loop to fill the freed slot.
+	select {
+	case d.pendingPeersSignal <- empty.Empty{}:
+	default:
+	}
 }
 
 // peerTurnover disconnects slow peers to make room for fresh candidates.

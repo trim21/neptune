@@ -126,7 +126,7 @@ type peerList struct {
 	finished             bool
 }
 
-const candidateCount = 10
+const candidateCount = 50
 
 func newPeerList(d *Download) *peerList {
 	return &peerList{
