@@ -465,11 +465,12 @@ func (pl *peerList) connectPeers(sessionTime int64, n int) []*persistentPeer {
 }
 
 // incFailcount increments a peer's failcount. Called when a connection attempt fails.
-func (pl *peerList) incFailcount(p *persistentPeer) {
+func (pl *peerList) incFailcount(p *persistentPeer, errStr string) {
 	pl.mu.Lock()
 	defer pl.mu.Unlock()
 
 	p.dialing = false
+	p.lastErr = errStr
 
 	if p.failcount == 31 {
 		return
