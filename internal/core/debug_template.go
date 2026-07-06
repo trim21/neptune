@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/dustin/go-humanize"
+	"github.com/samber/lo"
 
 	"neptune/internal/core/tracker"
 	"neptune/internal/pkg/as"
@@ -149,7 +150,7 @@ func buildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 		trackerLeecher, _ := d.Trk.Leechers.Load(tr.URL)
 		trackers = append(trackers, debugTracker{
 			Tier:         tierIdx,
-			URL:          tr.URL,
+			URL:          lo.Ellipsis(tr.URL, 60),
 			Seeders:      trackerSeed,
 			Leechers:     trackerLeecher,
 			LastAnnounce: tr.LastAnnounceTime.Format(time.RFC3339),
