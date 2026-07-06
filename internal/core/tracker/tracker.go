@@ -38,11 +38,14 @@ const (
 )
 
 // AnnounceResponse is the parsed result from a tracker announce.
+// Interval and MinInterval are zero if the tracker did not return them;
+// the caller (finishAnnounce) applies the merging rules.
 type AnnounceResponse struct {
 	Err          error
 	FailedReason string
 	Peers        []netip.AddrPort
 	Interval     time.Duration
+	MinInterval  time.Duration
 	Seeders      int
 	Leechers     int
 }
@@ -52,6 +55,7 @@ type Tracker struct {
 	URL              string
 	LastAnnounceTime time.Time
 	NextAnnounce     time.Time
+	EarliestAnnounce time.Time
 	Err              error
 	FailureMessage   string
 	PeerCount        int
@@ -159,18 +163,26 @@ func (t *Trackers) Announce(event AnnounceEvent) {
 	}
 }
 
-// ForceReannounce resets NextAnnounce for all trackers and triggers an immediate
-// announce with the given event. Useful for manual reannounce requests from the API.
-func (t *Trackers) ForceReannounce(event AnnounceEvent) {
+// ForceReannounce triggers an immediate announce if the current time is at or after
+// EarliestAnnounce for at least one tracker. Returns true if the announce was
+// enqueued, false if the earliest timeout has not expired yet.
+func (t *Trackers) ForceReannounce(event AnnounceEvent) bool {
 	now := time.Now()
+	ok := false
 	t.mu.Lock()
 	for _, tier := range t.tiers {
 		for _, tr := range tier.Trackers {
-			tr.NextAnnounce = now
+			if !now.Before(tr.EarliestAnnounce) {
+				tr.NextAnnounce = now
+				ok = true
+			}
 		}
 	}
 	t.mu.Unlock()
-	t.Announce(event)
+	if ok {
+		t.Announce(event)
+	}
+	return ok
 }
 
 // Totals returns the max seeders and leechers across all trackers.
@@ -386,9 +398,11 @@ func (t *Trackers) Resume() {
 	}
 
 	t.mu.Lock()
+	now := time.Now()
 	for _, tier := range t.tiers {
 		for _, tr := range tier.Trackers {
-			tr.NextAnnounce = time.Now()
+			tr.NextAnnounce = now
+			tr.EarliestAnnounce = now
 		}
 	}
 	t.mu.Unlock()
@@ -487,6 +501,11 @@ func (t *Trackers) doAnnounce(event AnnounceEvent) {
 	}
 }
 
+// random5to10Min returns a random duration between 5 and 10 minutes at second granularity.
+func random5to10Min() time.Duration {
+	return time.Duration(5*60+rand.IntN(301)) * time.Second
+}
+
 // finishAnnounce performs the HTTP announce for a single tracker and updates its state.
 // Called from a goroutine spawned by doAnnounce.
 func (t *Trackers) finishAnnounce(tr *Tracker, event AnnounceEvent) {
@@ -495,13 +514,34 @@ func (t *Trackers) finishAnnounce(tr *Tracker, event AnnounceEvent) {
 	r := t.announceHTTP(tr, event)
 
 	now := time.Now()
-	if r.Interval == 0 {
-		r.Interval = 30 * time.Minute
+
+	// Compute min_interval and interval from tracker response per user rules:
+	//   1. Only min_interval (no interval): interval = min_interval * 2
+	//   2. Only interval (no min_interval): min_interval = interval, interval += random(5-10min)
+	//   3. Both returned: min_interval as-is, interval += random(5-10min)
+	//   4. Neither returned: default both to 30 min
+
+	minDelta := r.MinInterval
+	interval := r.Interval
+
+	switch {
+	case r.MinInterval > 0 && r.Interval == 0:
+		interval = minDelta * 2
+	case r.MinInterval == 0 && r.Interval > 0:
+		minDelta = interval
+		interval += random5to10Min()
+	case r.MinInterval > 0 && r.Interval > 0:
+		interval += random5to10Min()
+	default:
+		// Neither returned — use defaults.
+		minDelta = 30 * time.Minute
+		interval = 30*time.Minute + random5to10Min()
 	}
 
 	t.mu.Lock()
 	tr.LastAnnounceTime = now
-	tr.NextAnnounce = now.Add(r.Interval)
+	tr.NextAnnounce = now.Add(interval)
+	tr.EarliestAnnounce = now.Add(minDelta)
 	tr.FailureMessage = r.FailedReason
 	if r.Err != nil {
 		tr.Err = r.Err
@@ -570,14 +610,11 @@ func (t *Trackers) announceHTTP(tr *Tracker, event AnnounceEvent) AnnounceRespon
 	}
 
 	result := AnnounceResponse{
-		Interval:     30 * time.Minute,
+		Interval:     time.Second * time.Duration(r.Interval),
+		MinInterval:  time.Second * time.Duration(r.MinInterval),
 		FailedReason: r.FailureReason,
 		Seeders:      r.Complete,
 		Leechers:     r.Incomplete,
-	}
-
-	if r.Interval != 0 {
-		result.Interval = time.Second * time.Duration(r.Interval)
 	}
 
 	if len(r.Peers) != 0 {
@@ -660,6 +697,7 @@ type trackerAnnounceResponse struct {
 	Peers         bencode.RawBytes `bencode:"peers"`
 	Peers6        bencode.RawBytes `bencode:"peers6"`
 	Interval      int64            `bencode:"interval"`
+	MinInterval   int64            `bencode:"min interval"`
 	Complete      int              `bencode:"complete"`
 	Incomplete    int              `bencode:"incomplete"`
 }

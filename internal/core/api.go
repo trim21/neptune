@@ -395,7 +395,9 @@ func (c *Client) Reannounce(h metainfo.Hash) error {
 		event = ""
 	}
 
-	d.Trk.ForceReannounce(event)
+	if !d.Trk.ForceReannounce(event) {
+		return errors.New("reannounce not allowed yet: earliest interval not expired")
+	}
 	return nil
 }
 
@@ -536,7 +538,7 @@ func (c *Client) DebugHandlers() http.Handler {
 func debugPrintTrackers(w io.Writer, d *Download) {
 	t := table.NewWriter()
 
-	t.AppendHeader(table.Row{"tier", "url", "seeders", "leechers", "last announce", "next announce",
+	t.AppendHeader(table.Row{"tier", "url", "seeders", "leechers", "last announce", "scheduled", "earliest",
 		"pendingPeers", "msg", "error"})
 
 	t.SortBy([]table.SortBy{{Name: "tier"}, {Name: "url"}})
@@ -551,6 +553,7 @@ func debugPrintTrackers(w io.Writer, d *Download) {
 			trackerLeecher,
 			tr.LastAnnounceTime.Format(time.RFC3339),
 			tr.NextAnnounce.Format(time.RFC3339),
+			tr.EarliestAnnounce.Format(time.RFC3339),
 			tr.PeerCount,
 			tr.FailureMessage,
 			tr.Err,
