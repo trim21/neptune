@@ -56,6 +56,7 @@ const priorityFactor = 3
 //
 // All public methods are safe for concurrent use.
 type piecePicker struct {
+	completedBm        *bm.Bitmap
 	availability       []uint16
 	pieces             []uint32
 	piecePriorities    []uint32
@@ -64,15 +65,17 @@ type piecePicker struct {
 	blockSize          int64
 	downloadQueueSize  int
 	numWantLeft        int
-	numCompletedPieces uint32
 	mu                 sync.Mutex
+	numCompletedPieces uint32
 	numPieces          uint32
 	blocksPerPiece     uint32
 	dirty              bool
 }
 
 // newPiecePicker creates a new piece picker for the given torrent info.
-func newPiecePicker(info meta.Info) *piecePicker {
+// completedBm is the Download's completed bitmap — the picker reads it directly
+// instead of maintaining its own copy.
+func newPiecePicker(info meta.Info, completedBm *bm.Bitmap) *piecePicker {
 	numPieces := info.NumPieces
 	blocksPerPiece := uint32((info.PieceLength + defaultBlockSize - 1) / defaultBlockSize)
 
@@ -83,6 +86,7 @@ func newPiecePicker(info meta.Info) *piecePicker {
 		availability:    make([]uint16, numPieces),
 		piecePriorities: make([]uint32, numPieces),
 		pieces:          make([]uint32, numPieces),
+		completedBm:     completedBm,
 		dirty:           true,
 		blockInfos:      make([]blockInfo, int(numPieces)*int(blocksPerPiece)),
 	}
@@ -157,6 +161,7 @@ func (pp *piecePicker) weHave(pieceIndex uint32) {
 		bi.peer = nil
 		bi.numPeers = 0
 	}
+	pp.removeDownloadingPieceLocked(pieceIndex)
 	pp.numCompletedPieces++
 	pp.dirty = true
 }
@@ -271,7 +276,7 @@ func (pp *piecePicker) rebuildPriorities() {
 
 	available := pp.pieces[:0]
 	for _, pi := range pp.pieces {
-		if pp.allBlocksFinished(pi) {
+		if pp.completedBm.Contains(pi) || pp.allBlocksFinished(pi) {
 			continue
 		}
 		available = append(available, pi)

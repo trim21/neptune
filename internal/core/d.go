@@ -214,6 +214,8 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 		custom = make(map[string]string)
 	}
 
+	completedBm := bm.New(info.NumPieces)
+
 	d := &Download{
 		ctx:    ctx,
 		cancel: cancel,
@@ -240,7 +242,7 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 		connectedAddrs: xsync.NewMap[netip.AddrPort, *Peer](),
 		peerList:       newPeerList(nil), // d set below
 
-		picker: newPiecePicker(info),
+		picker: newPiecePicker(info, completedBm),
 
 		chunk: chunkState{
 			done: make(bitmap.Bitmap, (int64(info.NumPieces)*((info.PieceLength+defaultBlockSize-1)/defaultBlockSize)+63)/64),
@@ -251,7 +253,7 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 
 		private: info.Private,
 
-		completedBm: bm.New(info.NumPieces),
+		completedBm: completedBm,
 
 		bitfieldSize: (info.NumPieces + 7) / 8,
 
