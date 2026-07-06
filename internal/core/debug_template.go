@@ -190,16 +190,33 @@ func buildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 	sp.sort()
 	data.Peers = sp.items
 
+	// Peer rate & total vs download
+	var peerTotalCurRate int64
+	var peerTotalBytes int64
+	d.peers.Range(func(addr netip.AddrPort, p *Peer) bool {
+		s := p.pieceDownloadRate.Status()
+		peerTotalCurRate += s.CurRate
+		peerTotalBytes += s.Total
+		return true
+	})
+	dlRate := d.pieceDownloadRate.Status().CurRate
+	dlTotal := d.pieceDownloadRate.Status().Total
+
 	// Picker stats
 	st := d.picker.DebugStats(d.info)
 	totalBlocks := st.FreeBlocks + st.RequestedBlocks + st.WritingBlocks + st.FinishedBlocks
 	data.PickerText = fmt.Sprintf(
 		"picker: %d open pieces, %d downloading pieces\n"+
 			"blocks: %d free, %d requested, %d writing, %d finished (total %d)\n"+
-			"downloadQueue: %d",
+			"downloadQueue: %d\n"+
+			"rate: dl=%s/s peer_sum=%s/s (ratio %.2f)\n"+
+			"total: dl=%s peer_sum=%s",
 		st.OpenPieces, st.Downloading,
 		st.FreeBlocks, st.RequestedBlocks, st.WritingBlocks, st.FinishedBlocks, totalBlocks,
 		st.DownloadQueue,
+		humanize.IBytes(uint64(dlRate)), humanize.IBytes(uint64(peerTotalCurRate)),
+		float64(peerTotalCurRate)/float64(max(dlRate, 1)),
+		humanize.IBytes(uint64(dlTotal)), humanize.IBytes(uint64(peerTotalBytes)),
 	)
 
 	// Files (full mode)

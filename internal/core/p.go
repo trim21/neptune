@@ -241,9 +241,7 @@ func (p *Peer) close() {
 
 		// Record disconnect reason for future retry decisions.
 		// Only record for outgoing peers; incoming peers don't need retry logic.
-		if !p.Incoming {
-			p.d.recordDisconnect(p.Address, p.hadTransfer, p.closeErr)
-		}
+		p.d.recordDisconnect(p.Address, p.hadTransfer, p.closeErr)
 
 		p.d.peers.Delete(p.Address)
 		p.d.c.sem.Release(1)
