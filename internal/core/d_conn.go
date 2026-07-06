@@ -40,15 +40,20 @@ func (d *Download) connectToPeers(maxSlots int) int {
 			break
 		}
 
+		semFull := false
 		for _, candidate := range candidates {
+			if semFull {
+				d.peerList.clearDialing(candidate)
+				continue
+			}
 			if _, ok := d.connectedAddrs.Load(candidate.addrPort); ok {
 				d.peerList.clearDialing(candidate)
 				continue
 			}
 			if !d.c.sem.TryAcquire(1) {
-				// Semaphore full — clear dialing for this and remaining candidates.
 				d.peerList.clearDialing(candidate)
-				return connected
+				semFull = true
+				continue
 			}
 			d.c.connectionCount.Add(1)
 			tasks.Submit(func() {
