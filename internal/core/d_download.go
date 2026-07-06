@@ -522,6 +522,12 @@ func (d *Download) requestABlock(p *Peer) {
 		d.info,
 	)
 
+	// If the peer is choked and no fast pieces are allowed, the picker returns
+	// zero blocks — don't mistake this for "no blocks left" and trigger endgame.
+	if len(result.freeBlocks) == 0 && choked && p.allowFast.Count() == 0 {
+		return
+	}
+
 	// add_request: push picked blocks directly to requestQueue.
 	freeBlocksPicked := 0
 	for _, fb := range result.freeBlocks {
