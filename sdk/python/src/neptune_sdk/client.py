@@ -235,6 +235,10 @@ class NeptuneClient:
         """Recheck torrent data integrity."""
         self._call("torrent.recheck", InfoHashRequest(info_hash=info_hash))
 
+    def torrent_reannounce(self, info_hash: str) -> None:
+        """Force immediate re-announce to all trackers."""
+        self._call("torrent.reannounce", InfoHashRequest(info_hash=info_hash))
+
     # ── torrent — custom ───────────────────────────────────────────────
 
     def torrent_custom_set(self, info_hash: str, key: str, value: str) -> None:
