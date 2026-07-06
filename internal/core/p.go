@@ -275,6 +275,9 @@ func (p *Peer) close() {
 }
 
 func (p *Peer) ourRequestHandle() {
+	// Request initial blocks immediately after handshake completes.
+	p.d.requestABlock(p)
+
 	for {
 		select {
 		case <-p.ctx.Done():
@@ -323,19 +326,8 @@ func (p *Peer) sendBlockRequests() {
 
 		// Skip if peer is choking us (unless allowed fast)
 		if p.peerChoking.Load() && !p.allowFast.Contains(block.pieceIndex) {
-			// Put back? No, the scheduler should have filtered these.
-			// Just abort and continue.
 			p.d.picker.abortDownload(block.pieceIndex, block.blockIndex)
 			continue
-		}
-
-		// Check global queue limit from the peer
-		if p.myRequests.Size() >= int(p.QueueLimit.Load())/2 {
-			// Paused: put block back to front and wait for responses
-			p.rqMu.Lock()
-			p.requestQueue = append([]pieceBlock{block}, p.requestQueue...)
-			p.rqMu.Unlock()
-			return
 		}
 
 		p.Request(chunk)

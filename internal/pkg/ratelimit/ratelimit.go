@@ -17,7 +17,7 @@ import (
 // It ensures that dynamic rate changes (via Update) and context cancellations
 // are noticed within this interval, while adding negligible overhead for
 // typical rates (MB/s range) where the computed sleep is far shorter.
-const maxSleep = 250 * time.Millisecond
+const maxSleep = 50 * time.Millisecond
 
 // Limiter controls the rate of byte transfers using a token bucket algorithm.
 // Tokens represent bytes and are replenished at the configured rate.

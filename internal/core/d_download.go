@@ -32,7 +32,7 @@ const minRequestQueue = 2
 const maxRequestQueue = 2000
 
 func (d *Download) backgroundReqScheduler() {
-	ticker := time.NewTicker(time.Second * 5)
+	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 
 	for {

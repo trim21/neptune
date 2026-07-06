@@ -66,9 +66,9 @@ func TestUpdate(t *testing.T) {
 func TestLimiterBlocks(t *testing.T) {
 	l := New(100)
 
-	// Exhaust the 512 KB min burst first.
+	// Exhaust the 128 KB min burst first.
 	start := time.Now()
-	err := l.Wait(context.Background(), 512*1024)
+	err := l.Wait(context.Background(), 128*1024)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,7 @@ func TestLimiterContextCancel(t *testing.T) {
 	l := New(1)
 
 	// Exhaust burst so the next Wait enters the slow path.
-	if err := l.Wait(context.Background(), 512*1024); err != nil {
+	if err := l.Wait(context.Background(), 128*1024); err != nil {
 		t.Fatal(err)
 	}
 
@@ -112,7 +112,7 @@ func TestUpdateToUnlimitedWhileWaiting(t *testing.T) {
 	l := New(1)
 
 	// Exhaust burst so the next Wait enters the slow path.
-	if err := l.Wait(context.Background(), 512*1024); err != nil {
+	if err := l.Wait(context.Background(), 128*1024); err != nil {
 		t.Fatal(err)
 	}
 
@@ -141,7 +141,7 @@ func TestConcurrentWaitFairness(t *testing.T) {
 	l := New(1000) // 1 KB/s
 
 	// Exhaust burst first.
-	if err := l.Wait(context.Background(), 512*1024); err != nil {
+	if err := l.Wait(context.Background(), 128*1024); err != nil {
 		t.Fatal(err)
 	}
 
@@ -175,7 +175,7 @@ func TestUpdateToLowerRateWhileWaiting(t *testing.T) {
 	l := New(2000) // 2 KB/s
 
 	// Exhaust burst.
-	if err := l.Wait(context.Background(), 512*1024); err != nil {
+	if err := l.Wait(context.Background(), 128*1024); err != nil {
 		t.Fatal(err)
 	}
 
