@@ -141,7 +141,6 @@ type Peer struct {
 	snubbedAt         atomic.Time
 	lastUnchokeAt     atomic.Time
 	lastPickDebug     atomic.Pointer[string]
-	lastErr           atomic.String
 	pieceDownloadRate *flowrate.Monitor
 	Bitmap            *bm.Bitmap
 	myRequests        *xsync.Map[proto.ChunkRequest, time.Time]
@@ -397,16 +396,6 @@ func (p *Peer) lastPickDebugString() string {
 	return "-"
 }
 
-func (p *Peer) lastErrString() string {
-	return p.lastErr.Load()
-}
-
-func (p *Peer) setLastErr(err error) {
-	if err != nil {
-		p.lastErr.Store(err.Error())
-	}
-}
-
 func (p *Peer) checkRequestTimeouts() {
 	const blockTimeout = 30 * time.Second
 	const snubThreshold = 5 // consecutive timeouts before snubbing
@@ -447,7 +436,6 @@ func (p *Peer) checkRequestTimeouts() {
 					p.snubbed.Store(true)
 					p.snubbedAt.Store(now)
 					p.log.Warn().Int("consecutive", consecutiveTimeouts).Msg("peer snubbed: repeated timeouts")
-					p.lastErr.Store(fmt.Sprintf("snubbed: %d consecutive timeouts", consecutiveTimeouts))
 
 					// Clear all remaining in-flight requests on snub.
 					p.myRequests.Range(func(req proto.ChunkRequest, _ time.Time) bool {
@@ -590,7 +578,6 @@ func (p *Peer) start(skipHandshake bool) {
 		if err != nil {
 			p.log.Trace().Err(err).Msg("failed to decode event")
 			p.closeErr = err
-			p.setLastErr(err)
 			return
 		}
 

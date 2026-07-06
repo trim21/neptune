@@ -49,6 +49,7 @@ type persistentPeer struct {
 	connection  *Peer
 	addrPort    netip.AddrPort
 	lastSeen    int64
+	lastErr     string
 	failcount   uint8
 	source      peerSource
 	connectable bool

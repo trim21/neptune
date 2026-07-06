@@ -54,6 +54,7 @@ type debugPageData struct {
 type debugPendingPeer struct {
 	Address     string
 	LastSeen    string
+	LastError   string
 	Failcount   uint8
 	HadTrans    bool
 	Connectable bool
@@ -98,7 +99,6 @@ type debugPeer struct {
 	Fast         string
 	PeerID       string
 	LastPick     string
-	LastError    string
 	OurReq       int
 	ReqQ         int
 	DesiredQ     int
@@ -210,7 +210,6 @@ func buildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 			PeerReq:      p.peerRequests.Size(),
 			PeerID:       url.QueryEscape(p.peerID.Load().AsString()),
 			LastPick:     p.lastPickDebugString(),
-			LastError:    p.lastErrString(),
 		})
 		return true
 	})
@@ -330,6 +329,7 @@ func buildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 				Address:     pp.addrPort.String(),
 				Failcount:   pp.failcount,
 				LastSeen:    lastSeen,
+				LastError:   pp.lastErr,
 				HadTrans:    pp.hadTrans,
 				Connectable: pp.connectable,
 			})

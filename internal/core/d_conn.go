@@ -74,6 +74,7 @@ func (d *Download) tryDial(pp *persistentPeer) {
 
 	conn, err := global.Dial(ctx, "tcp", pp.addrPort.String())
 	if err != nil {
+		pp.lastErr = err.Error()
 		d.peerList.incFailcount(pp)
 		d.c.sem.Release(1)
 		d.c.connectionCount.Sub(1)
