@@ -113,9 +113,9 @@ type Download struct {
 	err                    atomic.Pointer[error]
 	cancel                 context.CancelFunc
 	c                      *Client
-	ioDown                 *flowrate.Monitor
-	netDown                *flowrate.Monitor
-	ioUp                   *flowrate.Monitor
+	pieceDownloadRate      *flowrate.Monitor
+	ioDownloadRate         *flowrate.Monitor
+	pieceUploadRate        *flowrate.Monitor
 	ResChan                chan *proto.ChunkResponse
 	downloadLimiter        *ratelimit.Limiter
 	uploadLimiter          *ratelimit.Limiter
@@ -251,9 +251,9 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 
 		ResChan: make(chan *proto.ChunkResponse, 1),
 
-		ioDown:  flowrate.New(time.Second, time.Second),
-		netDown: flowrate.New(time.Second, time.Second),
-		ioUp:    flowrate.New(time.Second, time.Second),
+		pieceDownloadRate: flowrate.New(time.Second, time.Second),
+		ioDownloadRate:    flowrate.New(time.Second, time.Second),
+		pieceUploadRate:   flowrate.New(time.Second, time.Second),
 
 		peers:             xsync.NewMap[netip.AddrPort, *Peer](),
 		connectionHistory: lo.Must(lru.New[netip.AddrPort, connHistory](256)),

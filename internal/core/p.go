@@ -80,15 +80,15 @@ func newPeer(
 		ctx:    ctx,
 		cancel: cancel,
 
-		log:        l.Logger(),
-		Conn:       conn,
-		d:          d,
-		Bitmap:     bm.New(d.info.NumPieces),
-		ioOut:      flowrate.New(time.Second, time.Second),
-		ioIn:       flowrate.New(time.Second, time.Second),
-		Address:    addr,
-		QueueLimit: *atomic.NewUint32(200),
-		Incoming:   skipReadHandshake,
+		log:               l.Logger(),
+		Conn:              conn,
+		d:                 d,
+		Bitmap:            bm.New(d.info.NumPieces),
+		pieceUploadRate:   flowrate.New(time.Second, time.Second),
+		pieceDownloadRate: flowrate.New(time.Second, time.Second),
+		Address:           addr,
+		QueueLimit:        *atomic.NewUint32(200),
+		Incoming:          skipReadHandshake,
 
 		ourChoking:     *atomic.NewBool(true),
 		ourInterested:  *atomic.NewBool(false),
@@ -114,7 +114,7 @@ func newPeer(
 
 		peerRequests: xsync.NewMap[proto.ChunkRequest, empty.Empty](),
 
-		r: bufio.NewReaderSize(conn, units.KiB*18),
+		r: bufio.NewReaderSize(d.ioDownloadRate.WrapReader(conn), units.KiB*18),
 		w: bufio.NewWriterSize(conn, units.KiB*8),
 
 		allowFast: bm.New(d.info.NumPieces),
@@ -139,52 +139,52 @@ func newPeer(
 var ErrPeerSendInvalidData = errors.New("addrPort send invalid data")
 
 type Peer struct {
-	log              zerolog.Logger
-	ctx              context.Context
-	Conn             net.Conn
-	lastSend         atomic.Time
-	snubbedAt        atomic.Time
-	peerRequests     *xsync.Map[proto.ChunkRequest, empty.Empty]
-	ioIn             *flowrate.Monitor
-	Bitmap           *bm.Bitmap
-	myRequests       *xsync.Map[proto.ChunkRequest, time.Time]
-	myRequestHistory *xsync.Map[proto.ChunkRequest, empty.Empty]
-	d                *Download
-	Rejected         *xsync.Map[proto.ChunkRequest, empty.Empty]
-	allowFast        *bm.Bitmap
-	ioOut            *flowrate.Monitor
-	cancel           context.CancelFunc
-	UserAgent        atomic.Pointer[string]
-	ourPieceRequests chan uint32
-	responseCond     *gsync.Cond
-	peerID           atomic.Pointer[proto.PeerID]
-	pieceDone        chan struct{}
-	w                *bufio.Writer
-	r                *bufio.Reader
-	Address          netip.AddrPort
-	Requested        bitmap.Bitmap
-	rttAverage       sizedSlice[time.Duration]
-	slowStart        atomic.Bool
-	QueueLimit       atomic.Uint32
-	lastRate         atomic.Int64
-	desiredQueueSize atomic.Int32
-	ourInterested    atomic.Bool
-	snubbed          atomic.Bool
-	closed           atomic.Bool
-	isSeed           atomic.Bool
-	peerChoking      atomic.Bool
-	peerInterested   atomic.Bool
-	ourChoking       atomic.Bool
-	rttMutex         sync.RWMutex
-	wm               sync.Mutex
-	extDontHaveID    gsync.AtomicUint[proto.ExtensionMessage]
-	extPexID         gsync.AtomicUint[proto.ExtensionMessage]
-	readBuf          [4]byte
-	writeBuf         [4]byte
-	Incoming         bool
-	fastExtension    bool
-	dhtEnabled       bool
-	subExtensions    bool
+	log               zerolog.Logger
+	ctx               context.Context
+	Conn              net.Conn
+	lastSend          atomic.Time
+	snubbedAt         atomic.Time
+	peerRequests      *xsync.Map[proto.ChunkRequest, empty.Empty]
+	pieceDownloadRate *flowrate.Monitor
+	Bitmap            *bm.Bitmap
+	myRequests        *xsync.Map[proto.ChunkRequest, time.Time]
+	myRequestHistory  *xsync.Map[proto.ChunkRequest, empty.Empty]
+	d                 *Download
+	Rejected          *xsync.Map[proto.ChunkRequest, empty.Empty]
+	allowFast         *bm.Bitmap
+	pieceUploadRate   *flowrate.Monitor
+	cancel            context.CancelFunc
+	UserAgent         atomic.Pointer[string]
+	ourPieceRequests  chan uint32
+	responseCond      *gsync.Cond
+	peerID            atomic.Pointer[proto.PeerID]
+	pieceDone         chan struct{}
+	w                 *bufio.Writer
+	r                 *bufio.Reader
+	Address           netip.AddrPort
+	Requested         bitmap.Bitmap
+	rttAverage        sizedSlice[time.Duration]
+	slowStart         atomic.Bool
+	QueueLimit        atomic.Uint32
+	lastRate          atomic.Int64
+	desiredQueueSize  atomic.Int32
+	ourInterested     atomic.Bool
+	snubbed           atomic.Bool
+	closed            atomic.Bool
+	isSeed            atomic.Bool
+	peerChoking       atomic.Bool
+	peerInterested    atomic.Bool
+	ourChoking        atomic.Bool
+	rttMutex          sync.RWMutex
+	wm                sync.Mutex
+	extDontHaveID     gsync.AtomicUint[proto.ExtensionMessage]
+	extPexID          gsync.AtomicUint[proto.ExtensionMessage]
+	readBuf           [4]byte
+	writeBuf          [4]byte
+	Incoming          bool
+	fastExtension     bool
+	dhtEnabled        bool
+	subExtensions     bool
 }
 
 func (p *Peer) Response(res *proto.ChunkResponse) bool {
@@ -255,7 +255,7 @@ func (p *Peer) ourRequestHandleLoop() {
 			queueSize = int(p.desiredQueueSize.Load())
 		} else {
 			// rate-based: keep 3s of pipeline
-			queueSize = int(3*p.ioIn.Status().CurRate) / int(defaultBlockSize)
+			queueSize = int(3*p.pieceDownloadRate.Status().CurRate) / int(defaultBlockSize)
 		}
 		queueSize = max(queueSize, 1)
 		queueSize = min(queueSize, 20)
@@ -319,7 +319,7 @@ func (p *Peer) handleSlowStart() {
 		return
 	}
 
-	currentRate := p.ioIn.Status().CurRate
+	currentRate := p.pieceDownloadRate.Status().CurRate
 	lastRate := p.lastRate.Load()
 	p.lastRate.Store(currentRate)
 
@@ -539,7 +539,7 @@ func (p *Peer) start(skipHandshake bool) {
 			}
 
 			p.responseCond.Signal()
-			p.ioIn.Update(len(event.Res.Data))
+			p.pieceDownloadRate.Update(len(event.Res.Data))
 			p.d.ResChan <- event.Res
 		case proto.Request:
 			if !p.validateRequest(event.Req) {

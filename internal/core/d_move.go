@@ -85,10 +85,10 @@ func (d *Download) moveFile(ctx context.Context, target string, originalBasePath
 		return err
 	}
 
-	d.ioDown.Reset()
-	defer d.ioDown.Reset()
+	d.pieceDownloadRate.Reset()
+	defer d.pieceDownloadRate.Reset()
 
-	return gfs.SmartCopy(ctx, sourcePath, targetPath, d.ioDown)
+	return gfs.SmartCopy(ctx, sourcePath, targetPath, d.pieceDownloadRate)
 }
 
 func pruneEmptyDirectories(osDirname string) error {
