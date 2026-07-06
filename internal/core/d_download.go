@@ -674,7 +674,7 @@ func (d *Download) assignPiecesToPeers(nextPiece func() (uint32, bool)) {
 			}
 			// record this assignment
 			if d.piecePeerAssignments[pieceIndex] == nil {
-				d.piecePeerAssignments[pieceIndex] = make(map[uint64]struct{})
+				d.piecePeerAssignments[pieceIndex] = make(map[uint32]struct{})
 			}
 			d.piecePeerAssignments[pieceIndex][pi.peer.id] = struct{}{}
 			d.piecePeerMu.Unlock()

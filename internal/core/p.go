@@ -176,7 +176,7 @@ type Peer struct {
 	isSeed            atomic.Bool
 	peerChoking       atomic.Bool
 	peerInterested    atomic.Bool
-	id                uint64
+	id                uint32
 	rttMutex          sync.RWMutex
 	wm                sync.Mutex
 	extDontHaveID     gsync.AtomicUint[proto.ExtensionMessage]

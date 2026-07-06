@@ -137,7 +137,7 @@ type Download struct {
 	custom                 map[string]string
 	Trk                    *tracker.Trackers
 	corruptedPieces        map[uint32]int
-	piecePeerAssignments   map[uint32]map[uint64]struct{}
+	piecePeerAssignments   map[uint32]map[uint32]struct{}
 	downloadDir            string
 	basePath               string
 	pieceInfo              pieceInfo
@@ -291,7 +291,7 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 		uploadLimiter:   ratelimit.New(0),
 
 		corruptedPieces:      make(map[uint32]int),
-		piecePeerAssignments: make(map[uint32]map[uint64]struct{}),
+		piecePeerAssignments: make(map[uint32]map[uint32]struct{}),
 	}
 
 	d.state.Store(uint32(Checking))
