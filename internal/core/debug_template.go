@@ -98,6 +98,7 @@ type debugPeer struct {
 	Fast         string
 	PeerID       string
 	LastPick     string
+	LastError    string
 	OurReq       int
 	ReqQ         int
 	DesiredQ     int
@@ -209,6 +210,7 @@ func buildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 			PeerReq:      p.peerRequests.Size(),
 			PeerID:       url.QueryEscape(p.peerID.Load().AsString()),
 			LastPick:     p.lastPickDebugString(),
+			LastError:    p.lastErrString(),
 		})
 		return true
 	})
