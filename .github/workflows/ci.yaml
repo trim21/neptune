@@ -57,7 +57,7 @@ jobs:
 
       - run: >-
           gotestsum --format=pkgname --format-hide-empty-pkg
-          -- -race -count=1 -coverprofile=coverage.txt -covermode=atomic ./...
+          -- -short -race -count=1 -coverprofile=coverage.txt -covermode=atomic ./...
         shell: bash
 
       - name: Upload coverage to Codecov
@@ -67,7 +67,7 @@ jobs:
 
       - run: >-
           gotestsum --format=pkgname --format-hide-empty-pkg
-          -- -race -tags=release -count=1 -coverprofile=coverage.txt -covermode=atomic ./...
+          -- -short -race -tags=release -count=1 -coverprofile=coverage.txt -covermode=atomic ./...
         shell: bash
 
       - name: Upload coverage to Codecov
@@ -81,9 +81,35 @@ jobs:
       - run: go build -o tmp/try.exe
       - run: ./tmp/try.exe --help
 
+  test-long:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - uses: trim21/actions/setup-go@master
+        with:
+          cache-namespace: test-long
+
+      - name: Install gotestsum
+        uses: jaxxstorm/action-install-gh-release@v3.0.0
+        with:
+          repo: gotestyourself/gotestsum
+          tag: v1.13.0
+
+      - run: >-
+          gotestsum --format=pkgname --format-hide-empty-pkg
+          -- -race -count=1 -coverprofile=coverage.txt -covermode=atomic ./...
+        shell: bash
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v7.0.0
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+
   test-pass:
     needs:
       - test
+      - test-long
     runs-on: ubuntu-slim
     steps:
       - run: echo success
