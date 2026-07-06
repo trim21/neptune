@@ -602,6 +602,10 @@ func (p *Peer) start(skipHandshake bool) {
 				return
 			}
 
+			// Request more blocks for this peer immediately (libtorrent
+			// calls request_a_block from incoming_piece).
+			p.d.requestABlock(p)
+
 			p.responseCond.Signal()
 			p.pieceDownloadRate.Update(len(event.Res.Data))
 

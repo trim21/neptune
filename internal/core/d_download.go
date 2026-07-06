@@ -36,15 +36,15 @@ const minRequestQueue = 2
 const maxRequestQueue = 250
 
 func (d *Download) backgroundReqScheduler() {
-	timer := time.NewTimer(time.Second * 5)
-	defer timer.Stop()
+	ticker := time.NewTicker(time.Second * 5)
+	defer ticker.Stop()
 
 	for {
 		select {
 		case <-d.ctx.Done():
 			return
 		case <-d.scheduleRequestSignal:
-		case <-timer.C:
+		case <-ticker.C:
 		}
 
 		if !d.wait(Downloading) {
