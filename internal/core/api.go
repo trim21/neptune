@@ -520,9 +520,9 @@ func (c *Client) DebugHandlers() http.Handler {
 
 		debugPrintTrackers(w, d)
 		debugPrintPeers(w, d)
-		debugPrintFiles(w, d)
 
 		if r.URL.Query().Get("mode") == "full" {
+			debugPrintFiles(w, d)
 			// Show compressed piece ranges: have, wanted, and missing.
 			writePieceRanges(w, "have", d.bm)
 			writePieceRanges(w, "wanted", d.selectedPiecesBm)
