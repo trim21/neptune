@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/docker/go-units"
-	"github.com/kelindar/bitmap"
 	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/rs/zerolog"
 	"go.uber.org/atomic"
@@ -96,14 +95,12 @@ func newPeer(
 		peerChoking:    *atomic.NewBool(true),
 		peerInterested: *atomic.NewBool(false),
 
-		ourPieceRequests: make(chan uint32, 20),
+		blockRequests: make(chan pieceBlock, 50),
 
 		pieceDone:        make(chan struct{}, 1),
 		desiredQueueSize: *atomic.NewInt32(1),
 
 		UserAgent: *atomic.NewPointer(&ua),
-
-		Requested: make(bitmap.Bitmap, d.bitfieldSize),
 
 		responseCond: gsync.NewCond(gsync.EmptyLock{}),
 
@@ -119,7 +116,6 @@ func newPeer(
 		w: bufio.NewWriterSize(conn, units.KiB*8),
 
 		allowFast: bm.New(d.info.NumPieces),
-		//Requested: bm.New(d.info.NumPieces),
 
 		peerID: *atomic.NewPointer(&proto.PeerID{}),
 
@@ -147,17 +143,17 @@ type Peer struct {
 	lastSend          atomic.Time
 	snubbedAt         atomic.Time
 	lastUnchokeAt     atomic.Time
-	Rejected          *xsync.Map[proto.ChunkRequest, empty.Empty]
-	UserAgent         atomic.Pointer[string]
+	pieceDownloadRate *flowrate.Monitor
+	Bitmap            *bm.Bitmap
 	myRequests        *xsync.Map[proto.ChunkRequest, time.Time]
 	myRequestHistory  *xsync.Map[proto.ChunkRequest, empty.Empty]
 	d                 *Download
-	pieceDownloadRate *flowrate.Monitor
+	Rejected          *xsync.Map[proto.ChunkRequest, empty.Empty]
 	allowFast         *bm.Bitmap
 	peerRequests      *xsync.Map[proto.ChunkRequest, empty.Empty]
 	cancel            context.CancelFunc
-	Bitmap            *bm.Bitmap
-	ourPieceRequests  chan uint32
+	UserAgent         atomic.Pointer[string]
+	blockRequests     chan pieceBlock
 	responseCond      *gsync.Cond
 	peerID            atomic.Pointer[proto.PeerID]
 	pieceDone         chan struct{}
@@ -165,8 +161,9 @@ type Peer struct {
 	r                 *bufio.Reader
 	pieceUploadRate   *flowrate.Monitor
 	Address           netip.AddrPort
-	Requested         bitmap.Bitmap
+	requestQueue      []pieceBlock
 	rttAverage        sizedSlice[time.Duration]
+	disconnecting     atomic.Bool
 	isSeed            atomic.Bool
 	QueueLimit        atomic.Uint32
 	desiredQueueSize  atomic.Int32
@@ -175,12 +172,12 @@ type Peer struct {
 	closed            atomic.Bool
 	peerInterested    atomic.Bool
 	ourChoking        atomic.Bool
-	lastRate          atomic.Int64
 	preferred         atomic.Bool
-	slowStart         atomic.Bool
 	peerChoking       atomic.Bool
+	endgame           atomic.Bool
 	rttMutex          sync.RWMutex
 	wm                sync.Mutex
+	rqMu              sync.Mutex
 	extDontHaveID     gsync.AtomicUint[proto.ExtensionMessage]
 	extPexID          gsync.AtomicUint[proto.ExtensionMessage]
 	id                uint32
@@ -233,7 +230,19 @@ func (p *Peer) Unchoke() {
 
 func (p *Peer) close() {
 	if p.closed.CompareAndSwap(false, true) {
+		p.disconnecting.Store(true)
 		p.log.Trace().Caller(1).Msg("close")
+
+		// Decrement picker refcount for all pieces this peer had,
+		// and abort any blocks we had requested from this peer.
+		p.Bitmap.Range(func(u uint32) {
+			p.d.picker.decRefcount(u)
+		})
+		p.myRequests.Range(func(req proto.ChunkRequest, _ time.Time) bool {
+			bi := int(req.Begin / uint32(defaultBlockSize))
+			p.d.picker.abortDownload(req.PieceIndex, bi)
+			return true
+		})
 
 		// Record disconnect reason for future retry decisions.
 		// Only record for outgoing peers; incoming peers don't need retry logic.
@@ -248,16 +257,8 @@ func (p *Peer) close() {
 		_ = p.Conn.Close()
 		p.d.buildNetworkPieces <- empty.Empty{}
 
-		// Re-queue for reconnect so connectToPeers gets another chance.
-		// canRetry backoff prevents tight reconnect loops.
-		if !p.Incoming && p.d.HasState(Downloading|Seeding) {
-			p.d.pendingPeersMutex.Lock()
-			p.d.pendingPeers.Push(peerWithPriority{
-				addrPort: p.Address,
-				priority: p.d.c.PeerPriority(p.Address),
-			})
-			p.d.pendingPeersMutex.Unlock()
-
+		// Signal connection loop to fill the freed slot.
+		if p.d.HasState(Downloading | Seeding) {
 			select {
 			case p.d.pendingPeersSignal <- empty.Empty{}:
 			default:
@@ -267,143 +268,136 @@ func (p *Peer) close() {
 }
 
 func (p *Peer) ourRequestHandle() {
-	p.ourRequestHandleLoop()
-}
-
-func (p *Peer) ourRequestHandleLoop() {
-	pending := make(map[uint32]struct{})
-	sem := make(chan struct{}, 20)
-	p.slowStart.Store(true)
-
 	for {
-		// update desired queue size
-		var queueSize int
-		if p.snubbed.Load() {
-			queueSize = 1
-		} else if p.slowStart.Load() {
-			// slow start: use current desired size, will grow on piece completion
-			queueSize = int(p.desiredQueueSize.Load())
-		} else {
-			// rate-based: keep 3s of pipeline
-			queueSize = int(3*p.pieceDownloadRate.Status().CurRate) / int(defaultBlockSize)
-		}
-		queueSize = max(queueSize, 1)
-		queueSize = min(queueSize, 20)
-		p.desiredQueueSize.Store(int32(queueSize))
-		limit := queueSize
-
-		// drain channel into pending while we have capacity
-		for len(pending) < limit {
-			select {
-			case <-p.ctx.Done():
-				return
-			case index := <-p.ourPieceRequests:
-				pending[index] = struct{}{}
-				continue
-			}
-		}
-
-		if len(pending) == 0 {
-			// wait for new piece, piece completion, or context cancellation
-			select {
-			case <-p.ctx.Done():
-				return
-			case index := <-p.ourPieceRequests:
-				pending[index] = struct{}{}
-			case <-p.pieceDone:
-				p.handleSlowStart()
-			}
-			continue
-		}
-
-		// also handle pieceDone non-blocking to react to completions
 		select {
+		case <-p.ctx.Done():
+			return
+		case block := <-p.blockRequests:
+			p.rqMu.Lock()
+			p.requestQueue = append(p.requestQueue, block)
+			p.rqMu.Unlock()
+			p.sendBlockRequests()
 		case <-p.pieceDone:
-			p.handleSlowStart()
-		default:
-		}
-
-		// start downloading pieces concurrently
-		for index := range pending {
-			sem <- struct{}{} // acquire slot
-			delete(pending, index)
-			go func(pieceIdx uint32) {
-				defer func() {
-					<-sem // release slot
-					select {
-					case p.pieceDone <- struct{}{}:
-					default:
-					}
-				}()
-				p.downloadPieceChunks(pieceIdx)
-			}(index)
+			// Piece completed, may need to request more
+			p.sendBlockRequests()
+			select {
+			case p.d.scheduleRequestSignal <- empty.Empty{}:
+			default:
+			}
 		}
 	}
 }
 
-// handleSlowStart updates the desired queue size during slow start mode.
-// It doubles the queue size when download rate is still growing,
-// and exits slow start when rate plateaus.
-func (p *Peer) handleSlowStart() {
-	if !p.slowStart.Load() {
+// sendBlockRequests drains the peer's requestQueue and sends wire requests
+// up to the peer's queue limit. Mirrors libtorrent's send_block_requests().
+func (p *Peer) sendBlockRequests() {
+	if p.closed.Load() || p.isDisconnecting() {
 		return
 	}
 
-	currentRate := p.pieceDownloadRate.Status().CurRate
-	lastRate := p.lastRate.Load()
-	p.lastRate.Store(currentRate)
+	desiredSize := p.updateDesiredQueueSize()
 
-	// if rate is still growing (with some tolerance), double the queue
-	if lastRate > 0 && currentRate > lastRate*95/100 {
-		old := p.desiredQueueSize.Load()
-		newSize := min(old*2, 20)
-		p.desiredQueueSize.Store(newSize)
-		p.log.Trace().Int32("old", old).Int32("new", newSize).Msg("slow start: growing pipeline")
-	} else if lastRate > 0 {
-		// rate stopped growing, exit slow start
-		p.slowStart.Store(false)
-		p.log.Info().Int64("rate", currentRate).Msg("slow start: exited, switching to rate-based")
-	}
-}
-
-// downloadPieceChunks requests all chunks of a piece from this peer.
-func (p *Peer) downloadPieceChunks(index uint32) {
-	chunkLen := int(pieceChunksCount(p.d.info, index))
-	for i := range chunkLen {
-		if p.closed.Load() {
+	for {
+		currentSize := p.myRequests.Size()
+		if currentSize >= desiredSize {
 			return
 		}
 
-		chunk := pieceChunk(p.d.info, index, i)
+		p.rqMu.Lock()
+		if len(p.requestQueue) == 0 {
+			p.rqMu.Unlock()
+			return
+		}
+		block := p.requestQueue[0]
+		p.requestQueue = p.requestQueue[1:]
+		p.rqMu.Unlock()
 
-		// in endgame mode, skip chunks already requested by other peers
-		if p.d.endGameMode.Load() {
-			if _, already := p.d.endgameRequested.Load(chunk); already {
-				continue
-			}
-			p.d.endgameRequested.Store(chunk, empty.Empty{})
+		chunk := pieceChunk(p.d.info, block.pieceIndex, block.blockIndex)
+
+		// Skip if peer is choking us (unless allowed fast)
+		if p.peerChoking.Load() && !p.allowFast.Contains(block.pieceIndex) {
+			// Put back? No, the scheduler should have filtered these.
+			// Just abort and continue.
+			p.d.picker.abortDownload(block.pieceIndex, block.blockIndex)
+			continue
 		}
 
-		// Pace chunk requests to avoid flooding slow peers.
-		// Use a fraction of the peer's advertised queue limit,
-		// clamped between the per-piece floor and the global ceiling.
-		limit := max(int(p.QueueLimit.Load())/2, 10)
-		globalLimit := min(int(p.QueueLimit.Load())-10, 300)
-		if limit > globalLimit {
-			limit = globalLimit
-		}
-		for p.myRequests.Size() >= limit {
-			select {
-			case <-p.ctx.Done():
-				return
-			case <-p.responseCond.C:
-			}
+		// Check global queue limit from the peer
+		if p.myRequests.Size() >= int(p.QueueLimit.Load())/2 {
+			// Paused: put block back to front and wait for responses
+			p.rqMu.Lock()
+			p.requestQueue = append([]pieceBlock{block}, p.requestQueue...)
+			p.rqMu.Unlock()
+			return
 		}
 
-		if !p.peerChoking.Load() {
-			p.Request(chunk)
+		p.Request(chunk)
+	}
+}
+
+// updateDesiredQueueSize computes the desired number of outstanding requests
+// based on the peer's download rate. Mirrors libtorrent's update_desired_queue_size().
+//
+// Formula: desired = queue_time * download_rate / block_size
+// Clamped between [minRequestQueue, maxRequestQueue].
+// Snubbed peers get size 1.
+func (p *Peer) updateDesiredQueueSize() int {
+	if p.snubbed.Load() {
+		return 1
+	}
+
+	if p.endgame.Load() {
+		return 1
+	}
+
+	// Rate-based: keep requestQueueTime seconds of pipeline
+	dlRate := p.pieceDownloadRate.Status().CurRate
+	queueSize := min(max(requestQueueTime*int(dlRate)/int(defaultBlockSize), minRequestQueue), maxRequestQueue)
+
+	// Also respect peer's advertised queue limit
+	peerLimit := int(p.QueueLimit.Load())
+	if peerLimit > 0 && queueSize > peerLimit {
+		queueSize = peerLimit
+	}
+
+	p.desiredQueueSize.Store(int32(queueSize))
+	return queueSize
+}
+
+// requestQueueLen returns the length of the request queue under lock.
+func (p *Peer) requestQueueLen() int {
+	p.rqMu.Lock()
+	defer p.rqMu.Unlock()
+	return len(p.requestQueue)
+}
+
+// isInQueue checks if a chunk is already in the peer's request queue or request set.
+func (p *Peer) isInQueue(chunk proto.ChunkRequest) bool {
+	if _, ok := p.myRequests.Load(chunk); ok {
+		return true
+	}
+
+	p.rqMu.Lock()
+	defer p.rqMu.Unlock()
+
+	for _, b := range p.requestQueue {
+		q := pieceChunk(p.d.info, b.pieceIndex, b.blockIndex)
+		if q == chunk {
+			return true
 		}
 	}
+
+	return false
+}
+
+// setEndgame sets whether the peer is in endgame mode.
+func (p *Peer) setEndgame(v bool) {
+	p.endgame.Store(v)
+}
+
+// isDisconnecting returns true if the peer is in the process of disconnecting.
+func (p *Peer) isDisconnecting() bool {
+	return p.disconnecting.Load()
 }
 
 func (p *Peer) checkRequestTimeouts() {
@@ -431,8 +425,24 @@ func (p *Peer) checkRequestTimeouts() {
 				p.snubbedAt.Store(now)
 				p.log.Warn().Msg("peer snubbed: request timeout")
 
-				// release requested pieces so other peers can pick them up
-				p.Requested.Clear()
+				// abort all pending downloads so other peers can pick them up
+				p.myRequests.Range(func(req proto.ChunkRequest, _ time.Time) bool {
+					bi := int(req.Begin / uint32(defaultBlockSize))
+					p.d.picker.abortDownload(req.PieceIndex, bi)
+					return true
+				})
+
+				// Clear myRequests — entries are now stale and would
+				// inflate Size() preventing new requests.
+				p.myRequests.Range(func(req proto.ChunkRequest, _ time.Time) bool {
+					p.myRequests.Delete(req)
+					return true
+				})
+
+				// Clear requestQueue — stale blocks would be resent on un-snub.
+				p.rqMu.Lock()
+				p.requestQueue = p.requestQueue[:0]
+				p.rqMu.Unlock()
 
 				// trigger reschedule
 				select {
@@ -522,6 +532,15 @@ func (p *Peer) start(skipHandshake bool) {
 		return
 	}
 
+	// Register in persistent peer list for reconnect/backoff tracking.
+	if p.Incoming {
+		if p.d.peerList.addOrUpdateIncoming(p.Address, time.Now().Unix(), p) {
+			// Duplicate — another connection to this addr exists.
+			p.close()
+			return
+		}
+	}
+
 	go p.ourRequestHandle()
 	go p.checkRequestTimeouts()
 
@@ -546,6 +565,10 @@ func (p *Peer) start(skipHandshake bool) {
 		switch event.Event {
 		case proto.Bitfield:
 			p.Bitmap.OR(event.Bitmap)
+			// Update picker: increment refcount for each piece the peer has
+			event.Bitmap.Range(func(u uint32) {
+				p.d.picker.incRefcount(u)
+			})
 			if !p.isSeed.Load() && p.Bitmap.Count() == p.d.info.NumPieces {
 				p.isSeed.Store(true)
 			}
@@ -556,6 +579,7 @@ func (p *Peer) start(skipHandshake bool) {
 			}
 
 			p.Bitmap.Set(event.Index)
+			p.d.picker.incRefcount(event.Index)
 			if !p.isSeed.Load() && p.Bitmap.Count() == p.d.info.NumPieces {
 				p.isSeed.Store(true)
 			}
@@ -583,9 +607,7 @@ func (p *Peer) start(skipHandshake bool) {
 
 			if p.snubbed.Load() {
 				p.snubbed.Store(false)
-				p.slowStart.Store(true)
 				p.desiredQueueSize.Store(1)
-				p.lastRate.Store(0)
 				p.log.Info().Msg("peer un-snubbed: responding again")
 			}
 
@@ -636,14 +658,27 @@ func (p *Peer) start(skipHandshake bool) {
 
 			if event.ExtensionID == p.extDontHaveID.Load() {
 				p.Bitmap.Unset(event.Index)
+				p.d.picker.decRefcount(event.Index)
 				continue
 			}
 
 			continue
 		case proto.HaveAll:
+			// Decrement old pieces before replacing bitmap with full set
+			p.Bitmap.Range(func(u uint32) {
+				p.d.picker.decRefcount(u)
+			})
 			p.Bitmap.Fill()
+			// Increment refcount for all pieces the peer now has
+			for i := range p.d.info.NumPieces {
+				p.d.picker.incRefcount(i)
+			}
 			p.isSeed.Store(true)
 		case proto.HaveNone:
+			// Decrement old pieces before clearing
+			p.Bitmap.Range(func(u uint32) {
+				p.d.picker.decRefcount(u)
+			})
 			p.Bitmap.Clear()
 		case proto.Cancel:
 			p.peerRequests.Delete(event.Req)
@@ -651,6 +686,21 @@ func (p *Peer) start(skipHandshake bool) {
 			p.log.Trace().Msgf("reject %+v", event.Req)
 			p.Rejected.Store(event.Req, empty.Empty{})
 			p.myRequests.Delete(event.Req)
+
+			// Abort in the picker so other peers can request this block.
+			bi := int(event.Req.Begin / uint32(defaultBlockSize))
+			p.d.picker.abortDownload(event.Req.PieceIndex, bi)
+
+			// Remove matching entry from requestQueue if present.
+			p.rqMu.Lock()
+			for i, b := range p.requestQueue {
+				if b.pieceIndex == event.Req.PieceIndex &&
+					int(event.Req.Begin/uint32(defaultBlockSize)) == b.blockIndex {
+					p.requestQueue = append(p.requestQueue[:i], p.requestQueue[i+1:]...)
+					break
+				}
+			}
+			p.rqMu.Unlock()
 		case proto.AllowedFast:
 			if event.Index >= p.d.info.NumPieces {
 				p.log.Debug().Uint32("index", event.Index).Msg("peer send 'AllowedFast' message with invalid index")
@@ -766,14 +816,11 @@ func (p *Peer) resIsValid(res *proto.ChunkResponse) bool {
 	}
 
 	reqTime, ok := p.myRequests.LoadAndDelete(r)
-
-	dur := time.Since(reqTime)
-
-	p.rttMutex.Lock()
-
-	p.rttAverage.Push(dur)
-
-	p.rttMutex.Unlock()
+	if ok {
+		p.rttMutex.Lock()
+		p.rttAverage.Push(time.Since(reqTime))
+		p.rttMutex.Unlock()
+	}
 
 	return ok
 }
