@@ -242,6 +242,10 @@ loop:
 // We run a fixed workload (total N bytes) through M goroutines and verify
 // it completes in the expected time.
 func TestNoTokenLeak(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping long-running leak test in short mode")
+	}
+
 	tests := []struct {
 		name       string
 		rate       int64
@@ -307,6 +311,10 @@ func TestNoTokenLeak(t *testing.T) {
 // TestSmallBlocksAccuracy tests the limiter with very small block sizes,
 // which can expose precision issues.
 func TestSmallBlocksAccuracy(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping small-block accuracy test in short mode")
+	}
+
 	rate := int64(100_000) // 100 KB/s
 	l := New(rate)
 

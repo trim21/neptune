@@ -136,6 +136,10 @@ func testFairness(t *testing.T, rate int64, numGoroutines int) {
 // TestRefillOverwrite demonstrates the issue where refill updates l.last,
 // causing subsequent refills by other goroutines to miss time.
 func TestRefillOverwrite(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping refill-overwrite demonstration in short mode")
+	}
+
 	l := New(1000) // 1 KB/s
 
 	// Deplete burst.
