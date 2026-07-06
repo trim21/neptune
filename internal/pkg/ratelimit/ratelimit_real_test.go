@@ -6,9 +6,10 @@ package ratelimit
 import (
 	"context"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
+
+	"go.uber.org/atomic"
 )
 
 // TestThroughputSteadyState simulates multiple concurrent goroutines
@@ -20,12 +21,12 @@ func TestThroughputSteadyState(t *testing.T) {
 	}
 
 	tests := []struct {
-		name          string
-		rate          int64 // bytes per second
-		goroutines    int   // concurrent workers
-		blockSize     int   // bytes per Wait call
-		duration      time.Duration
-		tolerance     float64 // allowed deviation from target rate
+		name       string
+		rate       int64 // bytes per second
+		goroutines int   // concurrent workers
+		blockSize  int   // bytes per Wait call
+		duration   time.Duration
+		tolerance  float64 // allowed deviation from target rate
 	}{
 		{"1MB_2goroutines_16KB", 1_000_000, 2, 16 * 1024, 5 * time.Second, 0.15},
 		{"1MB_4goroutines_16KB", 1_000_000, 4, 16 * 1024, 5 * time.Second, 0.15},
@@ -64,9 +65,7 @@ func TestThroughputSteadyState(t *testing.T) {
 			start := time.Now()
 
 			for range tt.goroutines {
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
+				wg.Go(func() {
 					for ctx.Err() == nil {
 						blockSize := tt.blockSize
 						if blockSize == 0 {
@@ -78,7 +77,7 @@ func TestThroughputSteadyState(t *testing.T) {
 						}
 						totalBytes.Add(int64(blockSize))
 					}
-				}()
+				})
 			}
 
 			// Wait for the measurement duration.
@@ -185,16 +184,14 @@ func TestConcurrentUpdateDrain(t *testing.T) {
 
 	// Start 4 download goroutines.
 	for range 4 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for ctx.Err() == nil {
 				if err := l.Wait(ctx, 16*1024); err != nil {
 					return
 				}
 				totalBytes.Add(16 * 1024)
 			}
-		}()
+		})
 	}
 
 	// Periodically change the rate to verify no token loss.
@@ -275,9 +272,7 @@ func TestNoTokenLeak(t *testing.T) {
 			var wg sync.WaitGroup
 
 			for range tt.goroutines {
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
+				wg.Go(func() {
 					for {
 						n := remaining.Add(-int64(tt.blockSize))
 						if n < 0 {
@@ -287,7 +282,7 @@ func TestNoTokenLeak(t *testing.T) {
 						}
 						_ = l.Wait(ctx, tt.blockSize)
 					}
-				}()
+				})
 			}
 
 			wg.Wait()
@@ -331,7 +326,7 @@ func TestSmallBlocksAccuracy(t *testing.T) {
 	start := time.Now()
 	ctx := context.Background()
 
-	for i := 0; i < totalBytes/blockSize; i++ {
+	for range totalBytes / blockSize {
 		if err := l.Wait(ctx, blockSize); err != nil {
 			t.Fatal(err)
 		}
@@ -440,9 +435,7 @@ func TestLargeNumberOfConcurrentGoroutines(t *testing.T) {
 	start := time.Now()
 
 	for range numGoroutines {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for ctx.Err() == nil {
 				// Vary block sizes.
 				blockSize := 4*1024 + int(time.Now().UnixNano()%int64(28*1024))
@@ -451,7 +444,7 @@ func TestLargeNumberOfConcurrentGoroutines(t *testing.T) {
 				}
 				totalBytes.Add(int64(blockSize))
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -467,5 +460,3 @@ func TestLargeNumberOfConcurrentGoroutines(t *testing.T) {
 		t.Errorf("unexpected throughput with 50 goroutines: ratio=%.3f", ratio)
 	}
 }
-
-

@@ -9,9 +9,10 @@ import (
 	"math"
 	"runtime"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
+
+	"go.uber.org/atomic"
 )
 
 // TestFairnessDetailed investigates the token distribution fairness among
@@ -41,8 +42,7 @@ func testFairness(t *testing.T, rate int64, numGoroutines int) {
 		t.Fatal(err)
 	}
 
-	var perGoroutineBytes []atomic.Int64
-	perGoroutineBytes = make([]atomic.Int64, numGoroutines)
+	var perGoroutineBytes = make([]atomic.Int64, numGoroutines)
 
 	// Use a longer duration to get stable results.
 	duration := 5 * time.Second
