@@ -522,15 +522,11 @@ func (c *Client) DebugHandlers() http.Handler {
 		debugPrintPeers(w, d)
 
 		if r.URL.Query().Get("mode") == "full" {
-			_, _ = fmt.Fprintln(w, d.bm.String())
-
-			_, _ = fmt.Fprintln(w, "\nmissing pieces")
-
+			// Show compressed piece ranges: have and missing.
+			writePieceRanges(w, "have", d.bm)
 			missing := bm.New(d.info.NumPieces)
-
 			missing.Fill()
-
-			_, _ = fmt.Fprintln(w, missing.WithAndNot(d.bm).String())
+			writePieceRanges(w, "missing", missing.WithAndNot(d.bm))
 		}
 
 		debugPrintPendingPeers(w, d)
@@ -613,5 +609,59 @@ func debugPrintPendingPeers(w io.Writer, d *Download) {
 	}
 
 	_, _ = io.WriteString(w, t.Render())
+	_, _ = fmt.Fprintln(w)
+}
+
+// writePieceRanges writes compressed piece ranges like "0-5726" instead of listing each piece.
+func writePieceRanges(w io.Writer, label string, bits *bm.Bitmap) {
+	count := bits.Count()
+	fmt.Fprintf(w, "%s: %d pieces\n", label, count)
+
+	if count == 0 {
+		return
+	}
+
+	var (
+		rangeStart uint32
+		rangeEnd   uint32
+		first      = true
+		inRange    bool
+	)
+
+	bits.Range(func(x uint32) {
+		if !inRange {
+			rangeStart = x
+			rangeEnd = x
+			inRange = true
+			return
+		}
+		if x == rangeEnd+1 {
+			rangeEnd = x
+		} else {
+			if !first {
+				_, _ = fmt.Fprint(w, ", ")
+			}
+			first = false
+			if rangeStart == rangeEnd {
+				fmt.Fprintf(w, "%d", rangeStart)
+			} else {
+				fmt.Fprintf(w, "%d-%d", rangeStart, rangeEnd)
+			}
+			rangeStart = x
+			rangeEnd = x
+		}
+	})
+
+	// flush last range
+	if inRange {
+		if !first {
+			_, _ = fmt.Fprint(w, ", ")
+		}
+		if rangeStart == rangeEnd {
+			fmt.Fprintf(w, "%d", rangeStart)
+		} else {
+			fmt.Fprintf(w, "%d-%d", rangeStart, rangeEnd)
+		}
+	}
 	_, _ = fmt.Fprintln(w)
 }
