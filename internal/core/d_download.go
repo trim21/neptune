@@ -141,7 +141,7 @@ func (d *Download) handleRes(res *proto.ChunkResponse) {
 		piecePiStart := res.Begin/defaultBlockSize + res.PieceIndex*d.normalChunkLen
 		piecePiEnd := piecePiStart + uint32(pieceChunksCount(d.info, res.PieceIndex))
 		for i := piecePiStart; i < piecePiEnd; i++ {
-			if !d.chunk.pending.Contains(c.pi) {
+			if !d.chunk.pending.Contains(i) {
 				return
 			}
 		}
