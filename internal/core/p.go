@@ -573,6 +573,11 @@ func (p *Peer) start(skipHandshake bool) {
 			if !p.isSeed.Load() && p.Bitmap.Count() == p.d.info.NumPieces {
 				p.isSeed.Store(true)
 			}
+			// Ask scheduler to request blocks now that we know what this peer has.
+			select {
+			case p.d.scheduleRequestSignal <- empty.Empty{}:
+			default:
+			}
 		case proto.Have:
 			if event.Index >= p.d.info.NumPieces {
 				p.log.Debug().Uint32("index", event.Index).Msg("peer send 'Have' message with invalid index")
@@ -583,6 +588,10 @@ func (p *Peer) start(skipHandshake bool) {
 			p.d.picker.incRefcount(event.Index)
 			if !p.isSeed.Load() && p.Bitmap.Count() == p.d.info.NumPieces {
 				p.isSeed.Store(true)
+			}
+			select {
+			case p.d.scheduleRequestSignal <- empty.Empty{}:
+			default:
 			}
 		case proto.Interested:
 			p.peerInterested.Store(true)
@@ -683,6 +692,10 @@ func (p *Peer) start(skipHandshake bool) {
 				p.d.picker.incRefcount(i)
 			}
 			p.isSeed.Store(true)
+			select {
+			case p.d.scheduleRequestSignal <- empty.Empty{}:
+			default:
+			}
 		case proto.HaveNone:
 			// Decrement old pieces before clearing
 			p.Bitmap.Range(func(u uint32) {
