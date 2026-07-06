@@ -44,15 +44,19 @@ func (d *Download) recalculateUnchokeSlots() {
 		if p.closed.Load() {
 			return true
 		}
-		if p.peerInterested.Load() {
+		// A peer is eligible for unchoking if:
+		// - it is interested in us (wants our data), OR
+		// - we are interested in it AND it is unchoking us (tit-for-tat reciprocation)
+		eligible := p.peerInterested.Load() || (!p.peerChoking.Load() && p.ourInterested.Load())
+		if eligible {
 			candidates = append(candidates, peerRate{
 				peer: p,
 				rate: p.pieceUploadRate.Status().CurRate,
 			})
 		}
-		if !p.peerInterested.Load() || p.snubbed.Load() {
-			// choke peers that are not interested or snubbed
-			if !p.ourChoking.CompareAndSwap(false, true) {
+		if !eligible || p.snubbed.Load() {
+			// choke peers that are not eligible or snubbed
+			if p.ourChoking.CompareAndSwap(false, true) {
 				go p.sendEventX(Event{Event: proto.Choke})
 			}
 		}

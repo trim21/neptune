@@ -356,8 +356,15 @@ func (p *Peer) downloadPieceChunks(index uint32) {
 			p.d.endgameRequested.Store(chunk, empty.Empty{})
 		}
 
-		// wait if peer's request queue is full
-		for p.myRequests.Size() >= min(int(p.QueueLimit.Load())-10, 300) {
+		// Pace chunk requests to avoid flooding slow peers.
+		// Use a fraction of the peer's advertised queue limit,
+		// clamped between the per-piece floor and the global ceiling.
+		limit := max(int(p.QueueLimit.Load())/2, 10)
+		globalLimit := min(int(p.QueueLimit.Load())-10, 300)
+		if limit > globalLimit {
+			limit = globalLimit
+		}
+		for p.myRequests.Size() >= limit {
 			select {
 			case <-p.ctx.Done():
 				return
