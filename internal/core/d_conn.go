@@ -42,9 +42,12 @@ func (d *Download) connectToPeers(maxSlots int) int {
 
 		for _, candidate := range candidates {
 			if _, ok := d.connectedAddrs.Load(candidate.addrPort); ok {
+				d.peerList.clearDialing(candidate)
 				continue
 			}
 			if !d.c.sem.TryAcquire(1) {
+				// Semaphore full — clear dialing for this and remaining candidates.
+				d.peerList.clearDialing(candidate)
 				return connected
 			}
 			d.c.connectionCount.Add(1)

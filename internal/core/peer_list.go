@@ -464,6 +464,14 @@ func (pl *peerList) connectPeers(sessionTime int64, n int) []*persistentPeer {
 	return result
 }
 
+// clearDialing clears the dialing flag for a peer. Called when a candidate is
+// skipped (already connected or semaphore full) and won't actually be dialed.
+func (pl *peerList) clearDialing(p *persistentPeer) {
+	pl.mu.Lock()
+	p.dialing = false
+	pl.mu.Unlock()
+}
+
 // incFailcount increments a peer's failcount. Called when a connection attempt fails.
 func (pl *peerList) incFailcount(p *persistentPeer, errStr string) {
 	pl.mu.Lock()
