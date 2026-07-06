@@ -75,8 +75,8 @@ func New(cfg config.Config, sessionPath string, debug bool) *Client {
 
 		filePool: filepool.New(),
 
-		pieceUploadRate:   flowrate.New(time.Second, time.Second),
-		pieceDownloadRate: flowrate.New(time.Second, time.Second),
+		pieceUploadRate:   flowrate.New(time.Second, 5*time.Second),
+		pieceDownloadRate: flowrate.New(time.Second, 5*time.Second),
 
 		downloadLimiter: ratelimit.New(cfg.App.GlobalDownloadSpeedLimit),
 		uploadLimiter:   ratelimit.New(cfg.App.GlobalUploadSpeedLimit),

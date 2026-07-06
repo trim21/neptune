@@ -231,9 +231,9 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 
 		ResChan: make(chan *proto.ChunkResponse, 1),
 
-		pieceDownloadRate: flowrate.New(time.Second, time.Second),
-		ioDownloadRate:    flowrate.New(time.Second, time.Second),
-		pieceUploadRate:   flowrate.New(time.Second, time.Second),
+		pieceDownloadRate: flowrate.New(time.Second, 5*time.Second),
+		ioDownloadRate:    flowrate.New(time.Second, 5*time.Second),
+		pieceUploadRate:   flowrate.New(time.Second, 5*time.Second),
 
 		peers:    xsync.NewMap[netip.AddrPort, *Peer](),
 		peerList: newPeerList(nil), // d set below

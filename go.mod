@@ -14,7 +14,6 @@ require (
 	github.com/go-resty/resty/v2 v2.17.2
 	github.com/gofrs/flock v0.13.0
 	github.com/hashicorp/golang-lru/v2 v2.0.7
-	github.com/jedib0t/go-pretty/v6 v6.8.2
 	github.com/juju/ratelimit v1.0.2
 	github.com/kelindar/bitmap v1.5.5
 	github.com/panjf2000/ants/v2 v2.12.1
@@ -48,7 +47,6 @@ require (
 	github.com/bytedance/gopkg v0.1.4 // indirect
 	github.com/bytedance/sonic/loader v0.5.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
 	github.com/cloudwego/base64x v0.1.7 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/fsnotify/fsnotify v1.10.1 // indirect
@@ -62,7 +60,6 @@ require (
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
 	github.com/mattn/go-isatty v0.0.22 // indirect
-	github.com/mattn/go-runewidth v0.0.24 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
