@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -283,9 +282,9 @@ func (c *Client) GetTorrentPeers(h metainfo.Hash) []APIPeers {
 
 	var results = make([]APIPeers, 0, d.peers.Size())
 
-	d.peers.Range(func(addr netip.AddrPort, p *Peer) bool {
+	d.peers.Range(func(_ uint64, p *Peer) bool {
 		results = append(results, APIPeers{
-			Address:      addr.String(),
+			Address:      p.Address.String(),
 			Client:       lo.FromPtrOr(p.UserAgent.Load(), ""),
 			Progress:     float64(p.Bitmap.Count()) / float64(d.info.NumPieces),
 			DownloadRate: p.pieceDownloadRate.Status().CurRate,
@@ -417,7 +416,7 @@ func (c *Client) RemoveTorrent(h metainfo.Hash, removeData bool) error {
 
 	d.backgroundWg.Wait()
 
-	d.peers.Range(func(key netip.AddrPort, p *Peer) bool {
+	d.peers.Range(func(_ uint64, p *Peer) bool {
 		p.close()
 		return true
 	})

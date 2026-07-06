@@ -43,7 +43,7 @@ func (d *Download) connectToPeers(maxSlots int) int {
 		}
 
 		// Check if already connected
-		if _, ok := d.peers.Load(candidate.addrPort); ok {
+		if _, ok := d.connectedAddrs.Load(candidate.addrPort); ok {
 			continue
 		}
 
@@ -91,24 +91,26 @@ func (d *Download) tryDial(pp *persistentPeer) {
 	d.peerList.newConnection(pp.addrPort, p, time.Now().Unix())
 }
 
-// recordDisconnect is called by Peer.close() to update the peer list.
-func (d *Download) recordDisconnect(addr netip.AddrPort, hadTrans bool, err error) {
-	failed := err != nil &&
-		!errors.Is(err, io.EOF) &&
-		!errors.Is(err, context.Canceled)
+// recordDisconnect is called by Peer.close() to update shared peer tracking.
+// It only acts if p is the primary peer for its address (registered in connectedAddrs).
+func (d *Download) recordDisconnect(p *Peer) {
+	if actual, ok := d.connectedAddrs.Load(p.Address); !ok || actual != p {
+		return
+	}
+	d.connectedAddrs.Delete(p.Address)
 
-	d.peerList.connectionClosed(addr, time.Now().Unix(), hadTrans, failed)
+	failed := p.closeErr != nil &&
+		!errors.Is(p.closeErr, io.EOF) &&
+		!errors.Is(p.closeErr, context.Canceled)
+
+	d.peerList.connectionClosed(p.Address, time.Now().Unix(), p.hadTransfer, failed)
 }
 
 // peerTurnover disconnects slow peers to make room for fresh candidates.
 // Mirrors libtorrent's optimistic disconnect (~2% per round).
 func (d *Download) peerTurnover() {
 	const turnoverFraction = 50 // 1/50 = 2%
-	peerCount := 0
-	d.peers.Range(func(_ netip.AddrPort, _ *Peer) bool {
-		peerCount++
-		return true
-	})
+	peerCount := d.peers.Size()
 	if peerCount == 0 {
 		return
 	}

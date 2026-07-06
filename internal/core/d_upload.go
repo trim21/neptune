@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"math/rand/v2"
-	"net/netip"
 	"slices"
 	"sort"
 	"time"
@@ -89,7 +88,7 @@ func (d *Download) recalculateUnchokeSlots() {
 
 	var candidates []candidate
 
-	d.peers.Range(func(addr netip.AddrPort, p *Peer) bool {
+	d.peers.Range(func(_ uint64, p *Peer) bool {
 		if p.closed.Load() {
 			return true
 		}
@@ -231,7 +230,7 @@ func (d *Download) onPeerInterested(p *Peer) {
 
 	// Count currently unchoked peers.
 	unchoked := 0
-	d.peers.Range(func(addr netip.AddrPort, p2 *Peer) bool {
+	d.peers.Range(func(_ uint64, p2 *Peer) bool {
 		if !p2.closed.Load() && !p2.ourChoking.Load() {
 			unchoked++
 		}
@@ -283,7 +282,7 @@ func (d *Download) backgroundReqHandler() {
 			clear(requestsByPiece)
 
 			considered := 0
-			d.peers.Range(func(addr netip.AddrPort, p *Peer) bool {
+			d.peers.Range(func(_ uint64, p *Peer) bool {
 				if considered >= maxRequestsToConsiderPerWake {
 					return false
 				}

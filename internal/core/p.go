@@ -86,7 +86,7 @@ func newPeer(
 		pieceUploadRate:   flowrate.New(time.Second, 5*time.Second),
 		pieceDownloadRate: flowrate.New(time.Second, 5*time.Second),
 		Address:           addr,
-		id:                d.c.peerIDCounter.Add(1),
+		id:                d.peerIDCounter.Add(1),
 		QueueLimit:        *atomic.NewUint32(2000),
 		Incoming:          skipReadHandshake,
 
@@ -175,7 +175,7 @@ type Peer struct {
 	rqMu              sync.Mutex
 	extDontHaveID     gsync.AtomicUint[proto.ExtensionMessage]
 	extPexID          gsync.AtomicUint[proto.ExtensionMessage]
-	id                uint32
+	id                uint64
 	writeBuf          [4]byte
 	readBuf           [4]byte
 	Incoming          bool
@@ -230,6 +230,7 @@ func (p *Peer) close() {
 
 		// Decrement picker refcount for all pieces this peer had,
 		// and abort any blocks we had requested from this peer.
+		// These operate on p's own data; always safe.
 		p.Bitmap.Range(func(u uint32) {
 			p.d.picker.decRefcount(u)
 		})
@@ -239,13 +240,17 @@ func (p *Peer) close() {
 			return true
 		})
 
-		// Record disconnect reason for future retry decisions.
-		// Only record for outgoing peers; incoming peers don't need retry logic.
-		p.d.recordDisconnect(p.Address, p.hadTransfer, p.closeErr)
+		// Shared state cleanup: recordDisconnect checks whether we are the
+		// primary peer (in connectedAddrs) and only then updates peerList.
+		p.d.recordDisconnect(p)
 
-		p.d.peers.Delete(p.Address)
+		// peers map: keyed by unique peer ID, safe to always delete.
+		p.d.peers.Delete(p.id)
+
+		// Per-connection resources: we own one slot acquired before peer creation.
 		p.d.c.sem.Release(1)
 		p.d.c.connectionCount.Sub(1)
+
 		p.cancel()
 		_ = p.Conn.Close()
 		p.d.buildNetworkPieces <- empty.Empty{}
@@ -493,17 +498,25 @@ func (p *Peer) start(skipHandshake bool) {
 		}
 	}()
 
-	// make it visible to download
-	_, loaded := p.d.peers.LoadOrStore(p.Address, p)
+	// Register in peers map by unique ID (never collides).
+	p.d.peers.Store(p.id, p)
+
+	// Address dedup: ensure only one peer per address.
+	actual, loaded := p.d.connectedAddrs.LoadOrStore(p.Address, p)
 	if loaded {
-		// connected peers, just ignore
+		// Another peer already owns this address. We lost the race.
+		// defer close() handles cleanup; it will see we are not in connectedAddrs
+		// and skip shared-state cleanup.
+		p.log.Trace().Uint64("existing_peer_id", actual.id).Msg("duplicate connection, closing")
 		return
 	}
 
 	// Register in persistent peer list for reconnect/backoff tracking.
 	if p.Incoming {
 		if p.d.peerList.addOrUpdateIncoming(p.Address, time.Now().Unix(), p) {
-			// Duplicate — another connection to this addr exists.
+			// peerList already has a connection for this address.
+			// We need to back out; close() will clean up shared state
+			// because we are the primary in connectedAddrs.
 			p.close()
 			return
 		}

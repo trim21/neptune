@@ -108,19 +108,21 @@ func validTransition(from, to State) bool {
 type Download struct {
 	log                    zerolog.Logger
 	ctx                    context.Context
-	selectedPiecesBm       *bm.Bitmap
-	stateCond              *gsync.Cond
+	corruptedPieces        map[uint32]int
+	downloadLimiter        *ratelimit.Limiter
 	c                      *Client
 	pieceDownloadRate      *flowrate.Monitor
 	ioDownloadRate         *flowrate.Monitor
 	pieceUploadRate        *flowrate.Monitor
 	ResChan                chan *proto.ChunkResponse
-	downloadLimiter        *ratelimit.Limiter
+	selectedPiecesBm       *bm.Bitmap
 	uploadLimiter          *ratelimit.Limiter
-	peers                  *xsync.Map[netip.AddrPort, *Peer]
-	peerList               *peerList // persistent peer list (libtorrent-style)
+	peers                  *xsync.Map[uint64, *Peer]
+	connectedAddrs         *xsync.Map[netip.AddrPort, *Peer]
+	stateCond              *gsync.Cond
+	peerList               *peerList
 	bm                     *bm.Bitmap
-	picker                 *piecePicker // global block-level piece picker (libtorrent-style)
+	picker                 *piecePicker
 	err                    atomic.Pointer[error]
 	cancel                 context.CancelFunc
 	scheduleRequestSignal  chan empty.Empty
@@ -132,7 +134,6 @@ type Download struct {
 	selectedFilesSet       map[int]struct{}
 	custom                 map[string]string
 	Trk                    *tracker.Trackers
-	corruptedPieces        map[uint32]int
 	downloadDir            string
 	basePath               string
 	pieceInfo              pieceInfo
@@ -140,21 +141,22 @@ type Download struct {
 	chunk                  chunkState
 	info                   meta.Info
 	backgroundWg           sync.WaitGroup
-	peerSeeds              atomic.Int64
+	completed              atomic.Int64
+	CompletedAt            atomic.Int64
 	state                  atomic.Uint32
 	downloaded             atomic.Int64
 	corrupted              atomic.Int64
 	uploaded               atomic.Int64
+	peerIDCounter          atomic.Uint64
 	uploadAtStart          int64
-	downloadAtStart        int64
-	endGameMode            atomic.Bool
+	unchokeSlotIdx         int
 	AddAt                  int64
 	peerLeechers           atomic.Int64
-	CompletedAt            atomic.Int64
-	completed              atomic.Int64
+	peerSeeds              atomic.Int64
+	downloadAtStart        int64
 	selectedSize           atomic.Int64
-	unchokeSlotIdx         int
-	unchokeCycleOffset     int // rotating offset for slot cycling
+	endGameMode            atomic.Bool
+	unchokeCycleOffset     int
 	m                      sync.RWMutex
 	corruptedPiecesMu      sync.Mutex
 	normalChunkLen         uint32
@@ -235,8 +237,9 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 		ioDownloadRate:    flowrate.New(time.Second, 5*time.Second),
 		pieceUploadRate:   flowrate.New(time.Second, 5*time.Second),
 
-		peers:    xsync.NewMap[netip.AddrPort, *Peer](),
-		peerList: newPeerList(nil), // d set below
+		peers:          xsync.NewMap[uint64, *Peer](),
+		connectedAddrs: xsync.NewMap[netip.AddrPort, *Peer](),
+		peerList:       newPeerList(nil), // d set below
 
 		picker: newPiecePicker(info),
 
@@ -416,7 +419,7 @@ func (d *Download) peerSeedLeecherCounts() (seeds, leechers int) {
 // recalcPeerCounts iterates all connected peers and refreshes the cached seed/leecher counters.
 func (d *Download) recalcPeerCounts() {
 	var seeds, leechers int64
-	d.peers.Range(func(_ netip.AddrPort, p *Peer) bool {
+	d.peers.Range(func(_ uint64, p *Peer) bool {
 		if p.isSeed.Load() {
 			seeds++
 		} else {

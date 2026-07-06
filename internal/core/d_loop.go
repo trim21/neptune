@@ -4,7 +4,6 @@
 package core
 
 import (
-	"net/netip"
 	"os"
 	"path/filepath"
 	"time"
@@ -197,7 +196,7 @@ func (d *Download) goBackground(fn func()) {
 
 func (d *Download) optimisticUnchoke() {
 	var peers []*Peer
-	d.peers.Range(func(addr netip.AddrPort, p *Peer) bool {
+	d.peers.Range(func(_ uint64, p *Peer) bool {
 		if !p.closed.Load() && !p.snubbed.Load() {
 			peers = append(peers, p)
 		}
@@ -304,10 +303,5 @@ func (d *Download) maxConnections() int {
 
 // peerCount returns the number of currently connected peers.
 func (d *Download) peerCount() int {
-	count := 0
-	d.peers.Range(func(_ netip.AddrPort, _ *Peer) bool {
-		count++
-		return true
-	})
-	return count
+	return d.peers.Size()
 }

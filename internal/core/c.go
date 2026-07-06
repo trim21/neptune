@@ -147,7 +147,6 @@ type Client struct {
 	checkQueue        []metainfo.Hash
 	randKey           []byte
 	Config            config.Config
-	peerIDCounter     atomic.Uint32
 	connectionCount   atomic.Uint32
 	m                 sync.RWMutex
 	debug             bool

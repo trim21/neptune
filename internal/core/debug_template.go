@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"html/template"
 	"io"
-	"net/netip"
 	"net/url"
 	"path/filepath"
 	"slices"
@@ -167,9 +166,9 @@ func buildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 
 	// Peers
 	var peers []debugPeer
-	d.peers.Range(func(addr netip.AddrPort, p *Peer) bool {
+	d.peers.Range(func(_ uint64, p *Peer) bool {
 		peers = append(peers, debugPeer{
-			Address:      addr.String(),
+			Address:      p.Address.String(),
 			DownRate:     humanize.IBytes(uint64(p.pieceDownloadRate.Status().CurRate)) + "/s",
 			UpRate:       humanize.IBytes(uint64(p.pieceUploadRate.Status().CurRate)) + "/s",
 			OurReq:       p.myRequests.Size(),
@@ -193,7 +192,7 @@ func buildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 	// Peer rate & total vs download
 	var peerTotalCurRate int64
 	var peerTotalBytes int64
-	d.peers.Range(func(addr netip.AddrPort, p *Peer) bool {
+	d.peers.Range(func(_ uint64, p *Peer) bool {
 		s := p.pieceDownloadRate.Status()
 		peerTotalCurRate += s.CurRate
 		peerTotalBytes += s.Total

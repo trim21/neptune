@@ -6,7 +6,6 @@ package core
 import (
 	"crypto/sha1"
 	"io"
-	"net/netip"
 	"slices"
 	"time"
 
@@ -48,7 +47,7 @@ func (d *Download) backgroundReqScheduler() {
 		}
 
 		// Iterate peers and request blocks for each
-		d.peers.Range(func(addr netip.AddrPort, p *Peer) bool {
+		d.peers.Range(func(_ uint64, p *Peer) bool {
 			if p.closed.Load() {
 				return true
 			}
@@ -60,7 +59,7 @@ func (d *Download) backgroundReqScheduler() {
 
 func (d *Download) have(index uint32) {
 	tasks.Submit(func() {
-		d.peers.Range(func(addr netip.AddrPort, p *Peer) bool {
+		d.peers.Range(func(_ uint64, p *Peer) bool {
 			p.Have(index)
 			return true
 		})
@@ -465,7 +464,7 @@ func (d *Download) checkDone() {
 	d.CompletedAt.Store(time.Now().Unix())
 	d.pieceDownloadRate.Reset()
 
-	d.peers.Range(func(addr netip.AddrPort, p *Peer) bool {
+	d.peers.Range(func(_ uint64, p *Peer) bool {
 		if p.Bitmap.Count() == d.info.NumPieces {
 			p.close()
 		}
