@@ -98,7 +98,7 @@ async function reannounce(e) {
 <tr><th>Address</th><th>Down Rate</th><th>Up Rate</th><th class="num">Our Req</th><th class="num">Req Q</th><th class="num">DesiredQ</th>
     <th>Client</th><th class="num">Progress</th>
     <th>Snubbed</th><th>Peer Choke</th><th>Peer Interest</th><th>Our Choke</th><th>Our Interest</th>
-    <th>Fast</th><th class="num">Peer Req</th><th>Peer ID</th></tr>
+    <th>Fast</th><th class="num">Peer Req</th><th>Last Pick</th><th>Peer ID</th></tr>
 {{range .Peers}}<tr>
   <td>{{.Address}}</td>
   <td>{{.DownRate}}</td>
@@ -115,12 +115,30 @@ async function reannounce(e) {
   <td>{{.OurInterest}}</td>
   <td>{{.Fast}}</td>
   <td class="num">{{.PeerReq}}</td>
+  <td>{{.LastPick}}</td>
   <td>{{.PeerID}}</td>
 </tr>
 {{end}}</table>
 
 <h2>Picker</h2>
 <pre>{{.PickerText}}</pre>
+
+{{if .DownloadingPieces}}
+<h3>Downloading Pieces (top {{len .DownloadingPieces}})</h3>
+<table>
+<tr><th class="num">Piece</th><th class="num">Blocks</th><th class="num">Free</th><th class="num">Req</th><th class="num">Writing</th><th class="num">Done</th><th>Hash</th><th>Locked</th></tr>
+{{range .DownloadingPieces}}<tr>
+  <td class="num">{{.Index}}</td>
+  <td class="num">{{.Blocks}}</td>
+  <td class="num">{{.Free}}</td>
+  <td class="num">{{.Requested}}</td>
+  <td class="num">{{.Writing}}</td>
+  <td class="num">{{.Finished}}</td>
+  <td>{{.HashPassed}}</td>
+  <td>{{.Locked}}</td>
+</tr>
+{{end}}</table>
+{{end}}
 
 {{if .FullMode}}
 <h2>Files</h2>

@@ -30,24 +30,25 @@ var debugTemplateFS embed.FS
 var debugTmpl = template.Must(template.ParseFS(debugTemplateFS, "debug.html"))
 
 type debugPageData struct {
-	InfoHash      string
-	Name          string
-	DownloadRate  string
-	NetRate       string
-	UploadRate    string
-	Progress      string
-	Downloaded    string
-	Completed     string
-	Waste         string
-	Corrupted     string
-	FailingPieces []debugFailingPiece
-	Trackers      []debugTracker
-	Peers         []debugPeer
-	PickerText    string
-	Files         []debugFile
-	PieceRanges   []debugPieceRange
-	PendingPeers  []debugPendingPeer
-	FullMode      bool
+	InfoHash          string
+	Name              string
+	DownloadRate      string
+	NetRate           string
+	UploadRate        string
+	Progress          string
+	Downloaded        string
+	Completed         string
+	Waste             string
+	Corrupted         string
+	FailingPieces     []debugFailingPiece
+	Trackers          []debugTracker
+	Peers             []debugPeer
+	PickerText        string
+	DownloadingPieces []debugDownloadingPiece
+	Files             []debugFile
+	PieceRanges       []debugPieceRange
+	PendingPeers      []debugPendingPeer
+	FullMode          bool
 }
 
 type debugPendingPeer struct {
@@ -62,6 +63,17 @@ type debugFailingPiece struct {
 	Index     uint32
 	Count     int
 	BlockedBy int
+}
+
+type debugDownloadingPiece struct {
+	Blocks     int
+	Finished   int
+	Writing    int
+	Requested  int
+	Free       int
+	Index      uint32
+	HashPassed bool
+	Locked     bool
 }
 
 type debugTracker struct {
@@ -85,6 +97,7 @@ type debugPeer struct {
 	Progress     string
 	Fast         string
 	PeerID       string
+	LastPick     string
 	OurReq       int
 	ReqQ         int
 	DesiredQ     int
@@ -195,6 +208,7 @@ func buildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 			Fast:         fmt.Sprint(p.allowFast.ToArray()),
 			PeerReq:      p.peerRequests.Size(),
 			PeerID:       url.QueryEscape(p.peerID.Load().AsString()),
+			LastPick:     p.lastPickDebugString(),
 		})
 		return true
 	})
@@ -230,6 +244,18 @@ func buildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 		float64(peerTotalCurRate)/float64(max(dlRate, 1)),
 		humanize.IBytes(uint64(dlTotal)), humanize.IBytes(uint64(peerTotalBytes)),
 	)
+
+	// Downloading pieces detail
+	dlPieces := d.picker.DebugDownloadingPieces(d.info)
+	if len(dlPieces) > 0 {
+		// cap at 200 to keep the page readable
+		limit := min(len(dlPieces), 200)
+		data.DownloadingPieces = make([]debugDownloadingPiece, limit)
+		for i := range limit {
+			dp := dlPieces[i]
+			data.DownloadingPieces[i] = debugDownloadingPiece(dp)
+		}
+	}
 
 	// Files (full mode)
 	if fullMode {

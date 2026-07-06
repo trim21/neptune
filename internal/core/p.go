@@ -140,6 +140,7 @@ type Peer struct {
 	lastSend          atomic.Time
 	snubbedAt         atomic.Time
 	lastUnchokeAt     atomic.Time
+	lastPickDebug     atomic.Pointer[string]
 	pieceDownloadRate *flowrate.Monitor
 	Bitmap            *bm.Bitmap
 	myRequests        *xsync.Map[proto.ChunkRequest, time.Time]
@@ -386,6 +387,13 @@ func (p *Peer) isInQueue(chunk proto.ChunkRequest) bool {
 // isDisconnecting returns true if the peer is in the process of disconnecting.
 func (p *Peer) isDisconnecting() bool {
 	return p.disconnecting.Load()
+}
+
+func (p *Peer) lastPickDebugString() string {
+	if s := p.lastPickDebug.Load(); s != nil {
+		return *s
+	}
+	return "-"
 }
 
 func (p *Peer) checkRequestTimeouts() {

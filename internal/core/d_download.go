@@ -5,6 +5,7 @@ package core
 
 import (
 	"crypto/sha1"
+	"fmt"
 	"io"
 	"slices"
 	"time"
@@ -495,9 +496,15 @@ func (d *Download) requestABlock(p *Peer) {
 	}
 
 	desiredQueueSize := p.updateDesiredQueueSize()
+	myReq := p.myRequests.Size()
+	reqQ := p.requestQueueLen()
 
-	numRequests := desiredQueueSize - p.myRequests.Size() - p.requestQueueLen()
+	numRequests := desiredQueueSize - myReq - reqQ
 	if numRequests <= 0 {
+		if d.c.debug {
+			s := fmt.Sprintf("skip: numReq=0 (desired=%d, myReq=%d, reqQ=%d)", desiredQueueSize, myReq, reqQ)
+			p.lastPickDebug.Store(&s)
+		}
 		return
 	}
 
@@ -516,11 +523,19 @@ func (d *Download) requestABlock(p *Peer) {
 	// If the peer is choked and no fast pieces are allowed, the picker returns
 	// zero blocks — don't mistake this for "no blocks left" and trigger endgame.
 	if len(result.freeBlocks) == 0 && choked && p.allowFast.Count() == 0 {
+		if d.c.debug {
+			s := fmt.Sprintf("choked no fast: numReq=%d, desired=%d", numRequests, desiredQueueSize)
+			p.lastPickDebug.Store(&s)
+		}
 		return
 	}
 
 	// add_request: push picked blocks directly to requestQueue.
 	freeBlocksPicked := 0
+	skippedInQueue := 0
+	skippedFinished := 0
+	skippedCompleted := 0
+	skippedDone := 0
 	for _, fb := range result.freeBlocks {
 		if numRequests <= 0 {
 			break
@@ -528,14 +543,17 @@ func (d *Download) requestABlock(p *Peer) {
 
 		chunk := pieceChunk(d.info, fb.pieceIndex, fb.blockIndex)
 		if p.isInQueue(chunk) {
+			skippedInQueue++
 			continue
 		}
 
 		if d.picker.isFinished(fb.pieceIndex, fb.blockIndex) {
+			skippedFinished++
 			continue
 		}
 
 		if d.completedBm.Contains(fb.pieceIndex) {
+			skippedCompleted++
 			continue
 		}
 
@@ -544,6 +562,7 @@ func (d *Download) requestABlock(p *Peer) {
 		done := d.chunk.done.Contains(chunkPi)
 		d.chunk.mu.RUnlock()
 		if done {
+			skippedDone++
 			continue
 		}
 
@@ -556,6 +575,19 @@ func (d *Download) requestABlock(p *Peer) {
 
 		numRequests--
 		freeBlocksPicked++
+	}
+
+	if d.c.debug {
+		skipTotal := skippedInQueue + skippedFinished + skippedCompleted + skippedDone
+		if skipTotal > 0 {
+			s := fmt.Sprintf("picked=%d/%d free, skip: inQ=%d fin=%d done=%d compl=%d",
+				freeBlocksPicked, len(result.freeBlocks),
+				skippedInQueue, skippedFinished, skippedDone, skippedCompleted)
+			p.lastPickDebug.Store(&s)
+		} else {
+			s := fmt.Sprintf("picked=%d/%d free, %d busy", freeBlocksPicked, len(result.freeBlocks), len(result.busyBlocks))
+			p.lastPickDebug.Store(&s)
+		}
 	}
 
 	// send_block_requests: drain requestQueue immediately.

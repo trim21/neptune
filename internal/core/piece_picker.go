@@ -676,6 +676,49 @@ type PickerStats struct {
 	DownloadQueue   int
 }
 
+type DownloadingPieceInfo struct {
+	Blocks     int
+	Finished   int
+	Writing    int
+	Requested  int
+	Free       int
+	Index      uint32
+	HashPassed bool
+	Locked     bool
+}
+
+// DebugDownloadingPieces returns detail about every in-flight piece.
+func (pp *piecePicker) DebugDownloadingPieces(info meta.Info) []DownloadingPieceInfo {
+	pp.mu.Lock()
+	defer pp.mu.Unlock()
+
+	result := make([]DownloadingPieceInfo, 0, len(pp.downloadingPieces))
+	for _, dp := range pp.downloadingPieces {
+		idx := pp.blockInfoIdx(dp.index)
+		blocksInPiece := int(dp.blocksInPiece)
+		di := DownloadingPieceInfo{
+			Index:      dp.index,
+			Blocks:     blocksInPiece,
+			HashPassed: dp.passedHashCheck,
+			Locked:     dp.locked,
+		}
+		for i := range blocksInPiece {
+			switch pp.blockInfos[idx+i].state {
+			case blockStateNone:
+				di.Free++
+			case blockStateRequested:
+				di.Requested++
+			case blockStateWriting:
+				di.Writing++
+			case blockStateFinished:
+				di.Finished++
+			}
+		}
+		result = append(result, di)
+	}
+	return result
+}
+
 // DebugStats returns picker state summary for debugging.
 func (pp *piecePicker) DebugStats(info meta.Info) PickerStats {
 	pp.mu.Lock()
