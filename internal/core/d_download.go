@@ -66,9 +66,9 @@ func (d *Download) have(index uint32) {
 }
 
 type responseChunk struct {
+	recvAt time.Time
 	res    *proto.ChunkResponse
 	pi     uint32
-	recvAt time.Time
 }
 
 func (r responseChunk) Less(o responseChunk) bool {
@@ -135,11 +135,6 @@ func (d *Download) handleRes(res *proto.ChunkResponse) {
 	// Mark block as writing in the picker
 	blockIndex := int(res.Begin / uint32(defaultBlockSize))
 	d.picker.markAsWriting(res.PieceIndex, blockIndex)
-
-	if d.endGameMode.Load() {
-		d.handleResEndgame(res)
-		return
-	}
 
 	c := responseChunk{
 		res:    res,
@@ -271,42 +266,6 @@ func (d *Download) mergeLimit() uint32 {
 		return 32
 	}
 	return msBlocks
-}
-
-func (d *Download) handleResEndgame(res *proto.ChunkResponse) {
-	d.chunk.heap.Push(responseChunk{
-		res: res,
-		pi:  res.Begin/defaultBlockSize + res.PieceIndex*d.normalChunkLen,
-	})
-
-	for d.chunk.heap.Len() != 0 {
-		chunk := d.chunk.heap.Pop()
-		index := chunk.res.PieceIndex
-		err := d.writeChunkToDist(int64(index)*d.info.PieceLength+int64(chunk.res.Begin), chunk.res.Data)
-		d.chunk.mu.Lock()
-		d.chunk.done.Set(chunk.pi)
-		d.chunk.mu.Unlock()
-		proto.PiecePool.Put(chunk.res)
-
-		// Mark block as finished in the picker
-		blockIdx := int(chunk.res.Begin / uint32(defaultBlockSize))
-		d.picker.markAsFinished(index, blockIdx)
-
-		if err != nil {
-			continue
-		}
-
-		if d.checkPieceBitmapDone(index) {
-			tasks.Submit(func() {
-				err := d.checkPiece(index)
-				if err != nil {
-					return
-				}
-
-				d.checkDone()
-			})
-		}
-	}
 }
 
 // find all chunks from chunkHeap and write them to disk.
@@ -542,16 +501,6 @@ func (d *Download) requestABlock(p *Peer) {
 		return
 	}
 
-	// Enter global endgame when few pieces remain. Two conditions:
-	//   1. Very few pieces left (<= 20).
-	//   2. Enough active peers that each could handle ~2 pieces.
-	remainingPieces := int(d.wantedBm.WithAndNot(d.completedBm).Count())
-	activePeers := d.peers.Size()
-
-	if remainingPieces <= 20 || remainingPieces <= max(activePeers*2, 5) {
-		d.endGameMode.Store(true)
-	}
-
 	choked := p.peerChoking.Load()
 
 	result := d.picker.pickPieces(
@@ -615,10 +564,6 @@ func (d *Download) requestABlock(p *Peer) {
 	if numRequests <= 0 {
 		return
 	}
-
-	// No more free blocks — enter endgame so peers can also request
-	// blocks already queued by other peers.
-	d.endGameMode.Store(true)
 
 	if len(result.busyBlocks) == 0 {
 		return

@@ -154,14 +154,14 @@ type Download struct {
 	peerSeeds              atomic.Int64
 	downloadAtStart        int64
 	selectedSize           atomic.Int64
-	endGameMode            atomic.Bool
-	unchokeCycleOffset     int
-	m                      sync.RWMutex
-	corruptedPiecesMu      sync.Mutex
-	normalChunkLen         uint32
-	bitfieldSize           uint32
-	peerID                 proto.PeerID
-	private                bool
+
+	unchokeCycleOffset int
+	m                  sync.RWMutex
+	corruptedPiecesMu  sync.Mutex
+	normalChunkLen     uint32
+	bitfieldSize       uint32
+	peerID             proto.PeerID
+	private            bool
 }
 
 type chunkState struct {

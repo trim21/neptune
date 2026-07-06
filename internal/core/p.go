@@ -340,10 +340,6 @@ func (p *Peer) updateDesiredQueueSize() int {
 		return 1
 	}
 
-	if p.d.endGameMode.Load() {
-		return 1
-	}
-
 	// Rate-based pipeline sizing: aim for ~30 seconds of data in flight.
 	const queueTime = 30 // seconds
 	rate := p.pieceDownloadRate.Status().CurRate
@@ -466,7 +462,6 @@ func (p *Peer) checkRequestTimeouts() {
 			}
 		}
 	}
-
 }
 
 func (p *Peer) start(skipHandshake bool) {
