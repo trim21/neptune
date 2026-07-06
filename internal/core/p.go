@@ -309,10 +309,10 @@ func (p *Peer) sendBlockRequests() {
 //
 // Formula: desired = queue_time * download_rate / block_size
 // Clamped between [minRequestQueue, maxRequestQueue].
-// updateDesiredQueueSize returns the desired number of outstanding requests.
-// Uses a fixed deep queue so peers are kept saturated; the global / per-torrent
-// rate limiter handles actual throughput control via backpressure.
-// Respects the peer's advertised queue limit as an upper bound.
+// updateDesiredQueueSize computes the desired number of outstanding requests
+// updateDesiredQueueSize returns a fixed queue size based on the peer's advertised
+// limit. Slow peers are handled by the 30s timeout / snubbing, not by
+// artificially restricting their queue.
 func (p *Peer) updateDesiredQueueSize() int {
 	if p.snubbed.Load() {
 		return 1
@@ -322,17 +322,16 @@ func (p *Peer) updateDesiredQueueSize() int {
 		return 1
 	}
 
-	// Use half the peer's advertised limit so we don't dominate its slots.
-	// Default QueueLimit is 2000, so typical size is 1000 (~16 MB in flight).
 	peerLimit := int(p.QueueLimit.Load())
 	if peerLimit <= 0 {
 		peerLimit = 2000
 	}
-	queueSize := max(peerLimit/2, minRequestQueue)
-	queueSize = min(queueSize, maxRequestQueue)
+	maxQ := min(peerLimit/2, maxRequestQueue, 500)
 
-	p.desiredQueueSize.Store(int32(queueSize))
-	return queueSize
+	desired := max(maxQ, minRequestQueue)
+
+	p.desiredQueueSize.Store(int32(desired))
+	return desired
 }
 
 // requestQueueLen returns the length of the request queue under lock.

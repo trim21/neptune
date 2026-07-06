@@ -9,7 +9,6 @@ import (
 	"slices"
 	"time"
 
-	"github.com/docker/go-units"
 	"github.com/trim21/errgo"
 
 	"neptune/internal/core/tracker"
@@ -45,6 +44,10 @@ func (d *Download) backgroundReqScheduler() {
 		if !d.wait(Downloading) {
 			continue
 		}
+
+		// Reset endgame each cycle; set again when remaining pieces are low
+		// or a peer runs out of free blocks.
+		d.endGameMode.Store(false)
 
 		// Iterate peers and request blocks for each
 		d.peers.Range(func(_ uint64, p *Peer) bool {
@@ -500,8 +503,10 @@ func (d *Download) requestABlock(p *Peer) {
 		return
 	}
 
-	remaining := d.SelectedSize() - d.completed.Load()
-	if remaining <= units.MiB*100 {
+	// Enter global endgame when few pieces remain. Use piece count rather than
+	// byte count to work correctly regardless of torrent size.
+	remainingPieces := int(d.selectedPiecesBm.WithAndNot(d.bm).Count())
+	if remainingPieces <= 20 {
 		d.endGameMode.Store(true)
 	}
 
@@ -563,11 +568,9 @@ func (d *Download) requestABlock(p *Peer) {
 		return
 	}
 
-	// Only enter endgame when download is nearly complete, not just because
-	// this peer ran out of unique free blocks.
-	if !d.endGameMode.Load() || p.myRequests.Size()+p.requestQueueLen() > 0 {
-		return
-	}
+	// No more free blocks — enter endgame so peers can also request
+	// blocks already queued by other peers.
+	d.endGameMode.Store(true)
 
 	if len(result.busyBlocks) == 0 {
 		return
