@@ -542,6 +542,15 @@ func (p *Peer) start(skipHandshake bool) {
 
 			p.responseCond.Signal()
 			p.pieceDownloadRate.Update(len(event.Res.Data))
+
+			if p.snubbed.Load() {
+				p.snubbed.Store(false)
+				p.slowStart.Store(true)
+				p.desiredQueueSize.Store(1)
+				p.lastRate.Store(0)
+				p.log.Info().Msg("peer un-snubbed: responding again")
+			}
+
 			p.d.ResChan <- event.Res
 		case proto.Request:
 			if !p.validateRequest(event.Req) {
