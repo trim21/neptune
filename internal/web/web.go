@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
-	"runtime"
 	"runtime/debug"
 	"strings"
 
@@ -91,8 +90,8 @@ func New(c *core.Client, token string, enableDebug bool) http.Handler {
 	r.HandleFunc("/debug/events", trace.Events)
 
 	if enableDebug {
-		runtime.SetBlockProfileRate(100)
-		runtime.SetMutexProfileFraction(100)
+		// runtime.SetBlockProfileRate(100)
+		// runtime.SetMutexProfileFraction(100)
 		r.Mount("/debug", middleware.Profiler())
 	}
 

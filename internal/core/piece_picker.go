@@ -4,6 +4,7 @@
 package core
 
 import (
+	"math"
 	"math/rand/v2"
 	"slices"
 	"sort"
@@ -374,25 +375,6 @@ func (pp *piecePicker) pickPieces(
 		}
 	}
 
-	// Build list of pieces that are open (not yet downloading) and the peer has them
-	var openPieces []uint32
-	for _, pi := range pp.pieces {
-		if !bitfield.Contains(pi) {
-			continue
-		}
-		if choked && !allowedFast.Contains(pi) {
-			continue
-		}
-		openPieces = append(openPieces, pi)
-	}
-
-	// Update priorities for open pieces
-	for _, pi := range openPieces {
-		pp.updatePiecePriority(pi)
-	}
-	pp.dirty = true
-	pp.rebuildPriorities()
-
 	// Phase 1: partial pieces (pieces in downloading state with some blocks finished)
 	type partialInfo struct {
 		pieceIndex uint32
@@ -493,23 +475,40 @@ func (pp *piecePicker) pickPieces(
 		pp.pickBlocksFromPiece(pi, info, &numBlocks, &result)
 	}
 
-	// Phase 3: rarest-first from open pieces
-	for _, pi := range openPieces {
-		if numBlocks <= 0 {
-			break
-		}
-		// skip if already picked from this piece
-		alreadyPicked := false
-		for _, fb := range result.freeBlocks {
-			if fb.pieceIndex == pi {
-				alreadyPicked = true
-				break
+	// Phase 3: rarest-first via greedy scan — pick the best piece each iteration.
+	// Avoids sorting openPieces and calling rebuildPriorities per peer.
+	for numBlocks > 0 {
+		bestPiece := uint32(math.MaxUint32)
+		bestPriority := uint32(0)
+
+		for _, pi := range pp.pieces {
+			if pp.completedBm.Contains(pi) || pp.allBlocksFinished(pi) {
+				continue
+			}
+			if !bitfield.Contains(pi) {
+				continue
+			}
+			if choked && !allowedFast.Contains(pi) {
+				continue
+			}
+			if pp.isAlreadyPicked(pi, &result) {
+				continue
+			}
+			if pp.findDownloadingPiece(pi) != nil {
+				continue
+			}
+			pri := pp.piecePriorities[pi]
+			if pri > bestPriority || (pri == bestPriority && pi < bestPiece) {
+				bestPriority = pri
+				bestPiece = pi
 			}
 		}
-		if alreadyPicked {
-			continue
+
+		if bestPiece == math.MaxUint32 {
+			break
 		}
-		pp.pickBlocksFromPiece(pi, info, &numBlocks, &result)
+
+		pp.pickBlocksFromPiece(bestPiece, info, &numBlocks, &result)
 	}
 
 	return result
@@ -605,6 +604,17 @@ func (pp *piecePicker) findDownloadingPiece(pieceIndex uint32) *downloadingPiece
 		}
 	}
 	return nil
+}
+
+// isAlreadyPicked checks if a piece already has blocks in the result.
+// Caller must hold pp.mu.
+func (pp *piecePicker) isAlreadyPicked(pieceIndex uint32, result *pickResult) bool {
+	for _, fb := range result.freeBlocks {
+		if fb.pieceIndex == pieceIndex {
+			return true
+		}
+	}
+	return false
 }
 
 // addDownloadingPiece adds a piece to the downloading set.
