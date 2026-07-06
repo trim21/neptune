@@ -23,7 +23,16 @@ const maxSleep = 250 * time.Millisecond
 // Tokens represent bytes and are replenished at the configured rate.
 // A zero-value Limiter imposes no limit.
 type Limiter struct {
-	last   time.Time
+	// start is the reference time for token generation.
+	// It is re-anchored on creation and every Update() call to ensure
+	// rate changes are accurately reflected.
+	start time.Time
+	// consumed tracks how much time (in seconds) has already been
+	// converted to tokens since start. This avoids the race where
+	// concurrent refill calls overwrite a shared l.last, causing only
+	// the first caller to receive accumulated tokens.
+	consumed float64
+
 	rate   atomic.Int64
 	tokens float64
 	burst  float64
@@ -56,7 +65,7 @@ func New(rate int64) *Limiter {
 		rate:   *atomic.NewInt64(rate),
 		tokens: burst,
 		burst:  burst,
-		last:   time.Now(),
+		start:  time.Now(),
 	}
 }
 
@@ -71,6 +80,7 @@ func (l *Limiter) Update(rate int64) {
 		l.rate.Store(0)
 		l.tokens = 0
 		l.burst = 0
+		l.consumed = 0
 		return
 	}
 
@@ -82,6 +92,10 @@ func (l *Limiter) Update(rate int64) {
 	if l.tokens > burst {
 		l.tokens = burst
 	}
+	// Re-anchor time origin to prevent rate changes from using stale
+	// elapsed-time calculations with the wrong rate.
+	l.start = time.Now()
+	l.consumed = 0
 }
 
 // Wait blocks until n bytes worth of tokens are available or ctx is canceled.
@@ -157,12 +171,21 @@ func (l *Limiter) Wait(ctx context.Context, n int) error {
 }
 
 // refill replenishes tokens based on elapsed time. Caller must hold l.mu.
+// Uses a cumulative consumed-time counter instead of a mutable "last"
+// timestamp. This ensures that every refill call adds only the time not
+// yet accounted for by any previous refill, making token generation
+// correct under concurrent calls. It also handles rate changes via
+// Update() cleanly, since Update resets the start anchor.
 func (l *Limiter) refill() {
 	now := time.Now()
-	elapsed := now.Sub(l.last).Seconds()
-	l.last = now
+	totalElapsed := now.Sub(l.start).Seconds()
+	unaccounted := totalElapsed - l.consumed
+	if unaccounted <= 0 {
+		return
+	}
+	l.consumed = totalElapsed
 
-	l.tokens += elapsed * float64(l.rate.Load())
+	l.tokens += unaccounted * float64(l.rate.Load())
 	if l.tokens > l.burst {
 		l.tokens = l.burst
 	}
