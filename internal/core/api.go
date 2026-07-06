@@ -244,7 +244,7 @@ func (c *Client) GetTorrentFiles(h metainfo.Hash) []TorrentFile {
 		pieceDoneCount := 0
 
 		for i := startIndex; i < endIndex; i++ {
-			if d.bm.Contains(i) {
+			if d.completedBm.Contains(i) {
 				pieceDoneCount++
 			}
 		}

@@ -718,7 +718,7 @@ func (p *Peer) start(skipHandshake bool) {
 			default:
 			}
 
-			if p.Bitmap.WithAndNot(p.d.bm).Count() != 0 {
+			if p.Bitmap.WithAndNot(p.d.completedBm).Count() != 0 {
 				if p.ourInterested.CompareAndSwap(false, true) {
 					go p.sendEventX(Event{Event: proto.Interested})
 				}
@@ -728,7 +728,7 @@ func (p *Peer) start(skipHandshake bool) {
 }
 
 func (p *Peer) sendInitPayload() {
-	bitmapCount := p.d.bm.Count()
+	bitmapCount := p.d.completedBm.Count()
 
 	var err error
 	switch {
@@ -737,7 +737,7 @@ func (p *Peer) sendInitPayload() {
 	case p.fastExtension && bitmapCount == p.d.info.NumPieces:
 		err = p.sendEvent(Event{Event: proto.HaveAll})
 	case bitmapCount != 0:
-		err = p.sendEvent(Event{Event: proto.Bitfield, Bitmap: p.d.bm})
+		err = p.sendEvent(Event{Event: proto.Bitfield, Bitmap: p.d.completedBm})
 	}
 
 	if err != nil {

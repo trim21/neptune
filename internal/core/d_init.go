@@ -88,7 +88,8 @@ func (d *Download) initCheck() error {
 		}
 		sha1Sum = sum.Sum(sha1Sum[:0])
 		if [sha1.Size]byte(sha1Sum[:sha1.Size]) == d.info.Pieces[pieceIndex] {
-			d.bm.Set(pieceIndex)
+			d.completedBm.Set(pieceIndex)
+			d.picker.weHave(pieceIndex)
 			d.completed.Add(d.pieceLength(pieceIndex))
 		}
 
@@ -215,7 +216,10 @@ func (d *Download) check(resumed bool, skipHashCheck bool) {
 				d.log.Err(err).Msg("file size verification failed")
 			}
 		} else if !resumed {
-			d.bm.Fill()
+			d.completedBm.Fill()
+			for i := range d.info.NumPieces {
+				d.picker.weHave(i)
+			}
 		}
 	} else if !resumed {
 		if err := d.initCheck(); err != nil {
@@ -230,9 +234,9 @@ func (d *Download) check(resumed bool, skipHashCheck bool) {
 		d.completed.Store(d.computeCompletedUnsafe())
 		d.pieceDownloadRate.Reset()
 
-		d.log.Debug().Msgf("done size %s", humanize.IBytes(uint64(d.bm.Count())*uint64(d.info.PieceLength)))
+		d.log.Debug().Msgf("done size %s", humanize.IBytes(uint64(d.completedBm.Count())*uint64(d.info.PieceLength)))
 
-		if d.bm.Count() == d.info.NumPieces {
+		if d.completedBm.Count() == d.info.NumPieces {
 			d.CompletedAt.Store(time.Now().Unix())
 			if err := d.transition(Seeding); err != nil {
 				d.log.Error().Err(err).Msg("failed to transition state after init check")

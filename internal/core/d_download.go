@@ -125,7 +125,7 @@ func (d *Download) handleRes(res *proto.ChunkResponse) {
 	d.downloaded.Add(int64(len(res.Data)))
 
 	// in endgame mode we may receive duplicated response, just ignore them
-	if d.bm.Contains(res.PieceIndex) {
+	if d.completedBm.Contains(res.PieceIndex) {
 		return
 	}
 
@@ -432,7 +432,7 @@ func (d *Download) checkPiece(pieceIndex uint32) error {
 		return nil
 	}
 
-	notHave := d.bm.SetX(pieceIndex)
+	notHave := d.completedBm.SetX(pieceIndex)
 
 	// Mark piece as fully owned in the picker
 	d.picker.weHave(pieceIndex)
@@ -456,7 +456,7 @@ func (d *Download) checkPiece(pieceIndex uint32) error {
 }
 
 func (d *Download) checkDone() {
-	if d.bm.Count() != d.info.NumPieces {
+	if d.completedBm.Count() != d.info.NumPieces {
 		return
 	}
 
@@ -486,7 +486,7 @@ func (d *Download) checkDone() {
 // and pushes free blocks into the peer's request channel. In endgame mode,
 // it may also pick busy blocks (already requested by other peers).
 func (d *Download) requestABlock(p *Peer) {
-	if d.bm.Count() == d.info.NumPieces {
+	if d.completedBm.Count() == d.info.NumPieces {
 		return
 	}
 	if p.closed.Load() || p.isDisconnecting() {
@@ -505,7 +505,7 @@ func (d *Download) requestABlock(p *Peer) {
 
 	// Enter global endgame when few pieces remain. Use piece count rather than
 	// byte count to work correctly regardless of torrent size.
-	remainingPieces := int(d.selectedPiecesBm.WithAndNot(d.bm).Count())
+	remainingPieces := int(d.wantedBm.WithAndNot(d.completedBm).Count())
 	if remainingPieces <= 20 {
 		d.endGameMode.Store(true)
 	}
@@ -538,7 +538,7 @@ func (d *Download) requestABlock(p *Peer) {
 			continue
 		}
 
-		if d.bm.Contains(fb.pieceIndex) {
+		if d.completedBm.Contains(fb.pieceIndex) {
 			continue
 		}
 
@@ -586,7 +586,7 @@ func (d *Download) requestABlock(p *Peer) {
 			continue
 		}
 
-		if d.bm.Contains(bb.pieceIndex) {
+		if d.completedBm.Contains(bb.pieceIndex) {
 			continue
 		}
 

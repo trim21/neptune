@@ -643,6 +643,22 @@ func (pp *piecePicker) resetPiece(pieceIndex uint32, info meta.Info) {
 	pp.dirty = true
 }
 
+// resetAll resets all block states to none and clears downloading pieces.
+// Used during recheck (AsyncCheck) when completedBm is cleared.
+func (pp *piecePicker) resetAll() {
+	pp.mu.Lock()
+	defer pp.mu.Unlock()
+
+	for i := range pp.blockInfos {
+		pp.blockInfos[i].state = blockStateNone
+		pp.blockInfos[i].peer = nil
+		pp.blockInfos[i].numPeers = 0
+	}
+	pp.downloadingPieces = pp.downloadingPieces[:0]
+	pp.downloadQueueSize = 0
+	pp.dirty = true
+}
+
 func (pp *piecePicker) removeDownloadingPieceLocked(pieceIndex uint32) {
 	for i := range pp.downloadingPieces {
 		if pp.downloadingPieces[i].index == pieceIndex {

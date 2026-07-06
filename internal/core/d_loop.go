@@ -19,7 +19,7 @@ import (
 const defaultBlockSize = units.KiB * 16
 
 func (d *Download) Start() error {
-	if d.bm.Count() == d.info.NumPieces {
+	if d.completedBm.Count() == d.info.NumPieces {
 		if err := d.transition(Seeding); err != nil {
 			d.log.Error().Err(err).Msg("failed to transition state in Start")
 			return err
@@ -53,7 +53,8 @@ func (d *Download) AsyncCheck() error {
 		return err
 	}
 
-	d.bm.Clear()
+	d.completedBm.Clear()
+	d.picker.resetAll()
 	d.completed.Store(0)
 	d.stateCond.Broadcast()
 
@@ -71,7 +72,7 @@ func (d *Download) AsyncCheck() error {
 		d.completed.Store(d.computeCompletedUnsafe())
 		d.pieceDownloadRate.Reset()
 
-		if d.bm.Count() == d.info.NumPieces {
+		if d.completedBm.Count() == d.info.NumPieces {
 			if err := d.transition(Seeding); err != nil {
 				d.log.Error().Err(err).Msg("failed to transition state after recheck")
 				return

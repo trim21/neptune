@@ -92,7 +92,7 @@ func (d *Download) MarshalBinary() (data []byte, err error) {
 		Custom:             d.custom,
 		State:              d.GetState(),
 		InfoHash:           d.info.Hash.Hex(),
-		Bitfield:           d.bm.Bitfield(),
+		Bitfield:           d.completedBm.Bitfield(),
 		AddAt:              d.AddAt,
 		CompletedAt:        d.CompletedAt.Load(),
 		SelectedFiles:      selectedFiles,
@@ -134,7 +134,12 @@ func (c *Client) UnmarshalResume(data []byte, totalDownloads int) error {
 	d := c.NewDownload(m, info, r.BasePath, r.Tags, r.Custom, r.SelectedFiles)
 
 	// unsafe methods are safe here because d hasn't been shared with other goroutines yet.
-	d.bm = bm.FromBitfields(r.Bitfield, d.info.NumPieces)
+	d.completedBm = bm.FromBitfields(r.Bitfield, d.info.NumPieces)
+	for i := range d.info.NumPieces {
+		if d.completedBm.Contains(i) {
+			d.picker.weHave(i)
+		}
+	}
 	d.markUnselectedPiecesDoneUnsafe()
 	d.completed.Store(d.computeCompletedUnsafe())
 	d.state.Store(uint32(r.State))

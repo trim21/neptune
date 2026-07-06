@@ -115,13 +115,13 @@ type Download struct {
 	ioDownloadRate         *flowrate.Monitor
 	pieceUploadRate        *flowrate.Monitor
 	ResChan                chan *proto.ChunkResponse
-	selectedPiecesBm       *bm.Bitmap
+	wantedBm               *bm.Bitmap
 	uploadLimiter          *ratelimit.Limiter
 	peers                  *xsync.Map[uint64, *Peer]
 	connectedAddrs         *xsync.Map[netip.AddrPort, *Peer]
 	stateCond              *gsync.Cond
 	peerList               *peerList
-	bm                     *bm.Bitmap
+	completedBm            *bm.Bitmap
 	picker                 *piecePicker
 	err                    atomic.Pointer[error]
 	cancel                 context.CancelFunc
@@ -251,7 +251,7 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 
 		private: info.Private,
 
-		bm: bm.New(info.NumPieces),
+		completedBm: bm.New(info.NumPieces),
 
 		bitfieldSize: (info.NumPieces + 7) / 8,
 
@@ -368,31 +368,31 @@ func (d *Download) computeSelectedSizeUnsafe() int64 {
 }
 
 func (d *Download) buildSelectedPiecesBmUnsafe() {
-	if d.selectedPiecesBm == nil {
-		d.selectedPiecesBm = bm.New(d.info.NumPieces)
+	if d.wantedBm == nil {
+		d.wantedBm = bm.New(d.info.NumPieces)
 	}
 	if d.selectedFilesSet == nil {
-		d.selectedPiecesBm.Fill()
+		d.wantedBm.Fill()
 		return
 	}
-	d.selectedPiecesBm.Clear()
+	d.wantedBm.Clear()
 	for i := range d.info.NumPieces {
 		if d.hasSelectedFilesUnsafe(i) {
-			d.selectedPiecesBm.Set(i)
+			d.wantedBm.Set(i)
 		}
 	}
 }
 
 func (d *Download) computeCompletedUnsafe() int64 {
 	if d.selectedFilesSet == nil {
-		done := int64(d.bm.Count()) * d.info.PieceLength
-		if d.bm.Contains(d.info.NumPieces - 1) {
+		done := int64(d.completedBm.Count()) * d.info.PieceLength
+		if d.completedBm.Contains(d.info.NumPieces - 1) {
 			done = done - d.info.PieceLength + d.info.LastPieceSize
 		}
 		return done
 	}
-	done := int64(d.bm.WithAnd(d.selectedPiecesBm).Count()) * d.info.PieceLength
-	if d.bm.Contains(d.info.NumPieces-1) && d.selectedPiecesBm.Contains(d.info.NumPieces-1) {
+	done := int64(d.completedBm.WithAnd(d.wantedBm).Count()) * d.info.PieceLength
+	if d.completedBm.Contains(d.info.NumPieces-1) && d.wantedBm.Contains(d.info.NumPieces-1) {
 		done = done - d.info.PieceLength + d.info.LastPieceSize
 	}
 	return done
@@ -403,11 +403,17 @@ func (d *Download) markUnselectedPiecesDoneUnsafe() {
 	if d.selectedFilesSet == nil {
 		return
 	}
-	for i := range d.info.NumPieces {
-		if !d.selectedPiecesBm.Contains(i) {
-			d.bm.Set(i)
-		}
-	}
+
+	// unwanted = NOT wantedBm — compute via full.WithAndNot(wantedBm)
+	full := bm.New(d.info.NumPieces)
+	full.Fill()
+	unwanted := full.WithAndNot(d.wantedBm)
+
+	d.completedBm.OR(unwanted)
+
+	unwanted.Range(func(i uint32) {
+		d.picker.weHave(i)
+	})
 }
 
 func (d *Download) peerSeedLeecherCounts() (seeds, leechers int) {

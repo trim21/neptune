@@ -250,7 +250,7 @@ func buildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 
 			var doneCount uint32
 			for pi := startPiece; pi < endPiece; pi++ {
-				if d.bm.Contains(pi) {
+				if d.completedBm.Contains(pi) {
 					doneCount++
 				}
 			}
@@ -274,17 +274,17 @@ func buildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 
 		// Piece ranges
 		var buf strings.Builder
-		writePieceRanges(&buf, "have", d.bm)
+		writePieceRanges(&buf, "have", d.completedBm)
 		data.PieceRanges = append(data.PieceRanges, debugPieceRange{Text: buf.String()})
 
 		buf.Reset()
-		writePieceRanges(&buf, "wanted", d.selectedPiecesBm)
+		writePieceRanges(&buf, "wanted", d.wantedBm)
 		data.PieceRanges = append(data.PieceRanges, debugPieceRange{Text: buf.String()})
 
 		missing := bm.New(d.info.NumPieces)
 		missing.Fill()
 		buf.Reset()
-		writePieceRanges(&buf, "missing", missing.WithAndNot(d.bm).WithAnd(d.selectedPiecesBm))
+		writePieceRanges(&buf, "missing", missing.WithAndNot(d.completedBm).WithAnd(d.wantedBm))
 		data.PieceRanges = append(data.PieceRanges, debugPieceRange{Text: buf.String()})
 	}
 

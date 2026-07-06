@@ -58,7 +58,7 @@ func (c *Client) SetFilePriority(h metainfo.Hash, fileIDs []int, priority int) e
 		}
 
 		for pi := range d.info.NumPieces {
-			if !d.bm.Contains(pi) {
+			if !d.completedBm.Contains(pi) {
 				continue
 			}
 
@@ -75,11 +75,12 @@ func (c *Client) SetFilePriority(h metainfo.Hash, fileIDs []int, priority int) e
 
 			// Piece touches a changed file and is in bm.
 			// If it doesn't touch any currently-selected file, it was force-done.
-			if d.selectedPiecesBm.Contains(pi) {
+			if d.wantedBm.Contains(pi) {
 				continue
 			}
 
-			d.bm.Unset(pi)
+			d.completedBm.Unset(pi)
+			d.picker.resetPiece(pi, d.info)
 		}
 	}
 
@@ -116,7 +117,7 @@ func (c *Client) SetFilePriority(h metainfo.Hash, fileIDs []int, priority int) e
 	d.completed.Store(d.computeCompletedUnsafe())
 
 	// Transition to Seeding if all pieces are complete.
-	if d.bm.Count() == d.info.NumPieces {
+	if d.completedBm.Count() == d.info.NumPieces {
 		if err := d.transition(Seeding); err != nil {
 			d.log.Error().Err(err).Msg("failed to transition state in SetFilePriority")
 		}
