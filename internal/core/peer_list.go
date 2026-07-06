@@ -48,14 +48,14 @@ func sourceRank(source peerSource) int {
 type persistentPeer struct {
 	connection  *Peer
 	addrPort    netip.AddrPort
-	lastSeen    int64
 	lastErr     string
+	lastSeen    int64
+	priority    uint32
 	failcount   uint8
 	source      peerSource
 	connectable bool
 	seed        bool
 	hadTrans    bool
-	priority    uint32 // cached BEP40 priority, computed once on add
 }
 
 // isConnectCandidate returns true if this peer is eligible for connection.
