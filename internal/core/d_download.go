@@ -25,15 +25,11 @@ import (
 	"neptune/internal/proto"
 )
 
-// requestQueueTime is the target number of seconds of pipeline to maintain
-// (mirrors libtorrent's request_queue_time setting).
-const requestQueueTime = 3
-
 // minRequestQueue is the minimum number of outstanding requests per peer.
 const minRequestQueue = 2
 
 // maxRequestQueue is the maximum number of outstanding requests per peer.
-const maxRequestQueue = 250
+const maxRequestQueue = 2000
 
 func (d *Download) backgroundReqScheduler() {
 	ticker := time.NewTicker(time.Second * 5)

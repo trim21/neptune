@@ -87,7 +87,7 @@ func newPeer(
 		pieceDownloadRate: flowrate.New(100*time.Millisecond, 100*time.Millisecond),
 		Address:           addr,
 		id:                d.c.peerIDCounter.Add(1),
-		QueueLimit:        *atomic.NewUint32(200),
+		QueueLimit:        *atomic.NewUint32(2000),
 		Incoming:          skipReadHandshake,
 
 		ourChoking:     *atomic.NewBool(true),
@@ -347,7 +347,10 @@ func (p *Peer) sendBlockRequests() {
 //
 // Formula: desired = queue_time * download_rate / block_size
 // Clamped between [minRequestQueue, maxRequestQueue].
-// Snubbed peers get size 1.
+// updateDesiredQueueSize returns the desired number of outstanding requests.
+// Uses a fixed deep queue so peers are kept saturated; the global / per-torrent
+// rate limiter handles actual throughput control via backpressure.
+// Respects the peer's advertised queue limit as an upper bound.
 func (p *Peer) updateDesiredQueueSize() int {
 	if p.snubbed.Load() {
 		return 1
@@ -357,15 +360,14 @@ func (p *Peer) updateDesiredQueueSize() int {
 		return 1
 	}
 
-	// Rate-based: keep requestQueueTime seconds of pipeline
-	dlRate := p.pieceDownloadRate.Status().CurRate
-	queueSize := min(max(requestQueueTime*int(dlRate)/int(defaultBlockSize), minRequestQueue), maxRequestQueue)
-
-	// Also respect peer's advertised queue limit
+	// Use half the peer's advertised limit so we don't dominate its slots.
+	// Default QueueLimit is 2000, so typical size is 1000 (~16 MB in flight).
 	peerLimit := int(p.QueueLimit.Load())
-	if peerLimit > 0 && queueSize > peerLimit {
-		queueSize = peerLimit
+	if peerLimit <= 0 {
+		peerLimit = 2000
 	}
+	queueSize := max(peerLimit/2, minRequestQueue)
+	queueSize = min(queueSize, maxRequestQueue)
 
 	p.desiredQueueSize.Store(int32(queueSize))
 	return queueSize
@@ -772,7 +774,7 @@ func (p *Peer) sendInitPayload() {
 				Mapping: proto.ExtMapping{
 					Pex: null.Null[proto.ExtensionMessage]{Value: ourPexExtID, Set: !p.d.info.Private},
 				},
-				QueueLength: null.NewUint32(500),
+				QueueLength: null.NewUint32(2000),
 			},
 		})
 	}
