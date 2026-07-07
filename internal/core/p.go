@@ -235,7 +235,9 @@ func (p *Peer) close() {
 		// and abort any blocks we had requested from this peer.
 		// These operate on p's own data; always safe.
 		p.Bitmap.Range(func(u uint32) {
-			p.d.picker.decRefcount(u)
+			if !p.d.HasState(Seeding) {
+				p.d.picker.decRefcount(u)
+			}
 		})
 		p.myRequests.Range(func(req proto.ChunkRequest, _ time.Time) bool {
 			bi := int(req.Begin / uint32(defaultBlockSize))
@@ -595,7 +597,9 @@ func (p *Peer) start(skipHandshake bool) {
 			p.Bitmap.OR(event.Bitmap)
 			// Update picker: increment refcount for each piece the peer has
 			event.Bitmap.Range(func(u uint32) {
-				p.d.picker.incRefcount(u)
+				if !p.d.HasState(Seeding) {
+					p.d.picker.incRefcount(u)
+				}
 			})
 			if !p.isSeed.Load() && p.Bitmap.Count() == p.d.info.NumPieces {
 				p.isSeed.Store(true)
@@ -609,7 +613,9 @@ func (p *Peer) start(skipHandshake bool) {
 			}
 
 			p.Bitmap.Set(event.Index)
-			p.d.picker.incRefcount(event.Index)
+			if !p.d.HasState(Seeding) {
+				p.d.picker.incRefcount(event.Index)
+			}
 			if !p.isSeed.Load() && p.Bitmap.Count() == p.d.info.NumPieces {
 				p.isSeed.Store(true)
 			}
@@ -693,7 +699,9 @@ func (p *Peer) start(skipHandshake bool) {
 
 			if event.ExtensionID == p.extDontHaveID.Load() {
 				p.Bitmap.Unset(event.Index)
-				p.d.picker.decRefcount(event.Index)
+				if !p.d.HasState(Seeding) {
+					p.d.picker.decRefcount(event.Index)
+				}
 				continue
 			}
 
@@ -701,12 +709,15 @@ func (p *Peer) start(skipHandshake bool) {
 		case proto.HaveAll:
 			// Decrement old pieces before replacing bitmap with full set
 			p.Bitmap.Range(func(u uint32) {
-				p.d.picker.decRefcount(u)
+				if !p.d.HasState(Seeding) {
+					p.d.picker.decRefcount(u)
+				}
 			})
 			p.Bitmap.Fill()
-			// Increment refcount for all pieces the peer now has
-			for i := range p.d.info.NumPieces {
-				p.d.picker.incRefcount(i)
+			if !p.d.HasState(Seeding) {
+				for i := range p.d.info.NumPieces {
+					p.d.picker.incRefcount(i)
+				}
 			}
 			p.isSeed.Store(true)
 			select {
@@ -716,7 +727,9 @@ func (p *Peer) start(skipHandshake bool) {
 		case proto.HaveNone:
 			// Decrement old pieces before clearing
 			p.Bitmap.Range(func(u uint32) {
-				p.d.picker.decRefcount(u)
+				if !p.d.HasState(Seeding) {
+					p.d.picker.decRefcount(u)
+				}
 			})
 			p.Bitmap.Clear()
 		case proto.Cancel:
