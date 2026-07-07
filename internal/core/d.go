@@ -108,6 +108,7 @@ func validTransition(from, to State) bool {
 type Download struct {
 	log                    zerolog.Logger
 	ctx                    context.Context
+	store                  pieceStore
 	corruptedPieces        map[uint32]int
 	downloadLimiter        *ratelimit.Limiter
 	c                      *Client
@@ -154,14 +155,13 @@ type Download struct {
 	peerSeeds              atomic.Int64
 	downloadAtStart        int64
 	selectedSize           atomic.Int64
-
-	unchokeCycleOffset int
-	m                  sync.RWMutex
-	corruptedPiecesMu  sync.Mutex
-	normalChunkLen     uint32
-	bitfieldSize       uint32
-	peerID             proto.PeerID
-	private            bool
+	unchokeCycleOffset     int
+	m                      sync.RWMutex
+	corruptedPiecesMu      sync.Mutex
+	normalChunkLen         uint32
+	bitfieldSize           uint32
+	peerID                 proto.PeerID
+	private                bool
 }
 
 type chunkState struct {
@@ -216,6 +216,8 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 
 	completedBm := bm.New(info.NumPieces)
 
+	store := newFileStoreWriter(info, basePath, c.filePool)
+
 	d := &Download{
 		ctx:    ctx,
 		cancel: cancel,
@@ -243,6 +245,8 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 		peerList:       newPeerList(nil), // d set below
 
 		picker: newPiecePicker(info, completedBm),
+
+		store: store,
 
 		chunk: chunkState{
 			done: make(bitmap.Bitmap, (int64(info.NumPieces)*((info.PieceLength+defaultBlockSize-1)/defaultBlockSize)+63)/64),

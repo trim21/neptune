@@ -845,7 +845,7 @@ func (p *Peer) validateRequest(req proto.ChunkRequest) bool {
 		return false
 	}
 
-	pieceSize := as.Uint32(p.d.pieceLength(req.PieceIndex))
+	pieceSize := as.Uint32(p.d.info.PieceLen(req.PieceIndex))
 
 	return req.Begin+req.Length <= pieceSize
 }

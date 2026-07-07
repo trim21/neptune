@@ -4,9 +4,7 @@
 package core
 
 import (
-	"crypto/sha1"
 	"fmt"
-	"io"
 	"slices"
 	"time"
 
@@ -211,8 +209,6 @@ func (d *Download) flushContiguousFromHeap() {
 
 	tailPi := headPi
 
-	start := int64(headPiece)*d.info.PieceLength + int64(head.res.Begin)
-
 	mergedChunk.Write(head.res.Data)
 
 	proto.PiecePool.Put(head.res)
@@ -242,7 +238,7 @@ func (d *Download) flushContiguousFromHeap() {
 		proto.PiecePool.Put(peak.res)
 	}
 
-	err := d.writeChunkToDist(start, mergedChunk.B)
+	err := d.store.WriteChunk(headPiece, head.res.Begin, mergedChunk.B)
 	if err != nil {
 		return
 	}
@@ -345,7 +341,7 @@ func (d *Download) handlePieceFromHeap(index uint32) {
 
 	if doneCount == 0 {
 		// Fast path: all chunks are pending, write the full piece at once.
-		buf := mempool.GetWithCap(int(d.pieceLength(index)))
+		buf := mempool.GetWithCap(int(d.info.PieceLen(index)))
 		defer mempool.Put(buf)
 		buf.Reset()
 
@@ -359,7 +355,7 @@ func (d *Download) handlePieceFromHeap(index uint32) {
 			proto.PiecePool.Put(chunk.res)
 		}
 
-		err := d.writeChunkToDist(int64(index)*d.info.PieceLength, buf.B)
+		err := d.store.WriteChunk(index, 0, buf.B)
 		if err != nil {
 			return
 		}
@@ -368,8 +364,7 @@ func (d *Download) handlePieceFromHeap(index uint32) {
 		// Write each pending chunk at its correct offset.
 		for pendingChunks.Len() != 0 {
 			chunk := pendingChunks.Pop()
-			offset := int64(index)*d.info.PieceLength + int64(chunk.res.Begin)
-			err := d.writeChunkToDist(offset, chunk.res.Data)
+			err := d.store.WriteChunk(index, chunk.res.Begin, chunk.res.Data)
 			if err != nil {
 				return
 			}
@@ -412,81 +407,15 @@ func (d *Download) checkPieceBitmapDone(index uint32) bool {
 	return true
 }
 
-func (d *Download) writeChunkToDist(begin int64, data []byte) error {
-	size := int64(len(data))
-
-	var offset int64
-	for _, chunk := range fileChunks(d.info, begin, begin+size) {
-		f, err := d.openFile(chunk.fileIndex)
-		if err != nil {
-			d.setError(err)
-			return errgo.Wrap(err, "failed to open file for writing chunk")
-		}
-
-		_, err = f.File.WriteAt(data[offset:offset+chunk.length], chunk.offsetOfFile)
-		if err != nil {
-			f.Close()
-			d.setError(err)
-			return errgo.Wrap(err, "failed to write chunk")
-		}
-
-		f.Release()
-		offset += chunk.length
-	}
-
-	return nil
-}
-
 func (d *Download) checkPiece(pieceIndex uint32) error {
-	// stream hash to avoid buffering very large pieces in memory
-	const hashBufSize = 1 << 20 // 1 MiB cap per read
-
-	pieceSize := d.pieceLength(pieceIndex)
-	bufSize := int(min(int64(hashBufSize), pieceSize))
-	if bufSize == 0 {
-		bufSize = sha1.Size
+	ok, err := d.store.VerifyPiece(pieceIndex, d.info.Pieces[pieceIndex])
+	if err != nil {
+		return errgo.Wrap(err, "failed to verify piece")
 	}
 
-	buf := mempool.GetWithCap(bufSize)
-	defer mempool.Put(buf)
+	pieceSize := d.info.PieceLen(pieceIndex)
 
-	hasher := sha1.New()
-	piece := d.pieceInfo.fileChunks(pieceIndex)
-
-	for _, chunk := range piece {
-		f, err := d.openFileReadOnly(chunk.fileIndex)
-		if err != nil {
-			return errgo.Wrap(err, "failed to open file for hashing")
-		}
-
-		remaining := chunk.length
-		offset := chunk.offsetOfFile
-		for remaining > 0 {
-			toRead := int(min(int64(len(buf.B)), remaining))
-
-			n, err := f.File.ReadAt(buf.B[:toRead], offset)
-			if err != nil && err != io.EOF {
-				f.Release()
-				return errgo.Wrap(err, "failed to read piece data for hashing")
-			}
-
-			if n == 0 {
-				f.Release()
-				return errgo.Wrap(io.ErrUnexpectedEOF, "failed to read piece data for hashing")
-			}
-
-			hasher.Write(buf.B[:n])
-			remaining -= int64(n)
-			offset += int64(n)
-		}
-
-		f.Release()
-	}
-
-	var digest [sha1.Size]byte
-	copy(digest[:], hasher.Sum(nil))
-
-	if digest != d.info.Pieces[pieceIndex] {
+	if !ok {
 		// Piece hash check failed — reset in picker so blocks can be re-requested
 		d.picker.resetPiece(pieceIndex, d.info)
 		d.corruptedPiecesMu.Lock()

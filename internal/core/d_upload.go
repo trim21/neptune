@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"math/rand/v2"
 	"slices"
 	"sort"
@@ -368,10 +367,10 @@ func (d *Download) dispatchUpload(item uploadReq, responses *int, maxResponses i
 }
 
 func (d *Download) dispatchCachedPiece(index uint32, reqs []uploadReq, responses *int, maxResponses int) error {
-	buf := mempool.GetWithCap(int(d.pieceLength(index)))
+	buf := mempool.GetWithCap(int(d.info.PieceLen(index)))
 	defer mempool.Put(buf)
 
-	if err := d.readPiece(index, buf.B); err != nil {
+	if _, err := d.store.ReadChunk(index, 0, buf.B); err != nil {
 		return err
 	}
 
@@ -407,32 +406,7 @@ func (d *Download) dispatchUploadWithData(item uploadReq, data []byte, responses
 	return true
 }
 
-// buf must be big enough to read whole piece.
-func (d *Download) readPiece(index uint32, buf []byte) error {
-	var offset int64 = 0
-	for _, chunk := range d.pieceInfo.fileChunks(index) {
-		f, err := d.openFileReadOnly(chunk.fileIndex)
-		if err != nil {
-			return err
-		}
-
-		n, err := f.File.ReadAt(buf[offset:offset+chunk.length], chunk.offsetOfFile)
-		if err != nil {
-			if int64(n) != chunk.length || err != io.EOF {
-				f.Release()
-				return err
-			}
-		}
-
-		offset += chunk.length
-		f.Release()
-	}
-
-	return nil
-}
-
-// readPieceRangeCtx reads a range of bytes from a piece into dst,
-// checking for context cancellation and download state between chunks.
+// readPieceRangeCtx reads a range of bytes from a piece into dst.
 func (d *Download) readPieceRangeCtx(ctx context.Context, req proto.ChunkRequest, dst []byte) error {
 	if int(req.Length) != len(dst) {
 		return fmt.Errorf("invalid dst length: req=%d dst=%d", req.Length, len(dst))
@@ -445,34 +419,6 @@ func (d *Download) readPieceRangeCtx(ctx context.Context, req proto.ChunkRequest
 		return errUploadPaused
 	}
 
-	start := int64(req.PieceIndex)*d.info.PieceLength + int64(req.Begin)
-	end := start + int64(req.Length)
-
-	var offset int64
-	for _, chunk := range fileChunks(d.info, start, end) {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		if !d.HasState(Downloading | Seeding) {
-			return errUploadPaused
-		}
-
-		f, err := d.openFileReadOnly(chunk.fileIndex)
-		if err != nil {
-			return err
-		}
-
-		n, err := f.File.ReadAt(dst[offset:offset+chunk.length], chunk.offsetOfFile)
-		if err != nil {
-			if int64(n) != chunk.length || err != io.EOF {
-				f.Release()
-				return err
-			}
-		}
-
-		offset += chunk.length
-		f.Release()
-	}
-
-	return nil
+	_, err := d.store.ReadChunk(req.PieceIndex, req.Begin, dst)
+	return err
 }
