@@ -140,17 +140,20 @@ func (d *Download) startBackground() {
 			case <-d.ctx.Done():
 				return
 
+			case <-unchokeTicker.C:
+				d.recalculateUnchokeSlots()
+				d.recalcPeerCounts()
+				continue
+			case <-optimisticTicker.C:
+				d.optimisticUnchoke()
+				continue
+
 			case peers := <-d.peersCh:
 				for _, p := range peers {
 					d.peerList.addPeer(p.addrPort, p.source, true)
 				}
 
 			case <-d.pendingPeersSignal:
-			case <-unchokeTicker.C:
-				d.recalculateUnchokeSlots()
-				d.recalcPeerCounts()
-			case <-optimisticTicker.C:
-				d.optimisticUnchoke()
 			case <-connectTicker.C:
 			case <-turnoverTicker.C:
 				d.peerTurnover()
