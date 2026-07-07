@@ -7,44 +7,9 @@ import (
 	"net/netip"
 	"slices"
 	"sync"
+
+	"neptune/internal/client/tracker"
 )
-
-type discoveredPeer struct {
-	addrPort netip.AddrPort
-	source   peerSource
-}
-
-// peerSource mirrors libtorrent's peer_source_flags_t.
-type peerSource uint8
-
-const (
-	peerSourceTracker    peerSource = 1 << 0
-	peerSourceDHT        peerSource = 1 << 1
-	peerSourcePEX        peerSource = 1 << 2
-	peerSourceLSD        peerSource = 1 << 3
-	peerSourceResumeData peerSource = 1 << 4
-	peerSourceIncoming   peerSource = 1 << 5
-)
-
-// sourceRank returns a priority score for a peer source.
-// Higher rank = higher priority for connection.
-// Mirrors libtorrent's source_rank().
-func sourceRank(source peerSource) int {
-	r := 0
-	if source&peerSourceTracker != 0 {
-		r |= 1 << 5
-	}
-	if source&peerSourceLSD != 0 {
-		r |= 1 << 4
-	}
-	if source&peerSourceDHT != 0 {
-		r |= 1 << 3
-	}
-	if source&peerSourcePEX != 0 {
-		r |= 1 << 2
-	}
-	return r
-}
 
 // persistentPeer mirrors libtorrent's torrent_peer — permanent peer metadata
 // that survives connection/disconnection cycles.
@@ -56,7 +21,7 @@ type persistentPeer struct {
 	priority         uint32
 	cachedSourceRank int
 	failcount        uint8
-	source           peerSource
+	source           tracker.PeerSource
 	connectable      bool
 	seed             bool
 	hadTrans         bool
@@ -178,7 +143,7 @@ func (pl *peerList) insertCandidateCacheLocked(pp *persistentPeer) {
 
 // addPeer adds or updates a peer.
 // Mirrors libtorrent's peer_list::add_peer().
-func (pl *peerList) addPeer(addr netip.AddrPort, source peerSource, connectable bool) {
+func (pl *peerList) addPeer(addr netip.AddrPort, source tracker.PeerSource, connectable bool) {
 	pl.mu.Lock()
 	defer pl.mu.Unlock()
 
@@ -192,7 +157,7 @@ func (pl *peerList) addPeer(addr netip.AddrPort, source peerSource, connectable 
 	p := &persistentPeer{
 		addrPort:         addr,
 		source:           source,
-		cachedSourceRank: sourceRank(source),
+		cachedSourceRank: tracker.SourceRank(source),
 		connectable:      connectable,
 		lastSeen:         0,
 		priority:         pl.d.session.PeerPriority(addr),
@@ -208,16 +173,16 @@ func (pl *peerList) addPeer(addr netip.AddrPort, source peerSource, connectable 
 
 // updatePeerLocked updates an existing peer's metadata. Caller holds pl.mu.
 // Mirrors libtorrent's peer_list::update_peer().
-func (pl *peerList) updatePeerLocked(p *persistentPeer, source peerSource, connectable bool) {
+func (pl *peerList) updatePeerLocked(p *persistentPeer, source tracker.PeerSource, connectable bool) {
 	wasConnCand := p.isConnectCandidate(pl.finished, pl.maxFailcount)
 
 	p.source |= source
-	p.cachedSourceRank = sourceRank(p.source)
+	p.cachedSourceRank = tracker.SourceRank(p.source)
 	if connectable {
 		p.connectable = true
 	}
 
-	if source&peerSourceTracker != 0 {
+	if source&tracker.PeerSourceTracker != 0 {
 		p.failcount = 0
 	}
 
@@ -278,8 +243,8 @@ func (pl *peerList) addOrUpdateIncoming(addr netip.AddrPort, sessionTime int64, 
 		wasConnCand := pp.isConnectCandidate(pl.finished, pl.maxFailcount)
 		pp.connection = conn
 		pp.lastSeen = sessionTime
-		pp.source |= peerSourceIncoming
-		pp.cachedSourceRank = sourceRank(pp.source)
+		pp.source |= tracker.PeerSourceIncoming
+		pp.cachedSourceRank = tracker.SourceRank(pp.source)
 		pp.connectable = true
 		if wasConnCand {
 			pl.numConnectCandidates--
@@ -289,8 +254,8 @@ func (pl *peerList) addOrUpdateIncoming(addr netip.AddrPort, sessionTime int64, 
 
 	pp := &persistentPeer{
 		addrPort:         addr,
-		source:           peerSourceIncoming,
-		cachedSourceRank: sourceRank(peerSourceIncoming),
+		source:           tracker.PeerSourceIncoming,
+		cachedSourceRank: tracker.SourceRank(tracker.PeerSourceIncoming),
 		connectable:      false,
 		connection:       conn,
 		lastSeen:         sessionTime,

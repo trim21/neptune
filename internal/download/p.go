@@ -703,7 +703,7 @@ func (p *Peer) start(skipHandshake bool) {
 					return
 				}
 				state := p.d.GetState()
-				dp := make([]discoveredPeer, 0, len(added))
+				dp := make([]tracker.DiscoveredPeer, 0, len(added))
 				for _, peer := range added {
 					if !peer.outGoing {
 						continue
@@ -711,7 +711,7 @@ func (p *Peer) start(skipHandshake bool) {
 					if state == Seeding && peer.seedOnly {
 						continue
 					}
-					dp = append(dp, discoveredPeer{addrPort: peer.addrPort, source: peerSourcePEX})
+					dp = append(dp, tracker.DiscoveredPeer{AddrPort: peer.addrPort, Source: tracker.PeerSourcePEX})
 				}
 				if len(dp) > 0 {
 					p.d.peersCh <- dp

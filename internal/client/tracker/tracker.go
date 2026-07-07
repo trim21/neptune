@@ -37,6 +37,44 @@ const (
 	EventStopped   AnnounceEvent = "stopped"
 )
 
+// DiscoveredPeer holds a peer address with its discovery source.
+type DiscoveredPeer struct {
+	AddrPort netip.AddrPort
+	Source   PeerSource
+}
+
+// PeerSource mirrors libtorrent's peer_source_flags_t.
+type PeerSource uint8
+
+const (
+	PeerSourceTracker    PeerSource = 1 << 0
+	PeerSourceDHT        PeerSource = 1 << 1
+	PeerSourcePEX        PeerSource = 1 << 2
+	PeerSourceLSD        PeerSource = 1 << 3
+	PeerSourceResumeData PeerSource = 1 << 4
+	PeerSourceIncoming   PeerSource = 1 << 5
+)
+
+// SourceRank returns a priority score for a peer source.
+// Higher rank = higher priority for connection.
+// Mirrors libtorrent's source_rank().
+func SourceRank(source PeerSource) int {
+	r := 0
+	if source&PeerSourceTracker != 0 {
+		r |= 1 << 5
+	}
+	if source&PeerSourceLSD != 0 {
+		r |= 1 << 4
+	}
+	if source&PeerSourceDHT != 0 {
+		r |= 1 << 3
+	}
+	if source&PeerSourcePEX != 0 {
+		r |= 1 << 2
+	}
+	return r
+}
+
 // AnnounceResponse is the parsed result from a tracker announce.
 // Interval and MinInterval are zero if the tracker did not return them;
 // the caller (finishAnnounce) applies the merging rules.
@@ -85,7 +123,7 @@ type Config struct {
 	Downloaded      *atomic.Int64
 	Completed       *atomic.Int64
 	SelectedSize    *atomic.Int64
-	PeersCh         chan<- []netip.AddrPort
+	PeersCh         chan<- []DiscoveredPeer
 	Key             string
 	InfoHash        string
 	PeerID          string
@@ -103,7 +141,7 @@ type Trackers struct {
 	Leechers        *xsync.Map[string, int]
 	Errors          *xsync.Map[string, string]
 	resumeCh        chan struct{}
-	peersCh         chan<- []netip.AddrPort
+	peersCh         chan<- []DiscoveredPeer
 	queue           chan AnnounceEvent
 	uploaded        *atomic.Int64
 	completed       *atomic.Int64
@@ -565,7 +603,11 @@ func (t *Trackers) finishAnnounce(tr *Tracker, event AnnounceEvent) {
 
 	r.Peers = lo.Uniq(r.Peers)
 	if len(r.Peers) > 0 && t.peersCh != nil {
-		t.peersCh <- r.Peers
+		peers := make([]DiscoveredPeer, len(r.Peers))
+		for i, addr := range r.Peers {
+			peers[i] = DiscoveredPeer{AddrPort: addr, Source: PeerSourceTracker}
+		}
+		t.peersCh <- peers
 	}
 }
 

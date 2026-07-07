@@ -117,7 +117,7 @@ type Download struct {
 	pieceUploadRate        *flowrate.Monitor
 	resChan                chan *proto.ChunkResponse
 	uploadLimiter          *ratelimit.Limiter
-	peersCh                chan []discoveredPeer
+	peersCh                chan []tracker.DiscoveredPeer
 	peers                  *xsync.Map[uint64, *Peer]
 	connectedAddrs         *xsync.Map[netip.AddrPort, *Peer]
 	stateCond              *gsync.Cond

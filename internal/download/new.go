@@ -93,7 +93,7 @@ func New(sess *session.Session, m *metainfo.MetaInfo, info meta.Info, basePath s
 		uploadLimiter:   ratelimit.New(0),
 
 		selectedSize: *atomic.NewInt64(info.TotalLength),
-		peersCh:      make(chan []discoveredPeer, 1),
+		peersCh:      make(chan []tracker.DiscoveredPeer, 1),
 	}
 
 	d.picker.Store(newPiecePicker(info, completedBm))
@@ -108,22 +108,6 @@ func New(sess *session.Session, m *metainfo.MetaInfo, info meta.Info, basePath s
 
 	d.peerList.d = d
 
-	trackerCh := make(chan []netip.AddrPort, 32)
-	d.goBackground(func() {
-		for {
-			select {
-			case <-d.ctx.Done():
-				return
-			case peers := <-trackerCh:
-				dp := make([]discoveredPeer, len(peers))
-				for i, addr := range peers {
-					dp[i] = discoveredPeer{addrPort: addr, source: peerSourceTracker}
-				}
-				d.peersCh <- dp
-			}
-		}
-	})
-
 	d.Trk = tracker.New(d.ctx, tracker.Config{
 		Key:             random.URLSafeStr(16),
 		HTTP:            sess.HTTP,
@@ -137,7 +121,7 @@ func New(sess *session.Session, m *metainfo.MetaInfo, info meta.Info, basePath s
 		Completed:       &d.completed,
 		SelectedSize:    &d.selectedSize,
 		Debug:           sess.Debug,
-		PeersCh:         trackerCh,
+		PeersCh:         d.peersCh,
 	})
 
 	d.stateCond = gsync.NewCond(&gsync.EmptyLock{})

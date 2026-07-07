@@ -148,7 +148,7 @@ func (d *Download) startBackground() {
 
 			case peers := <-d.peersCh:
 				for _, p := range peers {
-					d.peerList.addPeer(p.addrPort, p.source, true)
+					d.peerList.addPeer(p.AddrPort, p.Source, true)
 				}
 
 			case <-d.pendingPeersSignal:
