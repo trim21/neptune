@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>neptune – {{.Name}}</title>
+<style>
+  body { font-family: ui-monospace, monospace; font-size: 13px; line-height: 1.4;
+         background: #1a1a2e; color: #e0e0e0; margin: 16px; }
+  h2 { font-size: 16px; margin: 24px 0 8px; color: #f0f0f0; }
+  table { border-collapse: collapse; margin: 8px 0; width: 100%; }
+  th, td { padding: 3px 8px; text-align: left; white-space: nowrap; }
+  th { background: #16213e; color: #a0c4ff; font-weight: 600; position: sticky; top: 0; }
+  td { border-bottom: 1px solid #2a2a4a; }
+  tr:hover td { background: #16213e22; }
+  .stats { display: flex; gap: 32px; flex-wrap: wrap; margin: 8px 0; }
+  .stat { min-width: 140px; }
+  .stat .label { color: #888; font-size: 11px; }
+  .stat .value { color: #f0f0f0; font-size: 15px; }
+  button { margin: 8px 0; padding: 6px 16px; cursor: pointer; background: #0f3460;
+           color: #e0e0e0; border: 1px solid #16578a; border-radius: 4px; font-size: 13px; }
+  button:hover { background: #16578a; }
+  a { color: #a0c4ff; }
+  .err { color: #ff6b6b; }
+  .num { text-align: right; }
+  pre { margin: 0; white-space: pre-wrap; word-break: break-all; }
+</style>
+</head>
+<body>
+
+<h2>{{.Name}}</h2>
+
+<form method="post" onsubmit="reannounce(event)">
+  <button type="submit">Reannounce</button>
+  <span id="reannounce-status"></span>
+</form>
+
+<script>
+async function reannounce(e) {
+  e.preventDefault();
+  var s = document.getElementById('reannounce-status');
+  s.textContent = '...';
+  try {
+    var r = await fetch('./{{.InfoHash}}/reannounce', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({info_hash: '{{.InfoHash}}'})
+    });
+    var j = await r.json();
+    s.textContent = j.status || j.error;
+    s.style.color = j.status ? '#4caf50' : '#ff6b6b';
+  } catch(err) {
+    s.textContent = 'network error';
+    s.style.color = '#ff6b6b';
+  }
+  setTimeout(function(){ s.textContent = ''; }, 3000);
+}
+</script>
+
+<div class="stats">
+  <div class="stat"><div class="label">Download</div><div class="value">{{.DownloadRate}}</div></div>
+  <div class="stat"><div class="label">Upload</div><div class="value">{{.UploadRate}}</div></div>
+  <div class="stat"><div class="label">Progress</div><div class="value">{{.Progress}}</div></div>
+  <div class="stat"><div class="label">Downloaded</div><div class="value">{{.Downloaded}}</div></div>
+  <div class="stat"><div class="label">Completed</div><div class="value">{{.Completed}}</div></div>
+  <div class="stat"><div class="label">Waste</div><div class="value">{{.Waste}}</div></div>
+  <div class="stat"><div class="label">Corrupted</div><div class="value">{{.Corrupted}}</div></div>
+</div>
+
+{{if .FailingPieces}}
+<h2>Failing Pieces</h2>
+<table>
+<tr><th>Piece</th><th class="num">Failures</th><th class="num">Busy Blocks</th></tr>
+{{range .FailingPieces}}<tr><td class="num">{{.Index}}</td><td class="num">{{.Count}}</td><td class="num">{{.BlockedBy}}</td></tr>
+{{end}}</table>
+{{end}}
+
+<h2>Trackers</h2>
+<table>
+<tr><th>Tier</th><th>URL</th><th class="num">Seeders</th><th class="num">Leechers</th>
+    <th>Last Announce</th><th>Scheduled</th><th>Earliest</th>
+    <th class="num">Pending</th><th>Message</th><th>Error</th></tr>
+{{range .Trackers}}<tr>
+  <td class="num">{{.Tier}}</td>
+  <td>{{.URL}}</td>
+  <td class="num">{{.Seeders}}</td>
+  <td class="num">{{.Leechers}}</td>
+  <td>{{.LastAnnounce}}</td>
+  <td>{{.Scheduled}}</td>
+  <td>{{.Earliest}}</td>
+  <td class="num">{{.PeerCount}}</td>
+  <td>{{.Message}}</td>
+  <td class="err">{{.Error}}</td>
+</tr>
+{{end}}</table>
+
+<h2>Peers</h2>
+<table>
+<tr><th>Address</th><th>Dir</th><th>Enc</th><th>Down Rate</th><th>Up Rate</th><th class="num">Our Req</th><th class="num">Req Q</th><th class="num">DesiredQ</th>
+    <th>Client</th><th class="num">Progress</th>
+    <th>Snubbed</th><th>Peer Choke</th><th>Peer Interest</th><th>Our Choke</th><th>Our Interest</th>
+    <th>Fast</th><th class="num">Peer Req</th><th>Last Pick</th><th>Peer ID</th></tr>
+{{range .Peers}}<tr>
+  <td>{{.Address}}</td>
+  <td>{{.Direction}}</td>
+  <td>{{.Encryption}}</td>
+  <td>{{.DownRate}}</td>
+  <td>{{.UpRate}}</td>
+  <td class="num">{{.OurReq}}</td>
+  <td class="num">{{.ReqQ}}</td>
+  <td class="num">{{.DesiredQ}}</td>
+  <td>{{.Client}}</td>
+  <td class="num">{{.Progress}}</td>
+  <td>{{.Snubbed}}</td>
+  <td>{{.PeerChoke}}</td>
+  <td>{{.PeerInterest}}</td>
+  <td>{{.OurChoke}}</td>
+  <td>{{.OurInterest}}</td>
+  <td>{{.Fast}}</td>
+  <td class="num">{{.PeerReq}}</td>
+  <td>{{.LastPick}}</td>
+  <td>{{.PeerID}}</td>
+</tr>
+{{end}}</table>
+
+<h2>Picker</h2>
+<pre>{{.PickerText}}</pre>
+
+{{if .DownloadingPieces}}
+<h3>Downloading Pieces (top {{len .DownloadingPieces}})</h3>
+<table>
+<tr><th class="num">Piece</th><th class="num">Blocks</th><th class="num">Free</th><th class="num">Req</th><th class="num">Writing</th><th class="num">Done</th><th>Hash</th><th>Locked</th></tr>
+{{range .DownloadingPieces}}<tr>
+  <td class="num">{{.Index}}</td>
+  <td class="num">{{.Blocks}}</td>
+  <td class="num">{{.Free}}</td>
+  <td class="num">{{.Requested}}</td>
+  <td class="num">{{.Writing}}</td>
+  <td class="num">{{.Finished}}</td>
+  <td>{{.HashPassed}}</td>
+  <td>{{.Locked}}</td>
+</tr>
+{{end}}</table>
+{{end}}
+
+{{if .FullMode}}
+<h2>Files</h2>
+<table>
+<tr><th class="num">#</th><th class="num">Size</th><th class="num">Progress</th><th>Selected</th><th>Path</th></tr>
+{{range .Files}}<tr>
+  <td class="num">{{.Index}}</td><td class="num">{{.Size}}</td><td class="num">{{.Progress}}</td>
+  <td>{{.Selected}}</td><td>{{.Path}}</td>
+</tr>
+{{end}}</table>
+
+{{range .PieceRanges}}<pre>{{.Text}}</pre>
+{{end}}
+{{end}}
+
+{{if .PendingPeers}}
+<h2>Pending Peers</h2>
+<table>
+<tr><th>Address</th><th class="num">FailCount</th><th>Last Seen</th><th>Last Error</th><th>HadTrans</th><th>Connectable</th></tr>
+{{range .PendingPeers}}<tr><td>{{.Address}}</td><td class="num">{{.Failcount}}</td><td>{{.LastSeen}}</td><td>{{.LastError}}</td><td>{{.HadTrans}}</td><td>{{.Connectable}}</td></tr>
+{{end}}</table>
+{{end}}
+
+<p style="color:#555;font-size:11px;margin-top:32px">neptune debug</p>
+</body>
+</html>

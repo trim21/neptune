@@ -449,7 +449,32 @@ func (c *Client) DebugHandlers() http.Handler {
 			http.Error(w, "invalid info_hash", http.StatusBadRequest)
 			return
 		}
-		http.Error(w, "debug page not available in this build", http.StatusServiceUnavailable)
+
+		hash, err := hex.DecodeString(h)
+		if err != nil {
+			http.Error(w, "invalid info_hash", http.StatusBadRequest)
+			return
+		}
+
+		infoHash := metainfo.Hash(hash)
+
+		c.m.RLock()
+		d, ok := c.downloadMap[infoHash]
+		c.m.RUnlock()
+
+		if !ok {
+			http.Error(w, "download not found", http.StatusNotFound)
+			return
+		}
+
+		data := download.BuildDebugPageData(d, h, r.URL.Query().Get("mode") == "full")
+
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+
+		if err := download.RenderDebugPage(w, data); err != nil {
+			log.Error().Err(err).Msg("failed to render debug page")
+		}
 	})
 	return router
 }

@@ -1,10 +1,7 @@
-//go:build ignore
-
-
 // Copyright 2026 trim21 <trim21.me@gmail.com>
 // SPDX-License-Identifier: GPL-3.0-only
 
-package client
+package download
 
 import (
 	"embed"
@@ -127,11 +124,11 @@ type debugPieceRange struct {
 	Text string
 }
 
-func renderDebugPage(w io.Writer, data *debugPageData) error {
+func RenderDebugPage(w io.Writer, data *debugPageData) error {
 	return debugTmpl.Execute(w, data)
 }
 
-func buildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPageData {
+func BuildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPageData {
 	data := &debugPageData{
 		InfoHash:     infoHashHex,
 		Name:         d.info.Name,
@@ -279,8 +276,8 @@ func buildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 		var offset int64
 		for i, file := range d.info.Files {
 			selected := "yes"
-			if d.selectedFilesSet != nil {
-				if _, ok := d.selectedFilesSet[i]; !ok {
+			if d.s.selectedFilesSet != nil {
+				if _, ok := d.s.selectedFilesSet[i]; !ok {
 					selected = "no"
 				}
 			}
@@ -395,4 +392,56 @@ func (s *sortablePeers) sort() {
 		}
 		return 0
 	})
+}
+
+// writePieceRanges writes compressed piece ranges like "0-5726" instead of listing each piece.
+func writePieceRanges(w io.Writer, label string, bits *bm.Bitmap) {
+	count := bits.Count()
+	fmt.Fprintf(w, "%s: %d pieces\n", label, count)
+
+	if count == 0 {
+		return
+	}
+
+	var (
+		rangeStart uint32
+		rangeEnd   uint32
+		first      = true
+		inRange    bool
+	)
+
+	bits.Range(func(x uint32) {
+		if !inRange {
+			rangeStart = x
+			rangeEnd = x
+			inRange = true
+			return
+		}
+		if x == rangeEnd+1 {
+			rangeEnd = x
+		} else {
+			if !first {
+				_, _ = fmt.Fprint(w, ", ")
+			}
+			first = false
+			if rangeStart == rangeEnd {
+				fmt.Fprintf(w, "%d", rangeStart)
+			} else {
+				fmt.Fprintf(w, "%d-%d", rangeStart, rangeEnd)
+			}
+			rangeStart = x
+			rangeEnd = x
+		}
+	})
+	if inRange {
+		if !first {
+			_, _ = fmt.Fprint(w, ", ")
+		}
+		if rangeStart == rangeEnd {
+			fmt.Fprintf(w, "%d", rangeStart)
+		} else {
+			fmt.Fprintf(w, "%d-%d", rangeStart, rangeEnd)
+		}
+	}
+	fmt.Fprintln(w)
 }
