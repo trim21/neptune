@@ -154,6 +154,7 @@ def test_torrent_peers(mock_api, client):
                         "download_rate": 1000,
                         "upload_rate": 500,
                         "is_incoming": False,
+                        "encrypted": False,
                     }
                 ]
             }

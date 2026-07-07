@@ -273,6 +273,7 @@ type APIPeers struct {
 	DownloadRate int64   `json:"download_rate"`
 	UploadRate   int64   `json:"upload_rate"`
 	IsIncoming   bool    `json:"is_incoming"`
+	Encrypted    bool    `json:"encrypted"`
 }
 
 func (c *Client) GetTorrentPeers(h metainfo.Hash) []APIPeers {
@@ -294,6 +295,7 @@ func (c *Client) GetTorrentPeers(h metainfo.Hash) []APIPeers {
 			DownloadRate: p.pieceDownloadRate.Status().CurRate,
 			UploadRate:   p.pieceUploadRate.Status().CurRate,
 			IsIncoming:   p.Incoming,
+			Encrypted:    false,
 		})
 		return true
 	})

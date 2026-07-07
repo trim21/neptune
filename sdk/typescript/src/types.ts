@@ -67,6 +67,7 @@ export interface Peer {
   download_rate: number;
   upload_rate: number;
   is_incoming: boolean;
+  encrypted: boolean;
 }
 
 /** A tracker entry. */
