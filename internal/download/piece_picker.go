@@ -380,16 +380,20 @@ func (pp *piecePicker) pickPieces(
 	preferContiguous int,
 	suggestedPieces []uint32,
 	info meta.Info,
+	// re-use the slice to avoid alloc
+	result pickResult,
 ) pickResult {
 	if pp == nil {
-		return pickResult{}
+		return result
 	}
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
 
 	pp.rebuildPriorities(info)
 
-	var result pickResult
+	// Reuse slices from previous call.
+	result.freeBlocks = result.freeBlocks[:0]
+	result.busyBlocks = result.busyBlocks[:0]
 
 	// ── Startup mode: no completed pieces and no partial pieces yet ──
 	// Pick a random medium-rarity piece to quickly get something to upload.
@@ -531,7 +535,6 @@ func (pp *piecePicker) pickPieces(
 
 		pp.pickBlocksFromPiece(bestPiece, info, &numBlocks, &result)
 	}
-
 	return result
 }
 

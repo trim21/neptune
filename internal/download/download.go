@@ -494,6 +494,9 @@ func (d *Download) checkDone() {
 // and pushes free blocks into the peer's request channel. In endgame mode,
 // it may also pick busy blocks (already requested by other peers).
 func (d *Download) requestABlock(p *Peer) {
+	p.lastPickResultMu.Lock()
+	defer p.lastPickResultMu.Unlock()
+
 	if d.completedBm.Count() == d.info.NumPieces {
 		return
 	}
@@ -519,7 +522,7 @@ func (d *Download) requestABlock(p *Peer) {
 
 	choked := p.peerChoking.Load()
 
-	result := d.picker.Load().pickPieces(
+	p.lastPickResult = d.picker.Load().pickPieces(
 		p.Bitmap,
 		choked,
 		p.allowFast,
@@ -527,11 +530,12 @@ func (d *Download) requestABlock(p *Peer) {
 		0,
 		nil,
 		d.info,
+		p.lastPickResult,
 	)
 
 	// If the peer is choked and no fast pieces are allowed, the picker returns
 	// zero blocks — don't mistake this for "no blocks left" and trigger endgame.
-	if len(result.freeBlocks) == 0 && choked && p.allowFast.Count() == 0 {
+	if len(p.lastPickResult.freeBlocks) == 0 && choked && p.allowFast.Count() == 0 {
 		if d.session.Debug {
 			s := fmt.Sprintf("choked no fast: numReq=%d, desired=%d", numRequests, desiredQueueSize)
 			p.lastPickDebug.Store(&s)
@@ -545,7 +549,7 @@ func (d *Download) requestABlock(p *Peer) {
 	skippedFinished := 0
 	skippedCompleted := 0
 	skippedDone := 0
-	for _, fb := range result.freeBlocks {
+	for _, fb := range p.lastPickResult.freeBlocks {
 		if numRequests <= 0 {
 			break
 		}
@@ -590,11 +594,11 @@ func (d *Download) requestABlock(p *Peer) {
 		skipTotal := skippedInQueue + skippedFinished + skippedCompleted + skippedDone
 		if skipTotal > 0 {
 			s := fmt.Sprintf("picked=%d/%d free, skip: inQ=%d fin=%d done=%d compl=%d",
-				freeBlocksPicked, len(result.freeBlocks),
+				freeBlocksPicked, len(p.lastPickResult.freeBlocks),
 				skippedInQueue, skippedFinished, skippedDone, skippedCompleted)
 			p.lastPickDebug.Store(&s)
 		} else {
-			s := fmt.Sprintf("picked=%d/%d free, %d busy", freeBlocksPicked, len(result.freeBlocks), len(result.busyBlocks))
+			s := fmt.Sprintf("picked=%d/%d free, %d busy", freeBlocksPicked, len(p.lastPickResult.freeBlocks), len(p.lastPickResult.busyBlocks))
 			p.lastPickDebug.Store(&s)
 		}
 	}
@@ -606,11 +610,11 @@ func (d *Download) requestABlock(p *Peer) {
 		return
 	}
 
-	if len(result.busyBlocks) == 0 {
+	if len(p.lastPickResult.busyBlocks) == 0 {
 		return
 	}
 
-	for _, bb := range result.busyBlocks {
+	for _, bb := range p.lastPickResult.busyBlocks {
 		chunk := pieceChunk(d.info, bb.pieceIndex, bb.blockIndex)
 		if p.isInQueue(chunk) {
 			continue

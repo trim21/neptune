@@ -142,16 +142,16 @@ type Peer struct {
 	lastSend          atomic.Time
 	snubbedAt         atomic.Time
 	lastUnchokeAt     atomic.Time
-	lastPickDebug     atomic.Pointer[string]
-	pieceDownloadRate *flowrate.Monitor
+	d                 *Download
+	cancel            context.CancelFunc
 	Bitmap            *bm.Bitmap
 	myRequests        *xsync.Map[proto.ChunkRequest, time.Time]
 	myRequestHistory  *xsync.Map[proto.ChunkRequest, empty.Empty]
-	d                 *Download
+	lastPickDebug     atomic.Pointer[string]
 	Rejected          *xsync.Map[proto.ChunkRequest, empty.Empty]
 	allowFast         *bm.Bitmap
 	peerRequests      *xsync.Map[proto.ChunkRequest, empty.Empty]
-	cancel            context.CancelFunc
+	pieceDownloadRate *flowrate.Monitor
 	UserAgent         atomic.Pointer[string]
 	responseCond      *gsync.Cond
 	peerID            atomic.Pointer[proto.PeerID]
@@ -159,8 +159,10 @@ type Peer struct {
 	r                 *bufio.Reader
 	pieceUploadRate   *flowrate.Monitor
 	Address           netip.AddrPort
+	lastPickResult    pickResult
 	requestQueue      []pieceBlock
 	rttAverage        sizedSlice[time.Duration]
+	id                uint64
 	disconnecting     atomic.Bool
 	isSeed            atomic.Bool
 	QueueLimit        atomic.Uint32
@@ -175,11 +177,11 @@ type Peer struct {
 	rttMutex          sync.RWMutex
 	wm                sync.Mutex
 	rqMu              sync.Mutex
+	lastPickResultMu  sync.Mutex
 	extDontHaveID     gsync.AtomicUint[proto.ExtensionMessage]
 	extPexID          gsync.AtomicUint[proto.ExtensionMessage]
-	id                uint64
-	writeBuf          [4]byte
 	readBuf           [4]byte
+	writeBuf          [4]byte
 	Incoming          bool
 	Encrypted         bool
 	fastExtension     bool
