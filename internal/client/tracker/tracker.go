@@ -85,7 +85,7 @@ type Config struct {
 	Downloaded      *atomic.Int64
 	Completed       *atomic.Int64
 	SelectedSize    *atomic.Int64
-	OnPeers         func([]netip.AddrPort)
+	PeersCh         chan<- []netip.AddrPort
 	Key             string
 	InfoHash        string
 	PeerID          string
@@ -103,7 +103,7 @@ type Trackers struct {
 	Leechers        *xsync.Map[string, int]
 	Errors          *xsync.Map[string, string]
 	resumeCh        chan struct{}
-	onPeers         func([]netip.AddrPort)
+	peersCh         chan<- []netip.AddrPort
 	queue           chan AnnounceEvent
 	uploaded        *atomic.Int64
 	completed       *atomic.Int64
@@ -144,7 +144,7 @@ func New(ctx context.Context, cfg Config) *Trackers {
 
 		resumeCh: make(chan struct{}, 1),
 		queue:    make(chan AnnounceEvent, 1),
-		onPeers:  cfg.OnPeers,
+		peersCh:  cfg.PeersCh,
 		debug:    cfg.Debug,
 	}
 }
@@ -564,8 +564,8 @@ func (t *Trackers) finishAnnounce(tr *Tracker, event AnnounceEvent) {
 	}
 
 	r.Peers = lo.Uniq(r.Peers)
-	if len(r.Peers) > 0 && t.onPeers != nil {
-		t.onPeers(r.Peers)
+	if len(r.Peers) > 0 && t.peersCh != nil {
+		t.peersCh <- r.Peers
 	}
 }
 

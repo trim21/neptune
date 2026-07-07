@@ -89,13 +89,11 @@ func New(sess *session.Session, m *metainfo.MetaInfo, info meta.Info, basePath s
 		scheduleResponseSignal: make(chan empty.Empty, 1),
 		pendingPeersSignal:     make(chan empty.Empty),
 
-		pexAdd:  make(chan []pexPeer, 1),
-		pexDrop: make(chan []netip.AddrPort, 1),
-
 		downloadLimiter: ratelimit.New(0),
 		uploadLimiter:   ratelimit.New(0),
 
 		selectedSize: *atomic.NewInt64(info.TotalLength),
+		peersCh:      make(chan []discoveredPeer, 1),
 	}
 
 	d.completedBm = completedBm
@@ -107,6 +105,22 @@ func New(sess *session.Session, m *metainfo.MetaInfo, info meta.Info, basePath s
 	}
 
 	d.peerList.d = d
+
+	trackerCh := make(chan []netip.AddrPort, 32)
+	d.goBackground(func() {
+		for {
+			select {
+			case <-d.ctx.Done():
+				return
+			case peers := <-trackerCh:
+				dp := make([]discoveredPeer, len(peers))
+				for i, addr := range peers {
+					dp[i] = discoveredPeer{addrPort: addr, source: peerSourceTracker}
+				}
+				d.peersCh <- dp
+			}
+		}
+	})
 
 	d.Trk = tracker.New(d.ctx, tracker.Config{
 		Key:             random.URLSafeStr(16),
@@ -121,15 +135,7 @@ func New(sess *session.Session, m *metainfo.MetaInfo, info meta.Info, basePath s
 		Completed:       &d.completed,
 		SelectedSize:    &d.selectedSize,
 		Debug:           sess.Debug,
-		OnPeers: func(peers []netip.AddrPort) {
-			for _, addr := range peers {
-				d.peerList.addPeer(addr, peerSourceTracker, true)
-			}
-			select {
-			case d.pendingPeersSignal <- empty.Empty{}:
-			default:
-			}
-		},
+		PeersCh:         trackerCh,
 	})
 
 	d.stateCond = gsync.NewCond(&gsync.EmptyLock{})

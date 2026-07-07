@@ -115,6 +115,7 @@ type Download struct {
 	pieceUploadRate        *flowrate.Monitor
 	resChan                chan *proto.ChunkResponse
 	uploadLimiter          *ratelimit.Limiter
+	peersCh                chan []discoveredPeer
 	peers                  *xsync.Map[uint64, *Peer]
 	connectedAddrs         *xsync.Map[netip.AddrPort, *Peer]
 	stateCond              *gsync.Cond
@@ -125,8 +126,6 @@ type Download struct {
 	scheduleRequestSignal  chan empty.Empty
 	scheduleResponseSignal chan empty.Empty
 	pendingPeersSignal     chan empty.Empty
-	pexAdd                 chan []pexPeer
-	pexDrop                chan []netip.AddrPort
 	Trk                    *tracker.Trackers
 	completedBm            *bm.Bitmap
 	wantedBm               *bm.Bitmap

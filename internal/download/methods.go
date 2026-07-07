@@ -69,21 +69,6 @@ func (d *Download) SaveResume() {
 	d.saveResume()
 }
 
-// RecalculateUnchokeSlots recalculates unchoke slot assignments.
-func (d *Download) RecalculateUnchokeSlots() {
-	d.recalculateUnchokeSlots()
-}
-
-// RecalcPeerCounts updates peer seeder/leecher counters.
-func (d *Download) RecalcPeerCounts() {
-	d.recalcPeerCounts()
-}
-
-// OptimisticUnchoke performs the optimistic unchoke routine.
-func (d *Download) OptimisticUnchoke() {
-	d.optimisticUnchoke()
-}
-
 // Cancel cancels the download context.
 func (d *Download) Cancel() {
 	d.cancel()

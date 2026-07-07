@@ -9,6 +9,11 @@ import (
 	"sync"
 )
 
+type discoveredPeer struct {
+	addrPort netip.AddrPort
+	source   peerSource
+}
+
 // peerSource mirrors libtorrent's peer_source_flags_t.
 type peerSource uint8
 

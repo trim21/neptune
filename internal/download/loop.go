@@ -120,32 +120,47 @@ func (d *Download) startBackground() {
 	d.goBackground(d.backgroundReqScheduler)
 	d.goBackground(d.backgroundReqHandler)
 
-	// Connection loop — libtorrent-style periodic connect attempts.
-	// 1s ticker (matching libtorrent's tick_interval) for prompt reuse of freed slots.
-	// 5min ticker for peer turnover (disconnect slow peers, connect new candidates).
+	// Connection + peer intake loop: handles incoming peers from all sources
+	// (tracker, PEX) and periodic connect / turnover.
 	d.goBackground(func() {
+		unchokeTicker := time.NewTicker(UnchokeInterval)
+		defer unchokeTicker.Stop()
+
+		optimisticTicker := time.NewTicker(30 * time.Second)
+		defer optimisticTicker.Stop()
+
 		connectTicker := time.NewTicker(time.Second)
 		defer connectTicker.Stop()
 
-		turnoverTicker := time.NewTicker(5 * time.Minute)
+		turnoverTicker := time.NewTicker(time.Minute)
 		defer turnoverTicker.Stop()
 
 		for {
 			select {
 			case <-d.ctx.Done():
 				return
+
+			case peers := <-d.peersCh:
+				for _, p := range peers {
+					d.peerList.addPeer(p.addrPort, p.source, true)
+				}
+
 			case <-d.pendingPeersSignal:
+			case <-unchokeTicker.C:
+				d.recalculateUnchokeSlots()
+				d.recalcPeerCounts()
+			case <-optimisticTicker.C:
+				d.optimisticUnchoke()
 			case <-connectTicker.C:
 			case <-turnoverTicker.C:
 				d.peerTurnover()
 				continue
 			}
 
-			if !d.wait(Seeding | Downloading) {
+			if !d.HasState(Seeding | Downloading) {
 				continue
 			}
 
-			// Compute how many slots we can fill
 			desired := d.maxConnections()
 			current := d.peerCount()
 			maxSlots := desired - current
@@ -154,35 +169,6 @@ func (d *Download) startBackground() {
 			}
 
 			d.connectToPeers(maxSlots)
-		}
-	})
-
-	// PEX handler — feeds peers from PEX messages into the persistent peer list.
-	d.goBackground(func() {
-		for {
-			select {
-			case <-d.ctx.Done():
-				return
-			case <-d.pexDrop:
-			case peers := <-d.pexAdd:
-				state := d.GetState()
-
-				for _, peer := range peers {
-					if !peer.outGoing {
-						continue
-					}
-					if state == Seeding && peer.seedOnly {
-						continue
-					}
-
-					d.peerList.addPeer(peer.addrPort, peerSourcePEX, true)
-				}
-
-				select {
-				case d.pendingPeersSignal <- empty.Empty{}:
-				case <-d.ctx.Done():
-				}
-			}
 		}
 	})
 }

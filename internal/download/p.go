@@ -688,12 +688,24 @@ func (p *Peer) start(skipHandshake bool) {
 			}
 
 			if event.ExtensionID == ourPexExtID {
-				added, dropped, err := parsePex(event.ExtPex)
+				added, _, err := parsePex(event.ExtPex)
 				if err != nil {
 					return
 				}
-				p.d.pexAdd <- added
-				p.d.pexDrop <- dropped
+				state := p.d.GetState()
+				dp := make([]discoveredPeer, 0, len(added))
+				for _, peer := range added {
+					if !peer.outGoing {
+						continue
+					}
+					if state == Seeding && peer.seedOnly {
+						continue
+					}
+					dp = append(dp, discoveredPeer{addrPort: peer.addrPort, source: peerSourcePEX})
+				}
+				if len(dp) > 0 {
+					p.d.peersCh <- dp
+				}
 				continue
 			}
 
