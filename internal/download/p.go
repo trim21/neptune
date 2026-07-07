@@ -239,11 +239,19 @@ func (p *Peer) close() {
 				p.d.picker.decRefcount(u)
 			}
 		})
+		// Abort blocks that were requested from the picker (sent to peer).
 		p.myRequests.Range(func(req proto.ChunkRequest, _ time.Time) bool {
 			bi := int(req.Begin / uint32(defaultBlockSize))
 			p.d.picker.abortDownload(req.PieceIndex, bi)
 			return true
 		})
+
+		// Also abort blocks that were picked but not yet sent.
+		p.rqMu.Lock()
+		for _, b := range p.requestQueue {
+			p.d.picker.abortDownload(b.pieceIndex, b.blockIndex)
+		}
+		p.rqMu.Unlock()
 
 		// Shared state cleanup: recordDisconnect checks whether we are the
 		// primary peer (in connectedAddrs) and only then updates peerList.
