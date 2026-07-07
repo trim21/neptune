@@ -33,6 +33,14 @@ type Info struct {
 	Private       bool
 }
 
+// PieceLen returns the byte length of the piece at the given index.
+func (info *Info) PieceLen(index uint32) int64 {
+	if index == info.NumPieces-1 {
+		return info.LastPieceSize
+	}
+	return info.PieceLength
+}
+
 var ErrNotV1Torrent = errors.New("torrent is not valid torrent, only v1 torrent is supported")
 var ErrInvalidLength = errors.New("torrent has invalid length")
 

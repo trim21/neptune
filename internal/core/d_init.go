@@ -90,7 +90,7 @@ func (d *Download) initCheck() error {
 		if [sha1.Size]byte(sha1Sum[:sha1.Size]) == d.info.Pieces[pieceIndex] {
 			d.completedBm.Set(pieceIndex)
 			d.picker.weHave(pieceIndex, d.info)
-			d.completed.Add(d.pieceLength(pieceIndex))
+			d.completed.Add(d.info.PieceLen(pieceIndex))
 		}
 
 		sum.Reset()

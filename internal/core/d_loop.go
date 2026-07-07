@@ -4,16 +4,12 @@
 package core
 
 import (
-	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/docker/go-units"
 
 	"neptune/internal/core/tracker"
 	"neptune/internal/pkg/empty"
-	"neptune/internal/pkg/fadvise"
-	"neptune/internal/pkg/filepool"
 )
 
 const defaultBlockSize = units.KiB * 16
@@ -247,54 +243,6 @@ func (p *PriorityQueue) Pop() Priority {
 	x := old[n-1]
 	*p = old[:n-1]
 	return x
-}
-
-func (d *Download) openFile(fileIndex int) (*filepool.File, error) {
-	d.m.RLock()
-	p := filepath.Join(d.basePath, d.info.Files[fileIndex].Path)
-	d.m.RUnlock()
-
-	file, fresh, err := d.c.filePool.Open(p, os.O_RDWR|os.O_CREATE, os.ModePerm, time.Hour)
-	if err == nil {
-		d.adviseFresh(file, fresh)
-		return file, nil
-	}
-
-	if os.IsNotExist(err) {
-		// only try to create directory if needed.
-		err = os.MkdirAll(filepath.Dir(p), os.ModePerm)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	file, fresh, err = d.c.filePool.Open(p, os.O_RDWR|os.O_CREATE, os.ModePerm, time.Hour)
-	if err != nil {
-		return nil, err
-	}
-	d.adviseFresh(file, fresh)
-	return file, nil
-}
-
-// adviseFresh sets FADV_RANDOM on newly-opened fds. Piece access during
-// download/seed is random; initCheck handles its own Sequential advice.
-func (d *Download) adviseFresh(f *filepool.File, fresh bool) {
-	if fresh {
-		_ = fadvise.Random(f.File, 0, 0)
-	}
-}
-
-func (d *Download) openFileReadOnly(fileIndex int) (*filepool.File, error) {
-	d.m.RLock()
-	p := filepath.Join(d.basePath, d.info.Files[fileIndex].Path)
-	d.m.RUnlock()
-
-	file, fresh, err := d.c.filePool.Open(p, os.O_RDONLY, 0, time.Hour)
-	if err != nil {
-		return nil, err
-	}
-	d.adviseFresh(file, fresh)
-	return file, nil
 }
 
 // maxConnections returns the per-torrent connection limit.
