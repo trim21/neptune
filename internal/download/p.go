@@ -797,11 +797,6 @@ func (p *Peer) start(skipHandshake bool) {
 
 		switch event.Event {
 		case proto.Have, proto.HaveAll, proto.Bitfield:
-			select {
-			case p.d.scheduleRequestSignal <- empty.Empty{}:
-			default:
-			}
-
 			if p.Bitmap.WithAndNot(p.d.completedBm).Count() != 0 {
 				if p.ourInterested.CompareAndSwap(false, true) {
 					go p.sendEventX(Event{Event: proto.Interested})
