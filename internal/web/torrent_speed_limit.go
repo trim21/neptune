@@ -11,7 +11,7 @@ import (
 	"github.com/swaggest/usecase"
 	"github.com/trim21/errgo"
 
-	"neptune/internal/core"
+	"neptune/internal/client"
 	"neptune/internal/metainfo"
 	"neptune/internal/web/jsonrpc"
 )
@@ -38,7 +38,7 @@ type setDownloadLimitRequest struct {
 
 type setDownloadLimitResponse struct{}
 
-func setDownloadLimit(h *jsonrpc.Handler, c *core.Client) {
+func setDownloadLimit(h *jsonrpc.Handler, c *client.Client) {
 	u := usecase.NewInteractor(
 		func(ctx context.Context, req *setDownloadLimitRequest, res *setDownloadLimitResponse) error {
 			h, err := checkInfoHash(req.InfoHash)
@@ -67,7 +67,7 @@ type setUploadLimitRequest struct {
 
 type setUploadLimitResponse struct{}
 
-func setUploadLimit(h *jsonrpc.Handler, c *core.Client) {
+func setUploadLimit(h *jsonrpc.Handler, c *client.Client) {
 	u := usecase.NewInteractor(
 		func(ctx context.Context, req *setUploadLimitRequest, res *setUploadLimitResponse) error {
 			h, err := checkInfoHash(req.InfoHash)
@@ -95,7 +95,7 @@ type setGlobalDownloadLimitRequest struct {
 
 type setGlobalDownloadLimitResponse struct{}
 
-func setGlobalDownloadLimit(h *jsonrpc.Handler, c *core.Client) {
+func setGlobalDownloadLimit(h *jsonrpc.Handler, c *client.Client) {
 	u := usecase.NewInteractor(
 		func(ctx context.Context, req *setGlobalDownloadLimitRequest, res *setGlobalDownloadLimitResponse) error {
 			c.SetGlobalDownloadLimit(req.Limit)
@@ -114,7 +114,7 @@ type setGlobalUploadLimitRequest struct {
 
 type setGlobalUploadLimitResponse struct{}
 
-func setGlobalUploadLimit(h *jsonrpc.Handler, c *core.Client) {
+func setGlobalUploadLimit(h *jsonrpc.Handler, c *client.Client) {
 	u := usecase.NewInteractor(
 		func(ctx context.Context, req *setGlobalUploadLimitRequest, res *setGlobalUploadLimitResponse) error {
 			c.SetGlobalUploadLimit(req.Limit)
@@ -134,7 +134,7 @@ type getTransferConfigResponse struct {
 	UploadLimit   int64 `json:"upload_limit"`
 }
 
-func getTransferConfig(h *jsonrpc.Handler, c *core.Client) {
+func getTransferConfig(h *jsonrpc.Handler, c *client.Client) {
 	u := usecase.NewInteractor(
 		func(ctx context.Context, req *getTransferConfigRequest, res *getTransferConfigResponse) error {
 			res.DownloadLimit = c.GetGlobalDownloadLimit()

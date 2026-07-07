@@ -10,7 +10,7 @@ import (
 
 	"github.com/swaggest/usecase"
 
-	"neptune/internal/core"
+	"neptune/internal/client"
 	"neptune/internal/metainfo"
 	"neptune/internal/web/jsonrpc"
 )
@@ -21,7 +21,7 @@ type reannounceRequest struct {
 
 type reannounceResponse struct{}
 
-func reannounceTorrent(h *jsonrpc.Handler, c *core.Client) {
+func reannounceTorrent(h *jsonrpc.Handler, c *client.Client) {
 	u := usecase.NewInteractor(
 		func(ctx context.Context, req *reannounceRequest, res *reannounceResponse) error {
 			if len(req.InfoHash) != sha1.Size*2 {

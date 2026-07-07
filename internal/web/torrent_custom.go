@@ -11,7 +11,7 @@ import (
 	"github.com/swaggest/usecase"
 	"github.com/trim21/errgo"
 
-	"neptune/internal/core"
+	"neptune/internal/client"
 	"neptune/internal/metainfo"
 	"neptune/internal/web/jsonrpc"
 )
@@ -24,7 +24,7 @@ type setCustomRequest struct {
 
 type setCustomResponse struct{}
 
-func setCustom(h *jsonrpc.Handler, c *core.Client) {
+func setCustom(h *jsonrpc.Handler, c *client.Client) {
 	u := usecase.NewInteractor(
 		func(ctx context.Context, req *setCustomRequest, res *setCustomResponse) error {
 			if len(req.InfoHash) != sha1.Size*2 {
@@ -54,7 +54,7 @@ type updateCustomRequest struct {
 
 type updateCustomResponse struct{}
 
-func updateCustom(h *jsonrpc.Handler, c *core.Client) {
+func updateCustom(h *jsonrpc.Handler, c *client.Client) {
 	u := usecase.NewInteractor(
 		func(ctx context.Context, req *updateCustomRequest, res *updateCustomResponse) error {
 			if len(req.InfoHash) != sha1.Size*2 {
@@ -84,7 +84,7 @@ type delCustomRequest struct {
 
 type delCustomResponse struct{}
 
-func delCustom(h *jsonrpc.Handler, c *core.Client) {
+func delCustom(h *jsonrpc.Handler, c *client.Client) {
 	u := usecase.NewInteractor(
 		func(ctx context.Context, req *delCustomRequest, res *delCustomResponse) error {
 			if len(req.InfoHash) != sha1.Size*2 {

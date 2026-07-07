@@ -20,7 +20,7 @@ import (
 	"github.com/swaggest/usecase"
 	"golang.org/x/net/trace"
 
-	"neptune/internal/core"
+	"neptune/internal/client"
 	"neptune/internal/version"
 	"neptune/internal/web/jsonrpc"
 	"neptune/internal/web/res"
@@ -34,7 +34,7 @@ var swaggerUI []byte
 
 const HeaderAuthorization = "Authorization"
 
-func New(c *core.Client, token string, enableDebug bool) http.Handler {
+func New(c *client.Client, token string, enableDebug bool) http.Handler {
 	apiSchema := jsonrpc.OpenAPI{}
 	apiSchema.Reflector().SpecEns().Info.
 		WithTitle("JSON-RPC").

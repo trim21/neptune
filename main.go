@@ -34,8 +34,8 @@ import (
 	"go.uber.org/automaxprocs/maxprocs"
 	"gopkg.in/natefinch/lumberjack.v2"
 
+	"neptune/internal/client"
 	"neptune/internal/config"
-	"neptune/internal/core"
 	"neptune/internal/pkg/empty"
 	"neptune/internal/pkg/random"
 	"neptune/internal/pkg/sys"
@@ -85,7 +85,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	app := core.New(cfg, sessionPath, debug)
+	app := client.New(cfg, sessionPath, debug)
 
 	if e := app.Start(); e != nil {
 		errExit("failed to listen on p2p port", e)

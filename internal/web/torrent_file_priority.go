@@ -11,7 +11,7 @@ import (
 	"github.com/swaggest/usecase"
 	"github.com/trim21/errgo"
 
-	"neptune/internal/core"
+	"neptune/internal/client"
 	"neptune/internal/metainfo"
 	"neptune/internal/web/jsonrpc"
 )
@@ -24,7 +24,7 @@ type setFilePriorityRequest struct {
 
 type setFilePriorityResponse struct{}
 
-func setFilePriority(h *jsonrpc.Handler, c *core.Client) {
+func setFilePriority(h *jsonrpc.Handler, c *client.Client) {
 	u := usecase.NewInteractor(
 		func(ctx context.Context, req *setFilePriorityRequest, res *setFilePriorityResponse) error {
 			if len(req.InfoHash) != sha1.Size*2 {

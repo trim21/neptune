@@ -10,7 +10,7 @@ import (
 
 	"github.com/swaggest/usecase"
 
-	"neptune/internal/core"
+	"neptune/internal/client"
 	"neptune/internal/metainfo"
 	"neptune/internal/web/jsonrpc"
 )
@@ -22,7 +22,7 @@ type addTagsRequest struct {
 
 type addTagsResponse struct{}
 
-func addTags(h *jsonrpc.Handler, c *core.Client) {
+func addTags(h *jsonrpc.Handler, c *client.Client) {
 	u := usecase.NewInteractor(
 		func(ctx context.Context, req *addTagsRequest, res *addTagsResponse) error {
 			if len(req.InfoHash) != sha1.Size*2 {
@@ -48,7 +48,7 @@ type removeTagsRequest struct {
 
 type removeTagsResponse struct{}
 
-func removeTags(h *jsonrpc.Handler, c *core.Client) {
+func removeTags(h *jsonrpc.Handler, c *client.Client) {
 	u := usecase.NewInteractor(
 		func(ctx context.Context, req *removeTagsRequest, res *removeTagsResponse) error {
 			if len(req.InfoHash) != sha1.Size*2 {

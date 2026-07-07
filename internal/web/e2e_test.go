@@ -15,8 +15,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"neptune/internal/client"
 	"neptune/internal/config"
-	"neptune/internal/core"
 	"neptune/internal/web"
 )
 
@@ -110,7 +110,7 @@ func TestE2E(t *testing.T) {
 		},
 	}
 
-	cl := core.New(cfg, sessionPath, false)
+	cl := client.New(cfg, sessionPath, false)
 	defer cl.Shutdown()
 
 	token := "test-token-e2e"

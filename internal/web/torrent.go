@@ -16,7 +16,7 @@ import (
 	"github.com/swaggest/usecase"
 	"github.com/trim21/errgo"
 
-	"neptune/internal/core"
+	"neptune/internal/client"
 	"neptune/internal/meta"
 	"neptune/internal/metainfo"
 	"neptune/internal/web/jsonrpc"
@@ -36,7 +36,7 @@ type AddTorrentResponse struct {
 	InfoHash string `description:"torrent file hash" json:"info_hash" required:"true"`
 }
 
-func addTorrent(h *jsonrpc.Handler, c *core.Client) {
+func addTorrent(h *jsonrpc.Handler, c *client.Client) {
 	u := usecase.NewInteractor(
 		func(ctx context.Context, req *AddTorrentRequest, res *AddTorrentResponse) error {
 			m, err := metainfo.Load(req.TorrentFile)
@@ -58,7 +58,7 @@ func addTorrent(h *jsonrpc.Handler, c *core.Client) {
 			var downloadDir = req.DownloadDir
 
 			if downloadDir == "" {
-				downloadDir = c.Config.App.DownloadDir
+				downloadDir = c.Config().App.DownloadDir
 			} else {
 				if !req.IsBaseDir {
 					downloadDir = filepath.Join(req.DownloadDir, info.Name)
@@ -100,7 +100,7 @@ type GetTorrentResponse struct {
 	Tags   []string          `json:"tags"`
 }
 
-func getTorrent(h *jsonrpc.Handler, c *core.Client) {
+func getTorrent(h *jsonrpc.Handler, c *client.Client) {
 	u := usecase.NewInteractor(
 		func(ctx context.Context, req *GetTorrentRequest, res *GetTorrentResponse) error {
 			r, err := hex.DecodeString(req.InfoHash)
@@ -144,7 +144,7 @@ type MoveTorrentRequest struct {
 type MoveTorrentResponse struct {
 }
 
-func MoveTorrent(h *jsonrpc.Handler, c *core.Client) {
+func MoveTorrent(h *jsonrpc.Handler, c *client.Client) {
 	u := usecase.NewInteractor(
 		func(ctx context.Context, req *MoveTorrentRequest, res *MoveTorrentResponse) error {
 			ih, err := hex.DecodeString(req.InfoHash)
@@ -170,10 +170,10 @@ type listTorrentRequest struct {
 }
 
 type listTorrentResponse struct {
-	core.TorrentList
+	client.TorrentList
 }
 
-func listTorrent(h *jsonrpc.Handler, c *core.Client) {
+func listTorrent(h *jsonrpc.Handler, c *client.Client) {
 	u := usecase.NewInteractor(
 		func(ctx context.Context, req *listTorrentRequest, res *listTorrentResponse) error {
 			res.TorrentList = c.GetTorrentList(req.Keys)
@@ -188,10 +188,10 @@ type getTransferSummaryRequest struct {
 }
 
 type getTransferSummaryResponse struct {
-	core.TransferSummary
+	client.TransferSummary
 }
 
-func getTransferSummary(h *jsonrpc.Handler, c *core.Client) {
+func getTransferSummary(h *jsonrpc.Handler, c *client.Client) {
 	u := usecase.NewInteractor[*getTransferSummaryRequest, getTransferSummaryResponse](
 		func(ctx context.Context, req *getTransferSummaryRequest, res *getTransferSummaryResponse) error {
 			res.TransferSummary = c.GetTransferSummary()
@@ -209,10 +209,10 @@ type listTorrentFilesRequest struct {
 }
 
 type listTorrentFilesResponse struct {
-	Files []core.TorrentFile `json:"files"`
+	Files []client.TorrentFile `json:"files"`
 }
 
-func listTorrentFiles(h *jsonrpc.Handler, c *core.Client) {
+func listTorrentFiles(h *jsonrpc.Handler, c *client.Client) {
 	u := usecase.NewInteractor(
 		func(ctx context.Context, req *listTorrentFilesRequest, res *listTorrentFilesResponse) error {
 			if len(req.InfoHash) != sha1.Size*2 {
@@ -238,10 +238,10 @@ type listTorrentPeersRequest struct {
 }
 
 type listTorrentPeersResponse struct {
-	Peers []core.APIPeers `json:"peers"`
+	Peers []client.APIPeers `json:"peers"`
 }
 
-func listTorrentPeers(h *jsonrpc.Handler, c *core.Client) {
+func listTorrentPeers(h *jsonrpc.Handler, c *client.Client) {
 	u := usecase.NewInteractor(
 		func(ctx context.Context, req *listTorrentPeersRequest, res *listTorrentPeersResponse) error {
 			if len(req.InfoHash) != sha1.Size*2 {
@@ -267,10 +267,10 @@ type listTorrentTrackersRequest struct {
 }
 
 type listTorrentTrackersResponse struct {
-	Trackers []core.APITrackers `json:"trackers"`
+	Trackers []client.APITrackers `json:"trackers"`
 }
 
-func listTorrentTrackers(h *jsonrpc.Handler, c *core.Client) {
+func listTorrentTrackers(h *jsonrpc.Handler, c *client.Client) {
 	u := usecase.NewInteractor(
 		func(ctx context.Context, req *listTorrentTrackersRequest, res *listTorrentTrackersResponse) error {
 			if len(req.InfoHash) != sha1.Size*2 {

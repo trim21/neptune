@@ -10,7 +10,7 @@ import (
 
 	"github.com/swaggest/usecase"
 
-	"neptune/internal/core"
+	"neptune/internal/client"
 	"neptune/internal/metainfo"
 	"neptune/internal/web/jsonrpc"
 )
@@ -21,10 +21,10 @@ type removeTorrentRequest struct {
 }
 
 type removeTorrentResponse struct {
-	core.TorrentList
+	client.TorrentList
 }
 
-func removeTorrent(h *jsonrpc.Handler, c *core.Client) {
+func removeTorrent(h *jsonrpc.Handler, c *client.Client) {
 	u := usecase.NewInteractor[*removeTorrentRequest, removeTorrentResponse](
 		func(ctx context.Context, req *removeTorrentRequest, res *removeTorrentResponse) error {
 			if len(req.InfoHash) != sha1.Size*2 {

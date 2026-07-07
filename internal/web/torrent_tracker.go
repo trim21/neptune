@@ -9,7 +9,7 @@ import (
 	"github.com/swaggest/usecase"
 	"github.com/trim21/errgo"
 
-	"neptune/internal/core"
+	"neptune/internal/client"
 	"neptune/internal/web/jsonrpc"
 )
 
@@ -23,7 +23,7 @@ type addTrackerRequest struct {
 
 type addTrackerResponse struct{}
 
-func addTracker(h *jsonrpc.Handler, c *core.Client) {
+func addTracker(h *jsonrpc.Handler, c *client.Client) {
 	u := usecase.NewInteractor(
 		func(ctx context.Context, req *addTrackerRequest, res *addTrackerResponse) error {
 			ih, err := checkInfoHash(req.InfoHash)
@@ -51,7 +51,7 @@ type removeTrackerRequest struct {
 
 type removeTrackerResponse struct{}
 
-func removeTracker(h *jsonrpc.Handler, c *core.Client) {
+func removeTracker(h *jsonrpc.Handler, c *client.Client) {
 	u := usecase.NewInteractor(
 		func(ctx context.Context, req *removeTrackerRequest, res *removeTrackerResponse) error {
 			ih, err := checkInfoHash(req.InfoHash)
@@ -79,7 +79,7 @@ type replaceTrackersRequest struct {
 
 type replaceTrackersResponse struct{}
 
-func replaceTrackers(h *jsonrpc.Handler, c *core.Client) {
+func replaceTrackers(h *jsonrpc.Handler, c *client.Client) {
 	u := usecase.NewInteractor(
 		func(ctx context.Context, req *replaceTrackersRequest, res *replaceTrackersResponse) error {
 			ih, err := checkInfoHash(req.InfoHash)
