@@ -228,37 +228,34 @@ func (pl *peerList) updatePeerLocked(p *persistentPeer, source peerSource, conne
 // findPeer binary-searches for a peer by addrPort. Returns the index where
 // it was found or should be inserted, and whether it was found.
 func (pl *peerList) findPeer(addr netip.AddrPort) (int, bool) {
-	idx := sortSearch(len(pl.peers), func(i int) bool {
-		return addrLess(addr, pl.peers[i].addrPort)
-	})
-	if idx < len(pl.peers) && pl.peers[idx].addrPort == addr {
-		return idx, true
-	}
-	return idx, false
-}
-
-func sortSearch(n int, f func(int) bool) int {
-	i, j := 0, n
-	for i < j {
-		h := int(uint(i+j) >> 1)
-		if !f(h) {
-			i = h + 1
+	n := len(pl.peers)
+	lo, hi := 0, n
+	for lo < hi {
+		mid := int(uint(lo+hi) >> 1)
+		cmp := compareAddr(pl.peers[mid].addrPort, addr)
+		if cmp < 0 {
+			lo = mid + 1
 		} else {
-			j = h
+			hi = mid
 		}
 	}
-	return i
+	if lo < n && pl.peers[lo].addrPort == addr {
+		return lo, true
+	}
+	return lo, false
 }
 
-func addrLess(a, b netip.AddrPort) bool {
-	ab := a.Addr().Compare(b.Addr())
-	if ab < 0 {
-		return true
+func compareAddr(a, b netip.AddrPort) int {
+	if r := a.Addr().Compare(b.Addr()); r != 0 {
+		return r
 	}
-	if ab > 0 {
-		return false
+	if a.Port() < b.Port() {
+		return -1
 	}
-	return a.Port() < b.Port()
+	if a.Port() > b.Port() {
+		return 1
+	}
+	return 0
 }
 
 // addOrUpdateIncoming ensures a peer entry exists for an incoming connection.
