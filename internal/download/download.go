@@ -25,7 +25,7 @@ import (
 const minRequestQueue = 2
 
 // maxRequestQueue is the maximum number of outstanding requests per peer.
-const maxRequestQueue = 2000
+const maxRequestQueue = 1000
 
 func (d *Download) backgroundReqScheduler() {
 	for {
