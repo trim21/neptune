@@ -9,7 +9,6 @@ import (
 	"bytes"
 	"crypto/sha1"
 	"slices"
-	"sort"
 	"sync"
 
 	"neptune/internal/meta"
