@@ -87,13 +87,34 @@ func (d *Download) backgroundResHandler() {
 		select {
 		case <-d.ctx.Done():
 			return
+		case <-d.stateCond.C:
+			// State changed (e.g. pause). If we are no longer downloading,
+			// drain any remaining chunks so they are not lost.
+			if d.GetState() != Downloading && d.chunk.heap.Len() > 0 {
+				d.drainHeap()
+			}
 		case res := <-d.ResChan:
 			if d.GetState() != Downloading {
+				d.drainHeap()
 				continue
 			}
 
 			d.handleRes(res)
+
+			// Handle the case where state changed during handleRes.
+			if d.GetState() != Downloading && d.chunk.heap.Len() > 0 {
+				d.drainHeap()
+			}
 		}
+	}
+}
+
+// drainHeap flushes all remaining chunks in the heap to disk.
+// Callers must ensure the handler goroutine is not concurrently
+// modifying the heap (i.e. state has transitioned away from Downloading).
+func (d *Download) drainHeap() {
+	for d.chunk.heap.Len() > 0 {
+		d.flushContiguousFromHeap()
 	}
 }
 
