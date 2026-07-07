@@ -135,7 +135,7 @@ func dumpState(d *Download) string {
 	d.chunk.mu.RUnlock()
 	fmt.Fprintf(&sb, "pending=%v\n", pending)
 	fmt.Fprintf(&sb, "done=%v\n", done)
-	for pi := uint32(0); pi < d.info.NumPieces; pi++ {
+	for pi := range d.info.NumPieces {
 		total := int(pieceChunksCount(d.info, pi))
 		start := pi * d.normalChunkLen
 		end := start + uint32(total)
@@ -157,7 +157,7 @@ func dumpState(d *Download) string {
 }
 
 func allDone(d *Download) bool {
-	for pi := uint32(0); pi < d.info.NumPieces; pi++ {
+	for pi := range d.info.NumPieces {
 		total := int(pieceChunksCount(d.info, pi))
 		done := 0
 		start := pi * d.normalChunkLen
