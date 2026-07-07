@@ -2,6 +2,34 @@
 - Neptune is a headless BitTorrent client; [main.go](../main.go) is the entrypoint: initialization, HTTP server, graceful shutdown.
 - Build: `CGO_ENABLED=0`, targets `linux/darwin/windows` on `amd64/arm64`.
 
+## 项目结构
+```
+main.go                 入口
+internal/
+  client/               Client：下载生命周期管理
+    store/              torrent 文件存储
+    tracker/            Tracker announce/scrape
+  config/               TOML 配置加载
+  download/             单个下载：peer 管理、piece 调度、BEP 协议
+  meta/                 torrent info 相关
+  metainfo/             torrent 文件解析
+  piece_store/          文件读写
+  proto/                BitTorrent wire protocol
+  session/              Session 上下文
+  web/                  HTTP server + JSON-RPC
+  pkg/                  通用工具包
+    as/ assert/ bm/ empty/ fallocate/ filepool/ flowrate/
+    gfs/ global/ gslice/ gsync/ heap/ mempool/ null/
+    random/ ratelimit/ ro/ sys/ unsafe/
+  version/              版本号
+sdk/
+  python/               Python JSON-RPC 客户端
+  typescript/            TypeScript JSON-RPC 客户端
+e2e/                    端到端测试
+etc/
+  example/              Docker Compose / TOML 示例
+```
+
 ## Session
 - 管理 session 目录（默认 `~/.neptune`），包含 torrent 持久化、resume 持久化、日志。
 - 通过文件锁防止多实例并发。
