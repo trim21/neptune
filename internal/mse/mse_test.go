@@ -5,13 +5,12 @@ package mse_test
 
 import (
 	"bytes"
-	"fmt"
+	"context"
 	"io"
 	"net"
 	"testing"
 
-	tmse "github.com/anacrolix/torrent/mse"
-	"github.com/samber/lo"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"neptune/internal/metainfo"
@@ -28,9 +27,7 @@ func BenchmarkMSE(b *testing.B) {
 	var handleServer = func(conn net.Conn) {
 		defer conn.Close()
 
-		rw, err := mse.NewAccept(conn, []metainfo.Hash{hash}, func(method mse.CryptoMethod) mse.CryptoMethod {
-			return mse.CryptoMethod(tmse.DefaultCryptoSelector(tmse.CryptoMethod(method)))
-		})
+		rw, _, err := mse.NewAccept(conn, []metainfo.Hash{hash}, mse.DefaultCryptoSelector)
 		if err != nil {
 			return
 		}
@@ -47,7 +44,7 @@ func BenchmarkMSE(b *testing.B) {
 	var handleClient = func(conn net.Conn) {
 		defer conn.Close()
 
-		rw, err := mse.NewConnection(hash[:], conn)
+		rw, _, err := mse.NewConnection(hash[:], conn)
 		if err != nil {
 			panic(err)
 		}
@@ -70,34 +67,33 @@ func BenchmarkMSE(b *testing.B) {
 	}
 
 	b.StartTimer()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		server, client := net.Pipe()
 		go handleServer(server)
 		handleClient(client)
 	}
 }
 
-func TestDial(t *testing.T) {
-	p := 8006
-	l := lo.Must(net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", p)))
+func TestRoundTrip(t *testing.T) {
+	lc := &net.ListenConfig{}
+	l, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
+	require.NoError(t, err)
 	defer l.Close()
 
 	hash := metainfo.Hash{}
 
 	go func() {
 		for {
-			conn, err := l.Accept()
-			if err != nil {
+			conn, acceptErr := l.Accept()
+			if acceptErr != nil {
 				return
 			}
 
 			go func() {
 				defer conn.Close()
 
-				rw, _, err := tmse.ReceiveHandshake(conn, func(callback func(skey []byte) (more bool)) {
-					callback(hash[:])
-				}, tmse.DefaultCryptoSelector)
-				if err != nil {
+				rw, _, acceptErr := mse.NewAccept(conn, []metainfo.Hash{hash}, mse.DefaultCryptoSelector)
+				if acceptErr != nil {
 					return
 				}
 
@@ -106,12 +102,14 @@ func TestDial(t *testing.T) {
 		}
 	}()
 
-	conn, err := net.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", p))
+	d := &net.Dialer{}
+	conn, err := d.DialContext(context.Background(), "tcp", l.Addr().String())
 	require.NoError(t, err)
 	defer conn.Close()
 
-	rw, err := mse.NewConnection(hash[:], conn)
+	rw, method, err := mse.NewConnection(hash[:], conn)
 	require.NoError(t, err)
+	assert.Equal(t, mse.CryptoMethodPlaintext, method)
 
 	data := []byte("hello world\n")
 
@@ -125,39 +123,47 @@ func TestDial(t *testing.T) {
 	require.Equal(t, data, b)
 }
 
-func TestMseAccept(t *testing.T) {
-	p := 8005
-	l := lo.Must(net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", p)))
+func TestForceCrypto(t *testing.T) {
+	lc := &net.ListenConfig{}
+	l, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
+	require.NoError(t, err)
 	defer l.Close()
 
 	hash := metainfo.Hash{}
+	serverMethod := make(chan mse.CryptoMethod, 1)
 
 	go func() {
 		for {
-			conn, err := l.Accept()
-			if err != nil {
+			conn, acceptErr := l.Accept()
+			if acceptErr != nil {
 				return
 			}
 
 			go func() {
 				defer conn.Close()
 
-				rw, err := mse.NewAccept(conn, []metainfo.Hash{hash}, mse.DefaultCryptoSelector)
-				if err != nil {
+				rw, method, acceptErr := mse.NewAccept(conn, []metainfo.Hash{hash}, mse.ForceCrypto)
+				if acceptErr != nil {
 					return
 				}
 
+				serverMethod <- method
 				echoConnection(rw)
 			}()
 		}
 	}()
 
-	conn, err := net.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", p))
+	d := &net.Dialer{}
+	conn, err := d.DialContext(context.Background(), "tcp", l.Addr().String())
 	require.NoError(t, err)
 	defer conn.Close()
 
-	rw, _, err := tmse.InitiateHandshake(conn, hash[:], nil, tmse.CryptoMethodRC4)
+	rw, method, err := mse.NewConnection(hash[:], conn)
 	require.NoError(t, err)
+	assert.Equal(t, mse.CryptoMethodRC4, method)
+
+	sm := <-serverMethod
+	assert.Equal(t, mse.CryptoMethodRC4, sm)
 
 	data := []byte("hello world\n")
 	n, err := rw.Write(data)
@@ -168,7 +174,6 @@ func TestMseAccept(t *testing.T) {
 	_, err = io.ReadFull(rw, b)
 	require.NoError(t, err)
 	require.Equal(t, data, b)
-
 }
 
 func echoConnection(conn io.ReadWriter) {
@@ -185,4 +190,12 @@ func echoConnection(conn io.ReadWriter) {
 			return
 		}
 	}
+}
+
+func loMust[T any](t *testing.T, v T, err error) T {
+	t.Helper()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return v
 }

@@ -198,6 +198,10 @@ func buildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 		if p.Incoming {
 			dir = "in"
 		}
+		enc := "none"
+		if p.Encrypted {
+			enc = "rc4"
+		}
 		peers = append(peers, debugPeer{
 			Address:      p.Address.String(),
 			DownRate:     humanize.IBytes(uint64(p.pieceDownloadRate.Status().CurRate)) + "/s",
@@ -217,7 +221,7 @@ func buildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 			PeerID:       url.QueryEscape(p.peerID.Load().AsString()),
 			LastPick:     p.lastPickDebugString(),
 			Direction:    dir,
-			Encryption:   "none",
+			Encryption:   enc,
 		})
 		return true
 	})

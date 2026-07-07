@@ -52,12 +52,12 @@ func NewPeerID() (peerID proto.PeerID) {
 	return
 }
 
-func NewOutgoingPeer(conn net.Conn, d *Download, addr netip.AddrPort) *Peer {
-	return newPeer(conn, d, addr, false, nil)
+func NewOutgoingPeer(conn net.Conn, d *Download, addr netip.AddrPort, encrypted bool) *Peer {
+	return newPeer(conn, d, addr, false, nil, encrypted)
 }
 
-func NewIncomingPeer(conn net.Conn, d *Download, addr netip.AddrPort, h proto.Handshake) *Peer {
-	return newPeer(conn, d, addr, true, &h)
+func NewIncomingPeer(conn net.Conn, d *Download, addr netip.AddrPort, h proto.Handshake, encrypted bool) *Peer {
+	return newPeer(conn, d, addr, true, &h, encrypted)
 }
 
 func newPeer(
@@ -66,6 +66,7 @@ func newPeer(
 	addr netip.AddrPort,
 	skipReadHandshake bool,
 	h *proto.Handshake,
+	encrypted bool,
 ) *Peer {
 	ctx, cancel := context.WithCancel(d.ctx)
 	l := d.log.With().Stringer("addr", addr)
@@ -89,6 +90,7 @@ func newPeer(
 		id:                d.peerIDCounter.Add(1),
 		QueueLimit:        *atomic.NewUint32(2000),
 		Incoming:          skipReadHandshake,
+		Encrypted:         encrypted,
 
 		ourChoking:     *atomic.NewBool(true),
 		ourInterested:  *atomic.NewBool(false),
@@ -179,6 +181,7 @@ type Peer struct {
 	writeBuf          [4]byte
 	readBuf           [4]byte
 	Incoming          bool
+	Encrypted         bool
 	fastExtension     bool
 	dhtEnabled        bool
 	subExtensions     bool
