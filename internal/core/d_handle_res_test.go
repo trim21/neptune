@@ -125,8 +125,8 @@ func dumpState(d *Download) string {
 	d.chunk.mu.RLock()
 	pending := make([]uint32, 0)
 	done := make([]uint32, 0)
-	max := d.info.NumPieces * d.normalChunkLen
-	for i := range max {
+	totalChunks := d.info.NumPieces * d.normalChunkLen
+	for i := range totalChunks {
 		if d.chunk.pending.Contains(i) {
 			pending = append(pending, i)
 		}
