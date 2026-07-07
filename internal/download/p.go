@@ -448,7 +448,7 @@ func (p *Peer) checkRequestTimeouts() {
 				if consecutiveTimeouts >= snubThreshold && !p.snubbed.Load() {
 					p.snubbed.Store(true)
 					p.snubbedAt.Store(now)
-					p.log.Warn().Int("consecutive", consecutiveTimeouts).Msg("peer snubbed: repeated timeouts")
+					p.log.Trace().Int("consecutive", consecutiveTimeouts).Msg("peer snubbed: repeated timeouts")
 
 					// Clear all remaining in-flight requests on snub.
 					p.myRequests.Range(func(req proto.ChunkRequest, _ time.Time) bool {
@@ -477,7 +477,7 @@ func (p *Peer) checkRequestTimeouts() {
 				if p.snubbed.Load() {
 					p.snubbed.Store(false)
 					p.desiredQueueSize.Store(1)
-					p.log.Info().Msg("peer un-snubbed: no recent timeouts")
+					p.log.Debug().Msg("peer un-snubbed: no recent timeouts")
 					consecutiveTimeouts = 0
 				}
 			}
@@ -657,7 +657,7 @@ func (p *Peer) start(skipHandshake bool) {
 			if p.snubbed.Load() {
 				p.snubbed.Store(false)
 				p.desiredQueueSize.Store(1)
-				p.log.Info().Msg("peer un-snubbed: responding again")
+				p.log.Debug().Msg("peer un-snubbed: responding again")
 			}
 
 			p.d.resChan <- event.Res
