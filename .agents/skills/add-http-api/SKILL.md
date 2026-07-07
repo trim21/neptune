@@ -27,7 +27,7 @@ import (
 
     "github.com/swaggest/usecase"
 
-    "neptune/internal/core"
+    "neptune/internal/client"
     "neptune/internal/web/jsonrpc"
 )
 
@@ -163,7 +163,7 @@ import (
     "github.com/swaggest/usecase"
     "github.com/trim21/errgo"
 
-    "neptune/internal/core"
+    "neptune/internal/client"
     "neptune/internal/metainfo"
     "neptune/internal/web/jsonrpc"
 )

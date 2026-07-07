@@ -36,7 +36,7 @@ jobs:
         run: |
           go build \
             -tags release \
-            -ldflags='-s -w -X "neptune/internal/pkg/global.UserAgent=rtorrent/0.9.8/0.13.8" -X "neptune/internal/core.peerIDPrefix=-lt0D80-"' \
+            -ldflags='-s -w -X "neptune/internal/pkg/global.UserAgent=rtorrent/0.9.8/0.13.8" -X "neptune/internal/download.peerIDPrefix=-lt0D80-"' \
             -trimpath \
             -o ${{ github.workspace }}/dist/neptune_linux_amd64 \
             .

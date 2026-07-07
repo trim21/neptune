@@ -68,7 +68,7 @@
 
 ## 2. Piece Picker — 全局 Block 管理器
 
-`piecePicker`（位于 `internal/core/piece_picker.go`）是下载调度的核心数据结构。它集中管理所有 block 的状态。
+`piecePicker`（位于 `internal/download/piece_picker.go`）是下载调度的核心数据结构。它集中管理所有 block 的状态。
 
 ### 2.1 数据结构
 
@@ -250,7 +250,7 @@ pickBlocksFromPiece(pieceIndex, info, &numBlocks, result):
 
 ## 6. requestABlock — Per-Peer Block 分配
 
-`requestABlock()`（位于 `internal/core/d_download.go`）是每个 peer 的调度入口。它决定"为这个 peer 分配哪些 block"。
+`requestABlock()`（位于 `internal/download/download.go`）是每个 peer 的调度入口。它决定"为这个 peer 分配哪些 block"。
 
 ### 6.1 算法流程
 

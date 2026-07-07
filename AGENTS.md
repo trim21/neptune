@@ -52,7 +52,7 @@
 - OpenAPI spec built with `swaggest/openapi-go`, secured via API key header definition. Description embedded from [internal/web/description.md](../internal/web/description.md).
 
 ## Core Client
-- `Client` ([internal/core/c.go](../internal/core/c.go)) manages downloads via `downloadMap map[metainfo.Hash]*Download` and `downloads []*Download` guarded by `sync.RWMutex`.
+- `Client` ([internal/client/c.go](../internal/client/c.go)) manages downloads via `downloadMap map[metainfo.Hash]*Download` and `downloads []*Download` guarded by `sync.RWMutex`.
 - Global connection limit via `semaphore.Weighted`, file handles via `filepool.FilePool` (LRU, 5000 entries, 5-min TTL).
 - **`AddTorrent()`**: saves .torrent file (hash-sharded path), creates `Download`, appends to sorted slice, adds to map, spawns `go d.Init(false)`.
 - **`RemoveTorrent()`**: removes from map/slice, saves resume, cancels download context, closes all peers, removes resume file, optionally deletes data files, prunes empty parent directories.
@@ -123,6 +123,6 @@ All reusable utilities live here — prefer these over new third-party packages:
 ## Additional Notes
 - Keep Authorization header name as `"Authorization"`; schema enforces API key security in OpenAPI via header definition.
 - Runtime directories and locks are user-writable; do not assume elevated permissions or system-level installs.
-- DHT implementation is a stub ([internal/core/dht.go](../internal/core/dht.go)); MSE encryption files are `.tmp` placeholders ([internal/core/mse/](../internal/core/mse/)).
+- DHT implementation is a stub ([internal/dht/dht.go](../internal/dht/dht.go)); MSE encryption files are `.tmp` placeholders ([internal/mse/](../internal/mse/)).
 - **Python SDK** ([sdk/python/](../sdk/python/)): sync JSON-RPC client using `httpx` + `pydantic`. `NeptuneClient` wraps all RPC methods with typed request/response dataclasses in [models.py](../sdk/python/src/neptune_sdk/models.py). When adding a new RPC method, also add the corresponding client method + request/response models here. Run `uv run pytest` to test.
 - **TypeScript SDK** ([sdk/typescript/](../sdk/typescript/)): async JSON-RPC client using `fetch`. `NeptuneClient.call()` provides fully type-safe method dispatch via `NeptuneMethodMap` in [client.ts](../sdk/typescript/src/client.ts). When adding a new RPC method, add its entry to `NeptuneMethodMap` and the corresponding types in [types.ts](../sdk/typescript/src/types.ts). Run `pnpm tsc --noEmit` to type-check.
