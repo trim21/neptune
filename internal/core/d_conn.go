@@ -11,6 +11,7 @@ import (
 	"net/netip"
 	"time"
 
+	"neptune/internal/mse"
 	"neptune/internal/pkg/empty"
 	"neptune/internal/pkg/global"
 	"neptune/internal/pkg/global/tasks"
@@ -23,8 +24,8 @@ const (
 
 // AddConn adds an incoming connection from the listener.
 // The peer entry is created in newPeer via addOrUpdateIncoming.
-func (d *Download) AddConn(addr netip.AddrPort, conn net.Conn, h proto.Handshake) {
-	NewIncomingPeer(conn, d, addr, h)
+func (d *Download) AddConn(addr netip.AddrPort, conn net.Conn, h proto.Handshake, encrypted bool) {
+	NewIncomingPeer(conn, d, addr, h, encrypted)
 }
 
 // connectToPeers tries to connect to candidate peers from the peer list.
@@ -97,7 +98,31 @@ func (d *Download) tryDial(pp *persistentPeer) {
 		_ = tcp.SetLinger(0)
 	}
 
-	p := NewOutgoingPeer(conn, d, pp.addrPort)
+	var encrypted bool
+	if !d.c.mseDisabled {
+		infoHash := d.info.Hash.AsString()
+		mseConn, method, mseErr := mse.NewConnection([]byte(infoHash), conn)
+		if mseErr != nil {
+			if d.c.mseForce {
+				_ = conn.Close()
+				d.peerList.incFailcount(pp, mseErr.Error())
+				d.c.sem.Release(1)
+				d.c.connectionCount.Sub(1)
+				select {
+				case d.pendingPeersSignal <- empty.Empty{}:
+				default:
+				}
+				return
+			}
+			// prefer mode: MSE failed, fall back to plain connection.
+			// conn was not consumed by MSE on failure, reuse it.
+		} else {
+			conn = mseConn
+			encrypted = method == mse.CryptoMethodRC4
+		}
+	}
+
+	p := NewOutgoingPeer(conn, d, pp.addrPort, encrypted)
 	// Register the connection in the persistent peer list.
 	d.peerList.newConnection(pp.addrPort, p, time.Now().Unix())
 }

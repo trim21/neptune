@@ -295,7 +295,7 @@ func (c *Client) GetTorrentPeers(h metainfo.Hash) []APIPeers {
 			DownloadRate: p.pieceDownloadRate.Status().CurRate,
 			UploadRate:   p.pieceUploadRate.Status().CurRate,
 			IsIncoming:   p.Incoming,
-			Encrypted:    false,
+			Encrypted:    p.Encrypted,
 		})
 		return true
 	})

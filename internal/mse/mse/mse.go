@@ -39,16 +39,16 @@ const AllSupportedCrypto = CryptoMethodPlaintext | CryptoMethodRC4
 var (
 	// Prime P according to the spec, and G, the generator.
 	primeP, primeG big.Int
-	// For use in initer's hashes
+	// For use in initer's hashes.
 	req1 = []byte("req1")
 	req2 = []byte("req2")
 	req3 = []byte("req3")
 	// Verification constant "VC" which is all zeroes in the bittorrent
 	// implementation.
 	vc [8]byte
-	// Zero padding
+	// Zero padding.
 	zeroPad [512]byte
-	// Tracks counts of received crypto_provides
+	// Tracks counts of received crypto_provides.
 )
 
 func init() {
@@ -362,7 +362,7 @@ func (h *handshake) initerSteps() (io.ReadWriter, CryptoMethod, error) {
 			defer mempool.Put(padBuf)
 			_, errR := io.CopyBuffer(buf, io.LimitReader(rand.Reader, int64(padLen)), padBuf.B[:maxPadLength])
 			if errR != nil {
-				panic(fmt.Sprintln("error reading from random", err))
+				panic(fmt.Sprintln("error reading from random", errR))
 			}
 		}
 
@@ -444,13 +444,13 @@ func (h *handshake) receiverSteps() (ret io.ReadWriter, chosen CryptoMethod, err
 		if err == io.EOF {
 			err = errors.New("failed to synchronize on S hashBytes")
 		}
-		return
+		return ret, chosen, err
 	}
 
 	var b [20]byte
 	_, err = io.ReadFull(h.conn, b[:])
 	if err != nil {
-		return
+		return ret, chosen, err
 	}
 	expectedHash := hashBytes(req3, h.s[:])
 	eachHash := sha1.New()
@@ -470,7 +470,7 @@ func (h *handshake) receiverSteps() (ret io.ReadWriter, chosen CryptoMethod, err
 		return true
 	})
 	if err != nil {
-		return
+		return ret, chosen, err
 	}
 
 	r := newCipherReader(newEncrypt(true, h.s[:], h.skey), h.conn)
@@ -482,23 +482,23 @@ func (h *handshake) receiverSteps() (ret io.ReadWriter, chosen CryptoMethod, err
 
 	err = unmarshal(r, vc[:], &provides, &padLen)
 	if err != nil {
-		return
+		return ret, chosen, err
 	}
 	chosen = h.chooseMethod(provides)
 	_, err = io.CopyN(io.Discard, r, int64(padLen))
 	if err != nil {
-		return
+		return ret, chosen, err
 	}
 	var lenIA uint16
 	if err = unmarshal(r, &lenIA); err != nil {
-		return
+		return ret, chosen, err
 	}
 
 	if lenIA != 0 {
 		h.ia = make([]byte, lenIA)
 		err = unmarshal(r, h.ia)
 		if err != nil {
-			return
+			return ret, chosen, err
 		}
 	}
 
@@ -510,15 +510,15 @@ func (h *handshake) receiverSteps() (ret io.ReadWriter, chosen CryptoMethod, err
 	padLen = newPadLen()
 	err = marshal(&w, &vc, uint32(chosen), padLen, zeroPad[:padLen])
 	if err != nil {
-		return
+		return ret, chosen, err
 	}
 
 	if err = h.write(buf.Bytes()); err != nil {
-		return
+		return ret, chosen, err
 	}
 
 	if err = h.w.Flush(); err != nil {
-		return
+		return ret, chosen, err
 	}
 
 	switch chosen { //nolint:exhaustive
@@ -536,7 +536,7 @@ func (h *handshake) receiverSteps() (ret io.ReadWriter, chosen CryptoMethod, err
 		err = errors.New("chosen crypto method is not supported")
 	}
 
-	return
+	return ret, chosen, err
 }
 
 // Do https://github.com/transmission/transmission/blob/7f79cb16ee194d58ce665f9319524bc5e6e4f91d/extras/encryption.txt#L136-L140
@@ -578,7 +578,6 @@ var bufioPool = gsync.NewPool(func() *bufio.Writer {
 func InitiateHandshake(rw io.ReadWriter, key, initialPayload []byte, cryptoProvides CryptoMethod) (
 	io.ReadWriter, CryptoMethod, error,
 ) {
-
 	w := bufioPool.Get()
 	defer bufioPool.Put(w)
 	w.Reset(rw)

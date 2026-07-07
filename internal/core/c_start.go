@@ -18,6 +18,7 @@ import (
 	"github.com/trim21/conntrack"
 	"github.com/trim21/errgo"
 
+	"neptune/internal/mse"
 	"neptune/internal/pkg/global"
 	"neptune/internal/pkg/global/tasks"
 	"neptune/internal/proto"
@@ -147,34 +148,25 @@ func (c *Client) startListen() error {
 
 			c.connectionCount.Add(1)
 
-			// TODO: support MSE
-			// if c.mseDisabled {
-			c.connChan <- incomingConn{
-				addr: lo.Must(netip.ParseAddrPort(conn.RemoteAddr().String())),
-				conn: conn,
-			}
-			// continue
-			//}
+			go func() {
+				c.m.RLock()
+				keys := c.infoHashes
+				c.m.RUnlock()
 
-			//// handle mse
-			// go func() {
-			//	c.m.RLock()
-			//	keys := c.infoHashes
-			//	c.m.RUnlock()
-			//
-			//	rwc, err := mse.NewAccept(peers, keys, c.mseSelector)
-			//	if err != nil {
-			//		c.sem.Release(1)
-			//		c.connectionCount.Sub(1)
-			//		_ = peers.Close()
-			//		return
-			//	}
-			//
-			//	c.connChan <- incomingConn{
-			//		addr: lo.Must(netip.ParseAddrPort(peers.RemoteAddr().String())),
-			//		peers: rwc,
-			//	}
-			// }()
+				rwc, method, err := mse.NewAccept(conn, keys, c.mseSelector)
+				if err != nil {
+					c.sem.Release(1)
+					c.connectionCount.Sub(1)
+					_ = conn.Close()
+					return
+				}
+
+				c.connChan <- incomingConn{
+					addr:      lo.Must(netip.ParseAddrPort(conn.RemoteAddr().String())),
+					conn:      rwc,
+					encrypted: method == mse.CryptoMethodRC4,
+				}
+			}()
 		}
 	}()
 	return nil
@@ -208,7 +200,7 @@ func (c *Client) handleConn() {
 					return
 				}
 
-				d.AddConn(conn.addr, conn.conn, h)
+				d.AddConn(conn.addr, conn.conn, h, conn.encrypted)
 			})
 		}
 	}

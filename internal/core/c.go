@@ -25,6 +25,7 @@ import (
 	"neptune/internal/config"
 	"neptune/internal/dht"
 	"neptune/internal/metainfo"
+	"neptune/internal/mse"
 	"neptune/internal/pkg/filepool"
 	"neptune/internal/pkg/flowrate"
 	"neptune/internal/pkg/global"
@@ -37,21 +38,22 @@ import (
 func New(cfg config.Config, sessionPath string, debug bool) *Client {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// var mseDisabled bool
-	// var mseSelector mse.CryptoSelector
-	// switch cfg.App.Crypto {
-	// case "force":
-	//	mseSelector = mse.ForceCrypto
-	// case "prefer":
-	//	mseSelector = mse.PreferCrypto
-	//case "prefer-not":
-	//	mseSelector = mse.DefaultCryptoSelector
-	//case "", "disable":
-	//	mseDisabled = true
-	//default:
-	//	panic(fmt.Sprintf("invalid `application.crypto` config %q,
-	//	only 'prefer'(default) 'prefer-not', 'disable' or 'force' are allowed", cfg.App.Crypto))
-	//}
+	var outgoingMseDisabled bool
+	var mseSelector mse.CryptoSelector
+	switch cfg.App.Crypto {
+	case "force":
+		mseSelector = mse.ForceCrypto
+	case "", "prefer":
+		mseSelector = mse.PreferCrypto
+	case "none":
+		outgoingMseDisabled = true
+		mseSelector = mse.DefaultCryptoSelector
+	default:
+		panic(fmt.Sprintf(
+			"invalid `application.crypto` config %q, only 'prefer' (default), 'none' or 'force' are allowed",
+			cfg.App.Crypto,
+		))
+	}
 
 	conn, err := (&net.ListenConfig{}).ListenPacket(ctx, "udp", fmt.Sprintf(":%d", cfg.App.P2PPort))
 	if err != nil {
@@ -101,6 +103,10 @@ func New(cfg config.Config, sessionPath string, debug bool) *Client {
 		ipv4:    *atomic.NewPointer(v4),
 		ipv6:    *atomic.NewPointer(v6),
 		debug:   debug,
+
+		mseDisabled: outgoingMseDisabled,
+		mseForce:    cfg.App.Crypto == "force",
+		mseSelector: mseSelector,
 	}
 
 	c.startUploadPool()
@@ -119,14 +125,15 @@ func (c *Client) initMetrics() {
 }
 
 type incomingConn struct {
-	conn net.Conn
-	addr netip.AddrPort
+	conn      net.Conn
+	addr      netip.AddrPort
+	encrypted bool
 }
 
 type Client struct {
 	ctx               context.Context
-	uploadLimiter     *ratelimit.Limiter
-	ipv4              atomic.Pointer[netip.Addr]
+	cancel            context.CancelFunc
+	dht               *dht.DHT
 	downloadMap       map[metainfo.Hash]*Download
 	connChan          chan incomingConn
 	sem               *semaphore.Weighted
@@ -134,12 +141,13 @@ type Client struct {
 	fh                map[string]*os.File
 	pieceDownloadRate *flowrate.Monitor
 	pieceUploadRate   *flowrate.Monitor
-	dht               *dht.DHT
+	ipv4              atomic.Pointer[netip.Addr]
 	downloadLimiter   *ratelimit.Limiter
 	http              *resty.Client
-	cancel            context.CancelFunc
+	mseSelector       mse.CryptoSelector
 	filePool          *filepool.FilePool
 	ipv6              atomic.Pointer[netip.Addr]
+	uploadLimiter     *ratelimit.Limiter
 	torrentPath       string
 	resumePath        string
 	downloads         []*Download
@@ -149,6 +157,8 @@ type Client struct {
 	Config            config.Config
 	connectionCount   atomic.Uint32
 	m                 sync.RWMutex
+	mseDisabled       bool
+	mseForce          bool
 	debug             bool
 }
 

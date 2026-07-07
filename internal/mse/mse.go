@@ -15,6 +15,11 @@ type CryptoMethod = mse.CryptoMethod
 type CryptoSelector = mse.CryptoSelector
 type SecretKeyIter = mse.SecretKeyIter
 
+const (
+	CryptoMethodPlaintext = mse.CryptoMethodPlaintext
+	CryptoMethodRC4       = mse.CryptoMethodRC4
+)
+
 func DefaultCryptoSelector(provided CryptoMethod) CryptoMethod {
 	// We prefer plaintext for performance reasons.
 	if provided&mse.CryptoMethodPlaintext != 0 {
@@ -44,23 +49,23 @@ func keyMatcher(keys []metainfo.Hash) func(f func([]byte) bool) {
 	}
 }
 
-func NewAccept(conn net.Conn, keys []metainfo.Hash, selector mse.CryptoSelector) (net.Conn, error) {
-	rw, _, err := mse.ReceiveHandshake(conn, keyMatcher(keys), selector)
+func NewAccept(conn net.Conn, keys []metainfo.Hash, selector mse.CryptoSelector) (net.Conn, CryptoMethod, error) {
+	rw, method, err := mse.ReceiveHandshake(conn, keyMatcher(keys), selector)
 	if err != nil {
 		_ = conn.Close()
-		return nil, err
+		return nil, 0, err
 	}
 
-	return wrappedConn{rw: rw, Conn: conn}, err
+	return wrappedConn{rw: rw, Conn: conn}, method, err
 }
 
-func NewConnection(infoHash []byte, conn net.Conn) (net.Conn, error) {
-	ret, _, err := mse.InitiateHandshake(conn, infoHash, nil, mse.AllSupportedCrypto)
+func NewConnection(infoHash []byte, conn net.Conn) (net.Conn, CryptoMethod, error) {
+	ret, method, err := mse.InitiateHandshake(conn, infoHash, nil, mse.AllSupportedCrypto)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
-	return wrappedConn{rw: ret, Conn: conn}, nil
+	return wrappedConn{rw: ret, Conn: conn}, method, nil
 }
 
 var _ io.ReadWriteCloser = wrappedConn{}
