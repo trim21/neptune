@@ -70,8 +70,8 @@ func (d *Download) initCheck() error {
 			return d.ctx.Err()
 		}
 
-		for _, chunk := range d.pieceInfo.fileChunks(pieceIndex) {
-			p := filepath.Join(d.basePath, d.info.Files[chunk.fileIndex].Path)
+		for _, chunk := range d.pieceInfo.FileChunks(pieceIndex) {
+			p := filepath.Join(d.basePath, d.info.Files[chunk.FileIndex].Path)
 			f, err := os.OpenFile(p, os.O_RDONLY, 0)
 			if err != nil {
 				return errgo.Wrap(err, fmt.Sprintf("failed to open file %q", p))
@@ -79,7 +79,7 @@ func (d *Download) initCheck() error {
 			// Init check scans files sequentially; tell the kernel to prefetch.
 			_ = fadvise.Sequential(f, 0, 0)
 
-			_, err = d.pieceDownloadRate.IO64(gfs.CopyReaderAt(w, f, chunk.offsetOfFile, chunk.length))
+			_, err = d.pieceDownloadRate.IO64(gfs.CopyReaderAt(w, f, chunk.OffsetOfFile, chunk.Length))
 			if err != nil {
 				f.Close()
 				return errgo.Wrap(err, "failed to read file "+f.Name())
@@ -108,14 +108,14 @@ func (d *Download) buildPieceToCheck(efs map[int]*existingFile) []uint32 {
 
 	for i := range d.info.NumPieces {
 		shouldCheck := true
-		for _, c := range d.pieceInfo.fileChunks(i) {
-			ef, ok := efs[c.fileIndex]
+		for _, c := range d.pieceInfo.FileChunks(i) {
+			ef, ok := efs[c.FileIndex]
 			if !ok {
 				shouldCheck = false
 				break
 			}
 
-			if c.offsetOfFile > ef.size || c.offsetOfFile+c.length > ef.size {
+			if c.OffsetOfFile > ef.size || c.OffsetOfFile+c.Length > ef.size {
 				shouldCheck = false
 				break
 			}

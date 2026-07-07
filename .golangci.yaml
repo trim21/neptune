@@ -103,6 +103,7 @@ linters:
       checks:
         - U1000
         - all
+        - -ST1003
   exclusions:
     generated: lax
     presets:

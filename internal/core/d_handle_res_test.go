@@ -19,6 +19,7 @@ import (
 	"neptune/internal/core/tracker"
 	"neptune/internal/meta"
 	"neptune/internal/metainfo"
+	"neptune/internal/piece_store"
 	"neptune/internal/pkg/bm"
 	"neptune/internal/pkg/empty"
 	"neptune/internal/pkg/flowrate"
@@ -28,7 +29,7 @@ import (
 	"neptune/internal/proto"
 )
 
-func newTestDownload(t testing.TB, numPieces uint32, blocksPerPiece uint32, newStore func(info meta.Info) pieceStore) *Download {
+func newTestDownload(t testing.TB, numPieces uint32, blocksPerPiece uint32, newStore func(info meta.Info) piece_store.PieceStore) *Download {
 	t.Helper()
 
 	pieceLength := int64(blocksPerPiece) * defaultBlockSize
@@ -76,7 +77,7 @@ func newTestDownload(t testing.TB, numPieces uint32, blocksPerPiece uint32, newS
 			done: make(bitmap.Bitmap, (int64(info.NumPieces)*(normalChunkLen)+63)/64),
 			mu:   sync.RWMutex{},
 		},
-		pieceInfo:             buildPieceInfos(info),
+		pieceInfo:             piece_store.BuildPieceInfos(info),
 		pieceDownloadRate:     flowrate.New(time.Second, 5*time.Second),
 		ioDownloadRate:        flowrate.New(time.Second, 5*time.Second),
 		pieceUploadRate:       flowrate.New(time.Second, 5*time.Second),
@@ -138,7 +139,7 @@ func dumpState(d *Download) string {
 	fmt.Fprintf(&sb, "pending=%v\n", pending)
 	fmt.Fprintf(&sb, "done=%v\n", done)
 	for pi := range d.info.NumPieces {
-		total := int(pieceChunksCount(d.info, pi))
+		total := int(piece_store.PieceChunksCount(d.info, pi))
 		start := pi * d.normalChunkLen
 		end := start + uint32(total)
 		p := 0
@@ -160,7 +161,7 @@ func dumpState(d *Download) string {
 
 func allDone(d *Download) bool {
 	for pi := range d.info.NumPieces {
-		total := int(pieceChunksCount(d.info, pi))
+		total := int(piece_store.PieceChunksCount(d.info, pi))
 		done := 0
 		start := pi * d.normalChunkLen
 		end := start + uint32(total)
@@ -187,11 +188,11 @@ func TestHandleResOrder(t *testing.T) {
 	const numPieces = 5
 	const blocksPerPiece = 4
 
-	d := newTestDownload(t, numPieces, blocksPerPiece, newMemStoreWriter)
+	d := newTestDownload(t, numPieces, blocksPerPiece, piece_store.NewMemStore)
 
 	var all []chunkDesc
 	for pi := range uint32(numPieces) {
-		nb := int(pieceChunksCount(d.info, pi))
+		nb := int(piece_store.PieceChunksCount(d.info, pi))
 		for bi := range nb {
 			ch := pieceChunk(d.info, pi, bi)
 			all = append(all, chunkDesc{
@@ -230,7 +231,7 @@ func TestHandleResOrder(t *testing.T) {
 		var o []chunkDesc
 		for pi := range uint32(numPieces) {
 			for _, c := range all {
-				if c.pieceIndex == pi && int(c.begin/defaultBlockSize) == int(pieceChunksCount(d.info, pi))-1 {
+				if c.pieceIndex == pi && int(c.begin/defaultBlockSize) == int(piece_store.PieceChunksCount(d.info, pi))-1 {
 					o = append(o, c)
 				}
 			}
@@ -254,7 +255,7 @@ func TestHandleResOrder(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			// Fresh download per subtest to avoid async checkPiece
 			// goroutines leaking from one test to another.
-			d := newTestDownload(t, numPieces, blocksPerPiece, newMemStoreWriter)
+			d := newTestDownload(t, numPieces, blocksPerPiece, piece_store.NewMemStore)
 			for _, c := range order {
 				d.handleRes(&proto.ChunkResponse{
 					PieceIndex: c.pieceIndex, Begin: c.begin,
@@ -274,11 +275,11 @@ func TestHandleResLargePiece(t *testing.T) {
 	const numPieces = 3
 	const blocksPerPiece = 256
 
-	d := newTestDownload(t, numPieces, blocksPerPiece, newMemStoreWriter)
+	d := newTestDownload(t, numPieces, blocksPerPiece, piece_store.NewMemStore)
 
 	var all []chunkDesc
 	for pi := range uint32(numPieces) {
-		nb := int(pieceChunksCount(d.info, pi))
+		nb := int(piece_store.PieceChunksCount(d.info, pi))
 		for bi := range nb {
 			ch := pieceChunk(d.info, pi, bi)
 			all = append(all, chunkDesc{
@@ -335,11 +336,11 @@ func FuzzHandleRes(f *testing.F) {
 	const blocksPerPiece = 4
 
 	f.Fuzz(func(t *testing.T, seed int64) {
-		d := newTestDownload(t, numPieces, blocksPerPiece, newMemStoreWriter)
+		d := newTestDownload(t, numPieces, blocksPerPiece, piece_store.NewMemStore)
 
 		var all []chunkDesc
 		for pi := range uint32(numPieces) {
-			nb := int(pieceChunksCount(d.info, pi))
+			nb := int(piece_store.PieceChunksCount(d.info, pi))
 			for bi := range nb {
 				ch := pieceChunk(d.info, pi, bi)
 				all = append(all, chunkDesc{

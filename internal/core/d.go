@@ -21,6 +21,7 @@ import (
 	"neptune/internal/core/tracker"
 	"neptune/internal/meta"
 	"neptune/internal/metainfo"
+	"neptune/internal/piece_store"
 	"neptune/internal/pkg/as"
 	"neptune/internal/pkg/bm"
 	"neptune/internal/pkg/empty"
@@ -108,7 +109,7 @@ func validTransition(from, to State) bool {
 type Download struct {
 	log                    zerolog.Logger
 	ctx                    context.Context
-	store                  pieceStore
+	store                  piece_store.PieceStore
 	corruptedPieces        map[uint32]int
 	downloadLimiter        *ratelimit.Limiter
 	c                      *Client
@@ -136,7 +137,7 @@ type Download struct {
 	Trk                    *tracker.Trackers
 	downloadDir            string
 	basePath               string
-	pieceInfo              pieceInfo
+	pieceInfo              piece_store.PieceInfo
 	tags                   []string
 	chunk                  chunkState
 	info                   meta.Info
@@ -216,7 +217,7 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 
 	completedBm := bm.New(info.NumPieces)
 
-	store := newFileStoreWriter(info, basePath, c.filePool)
+	store := piece_store.NewFileStore(info, basePath, c.filePool)
 
 	d := &Download{
 		ctx:    ctx,
@@ -253,7 +254,7 @@ func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath stri
 		},
 
 		// will use about 1mb per torrent, can be optimized later
-		pieceInfo: buildPieceInfos(info),
+		pieceInfo: piece_store.BuildPieceInfos(info),
 
 		private: info.Private,
 
@@ -350,8 +351,8 @@ func (d *Download) hasSelectedFilesUnsafe(pieceIndex uint32) bool {
 	if d.selectedFilesSet == nil {
 		return true
 	}
-	for _, c := range d.pieceInfo.fileChunks(pieceIndex) {
-		if _, ok := d.selectedFilesSet[c.fileIndex]; ok {
+	for _, c := range d.pieceInfo.FileChunks(pieceIndex) {
+		if _, ok := d.selectedFilesSet[c.FileIndex]; ok {
 			return true
 		}
 	}

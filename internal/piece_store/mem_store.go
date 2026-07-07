@@ -1,9 +1,6 @@
 //go:build !release
 
-// Copyright 2024 trim21 <trim21.me@gmail.com>
-// SPDX-License-Identifier: GPL-3.0-only
-
-package core
+package piece_store
 
 import (
 	"bytes"
@@ -14,21 +11,19 @@ import (
 	"neptune/internal/meta"
 )
 
-// dev: pieceStore is the storeWriter interface — testable via mock injection.
-type pieceStore = storeWriter
-
-// memStoreWriter records writes in memory. Used by tests for zero-I/O fuzzing.
-type memStoreWriter struct {
+// MemStore records writes in memory. Used by tests for zero-I/O fuzzing.
+type MemStore struct {
 	data map[int64][]byte
 	info meta.Info
 	mu   sync.RWMutex
 }
 
-func newMemStoreWriter(info meta.Info) pieceStore {
-	return &memStoreWriter{info: info, data: make(map[int64][]byte)}
+// NewMemStore creates an in-memory store for testing.
+func NewMemStore(info meta.Info) Store {
+	return &MemStore{info: info, data: make(map[int64][]byte)}
 }
 
-func (s *memStoreWriter) WriteChunk(pieceIndex uint32, begin uint32, data []byte) error {
+func (s *MemStore) WriteChunk(pieceIndex uint32, begin uint32, data []byte) error {
 	offset := int64(pieceIndex)*s.info.PieceLength + int64(begin)
 	cp := make([]byte, len(data))
 	copy(cp, data)
@@ -38,7 +33,7 @@ func (s *memStoreWriter) WriteChunk(pieceIndex uint32, begin uint32, data []byte
 	return nil
 }
 
-func (s *memStoreWriter) ReadChunk(pieceIndex uint32, begin uint32, data []byte) (int, error) {
+func (s *MemStore) ReadChunk(pieceIndex uint32, begin uint32, data []byte) (int, error) {
 	offset := int64(pieceIndex)*s.info.PieceLength + int64(begin)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -50,7 +45,7 @@ func (s *memStoreWriter) ReadChunk(pieceIndex uint32, begin uint32, data []byte)
 }
 
 // VerifyPiece hashes stored data for the piece and compares.
-func (s *memStoreWriter) VerifyPiece(pieceIndex uint32, expected [sha1.Size]byte) (bool, error) {
+func (s *MemStore) VerifyPiece(pieceIndex uint32, expected [sha1.Size]byte) (bool, error) {
 	offset := int64(pieceIndex) * s.info.PieceLength
 	size := s.info.PieceLen(pieceIndex)
 
