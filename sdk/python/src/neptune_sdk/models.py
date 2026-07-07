@@ -66,6 +66,7 @@ class Peer:
     download_rate: int
     upload_rate: int
     is_incoming: bool
+    encrypted: bool
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

@@ -95,12 +95,14 @@ async function reannounce(e) {
 
 <h2>Peers</h2>
 <table>
-<tr><th>Address</th><th>Down Rate</th><th>Up Rate</th><th class="num">Our Req</th><th class="num">Req Q</th><th class="num">DesiredQ</th>
+<tr><th>Address</th><th>Dir</th><th>Enc</th><th>Down Rate</th><th>Up Rate</th><th class="num">Our Req</th><th class="num">Req Q</th><th class="num">DesiredQ</th>
     <th>Client</th><th class="num">Progress</th>
     <th>Snubbed</th><th>Peer Choke</th><th>Peer Interest</th><th>Our Choke</th><th>Our Interest</th>
     <th>Fast</th><th class="num">Peer Req</th><th>Last Pick</th><th>Peer ID</th></tr>
 {{range .Peers}}<tr>
   <td>{{.Address}}</td>
+  <td>{{.Direction}}</td>
+  <td>{{.Encryption}}</td>
   <td>{{.DownRate}}</td>
   <td>{{.UpRate}}</td>
   <td class="num">{{.OurReq}}</td>

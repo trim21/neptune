@@ -99,6 +99,8 @@ type debugPeer struct {
 	Fast         string
 	PeerID       string
 	LastPick     string
+	Direction    string
+	Encryption   string
 	OurReq       int
 	ReqQ         int
 	DesiredQ     int
@@ -192,6 +194,10 @@ func buildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 	// Peers
 	var peers []debugPeer
 	d.peers.Range(func(_ uint64, p *Peer) bool {
+		dir := "out"
+		if p.Incoming {
+			dir = "in"
+		}
 		peers = append(peers, debugPeer{
 			Address:      p.Address.String(),
 			DownRate:     humanize.IBytes(uint64(p.pieceDownloadRate.Status().CurRate)) + "/s",
@@ -210,6 +216,8 @@ func buildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 			PeerReq:      p.peerRequests.Size(),
 			PeerID:       url.QueryEscape(p.peerID.Load().AsString()),
 			LastPick:     p.lastPickDebugString(),
+			Direction:    dir,
+			Encryption:   "none",
 		})
 		return true
 	})
