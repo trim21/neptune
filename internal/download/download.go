@@ -153,7 +153,7 @@ func (d *Download) handleRes(res *proto.ChunkResponse) {
 
 	// Mark block as writing in the picker
 	blockIndex := int(res.Begin / uint32(defaultBlockSize))
-	d.picker.markAsWriting(res.PieceIndex, blockIndex)
+	d.picker.Load().markAsWriting(res.PieceIndex, blockIndex)
 
 	c := responseChunk{
 		res:    res,
@@ -249,7 +249,7 @@ func (d *Download) flushContiguousFromHeap() {
 	for pi := headPi; pi <= tailPi; pi++ {
 		pieceIdx := pi / d.normalChunkLen
 		blockIdx := int(pi % d.normalChunkLen)
-		d.picker.markAsFinished(pieceIdx, blockIdx)
+		d.picker.Load().markAsFinished(pieceIdx, blockIdx)
 
 		if d.checkPieceBitmapDone(pieceIdx) {
 			// avoid duplicates
@@ -378,7 +378,7 @@ func (d *Download) handlePieceFromHeap(index uint32) {
 
 	// Mark all blocks as finished in the picker
 	for bi := range d.info.PieceBlockCount(index) {
-		d.picker.markAsFinished(index, bi)
+		d.picker.Load().markAsFinished(index, bi)
 	}
 
 	tasks.Submit(func() {
@@ -417,7 +417,7 @@ func (d *Download) checkPiece(pieceIndex uint32) error {
 
 	if !ok {
 		// Piece hash check failed — reset in picker so blocks can be re-requested
-		d.picker.resetPiece(pieceIndex, d.info)
+		d.picker.Load().resetPiece(pieceIndex, d.info)
 		d.corruptedPiecesMu.Lock()
 		d.corruptedPieces[pieceIndex]++
 		d.corruptedPiecesMu.Unlock()
@@ -440,7 +440,7 @@ func (d *Download) checkPiece(pieceIndex uint32) error {
 	notHave := d.completedBm.SetX(pieceIndex)
 
 	// Mark piece as fully owned in the picker
-	d.picker.weHave(pieceIndex, d.info)
+	d.picker.Load().weHave(pieceIndex, d.info)
 
 	if notHave {
 		d.completed.Add(pieceSize)
@@ -481,6 +481,9 @@ func (d *Download) checkDone() {
 	})
 
 	d.Trk.Announce(tracker.EventCompleted)
+
+	// Release picker memory — no longer needed when seeding.
+	d.picker.Store(nil)
 }
 
 // requestABlock picks blocks for a single peer using the global piece picker.
@@ -516,7 +519,7 @@ func (d *Download) requestABlock(p *Peer) {
 
 	choked := p.peerChoking.Load()
 
-	result := d.picker.pickPieces(
+	result := d.picker.Load().pickPieces(
 		p.Bitmap,
 		choked,
 		p.allowFast,
@@ -553,7 +556,7 @@ func (d *Download) requestABlock(p *Peer) {
 			continue
 		}
 
-		if d.picker.isFinished(fb.pieceIndex, fb.blockIndex) {
+		if d.picker.Load().isFinished(fb.pieceIndex, fb.blockIndex) {
 			skippedFinished++
 			continue
 		}
@@ -572,8 +575,8 @@ func (d *Download) requestABlock(p *Peer) {
 			continue
 		}
 
-		d.picker.markAsRequesting(fb.pieceIndex, fb.blockIndex, p)
-		d.picker.addDownloadingPiece(fb.pieceIndex, d.info)
+		d.picker.Load().markAsRequesting(fb.pieceIndex, fb.blockIndex)
+		d.picker.Load().addDownloadingPiece(fb.pieceIndex, d.info)
 
 		p.rqMu.Lock()
 		p.requestQueue = append(p.requestQueue, pieceBlock{pieceIndex: fb.pieceIndex, blockIndex: fb.blockIndex})
@@ -613,7 +616,7 @@ func (d *Download) requestABlock(p *Peer) {
 			continue
 		}
 
-		if d.picker.isFinished(bb.pieceIndex, bb.blockIndex) {
+		if d.picker.Load().isFinished(bb.pieceIndex, bb.blockIndex) {
 			continue
 		}
 
@@ -629,8 +632,8 @@ func (d *Download) requestABlock(p *Peer) {
 			continue
 		}
 
-		d.picker.markAsRequesting(bb.pieceIndex, bb.blockIndex, p)
-		d.picker.addDownloadingPiece(bb.pieceIndex, d.info)
+		d.picker.Load().markAsRequesting(bb.pieceIndex, bb.blockIndex)
+		d.picker.Load().addDownloadingPiece(bb.pieceIndex, d.info)
 
 		p.rqMu.Lock()
 		p.requestQueue = append(p.requestQueue, pieceBlock{pieceIndex: bb.pieceIndex, blockIndex: bb.blockIndex})

@@ -75,8 +75,6 @@ func New(sess *session.Session, m *metainfo.MetaInfo, info meta.Info, basePath s
 		peerList:        newPeerList(nil), // d set below
 		corruptedPieces: make(map[uint32]int),
 
-		picker: newPiecePicker(info, completedBm),
-
 		store: store,
 
 		chunk: chunkState{
@@ -99,6 +97,8 @@ func New(sess *session.Session, m *metainfo.MetaInfo, info meta.Info, basePath s
 		selectedSize: *atomic.NewInt64(info.TotalLength),
 		peersCh:      make(chan []discoveredPeer, 1),
 	}
+
+	d.picker.Store(newPiecePicker(info, completedBm))
 
 	d.completedBm = completedBm
 	d.wantedBm = bm.New(info.NumPieces)

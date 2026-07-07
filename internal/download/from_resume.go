@@ -49,9 +49,13 @@ func ResumeFromData(sess *session.Session, data []byte) (*Download, error) {
 	d := New(sess, m, info, r.BasePath, r.Tags, r.Custom, r.SelectedFiles)
 
 	d.completedBm = bm.FromBitfields(r.Bitfield, d.info.NumPieces)
-	for i := range d.info.NumPieces {
-		if d.completedBm.Contains(i) {
-			d.picker.weHave(i, d.info)
+	if d.completedBm.Count() == d.info.NumPieces {
+		d.picker.Store(nil)
+	} else {
+		for i := range d.info.NumPieces {
+			if d.completedBm.Contains(i) {
+				d.picker.Load().weHave(i, d.info)
+			}
 		}
 	}
 	d.markUnselectedPiecesDoneUnsafe()

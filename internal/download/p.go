@@ -236,20 +236,20 @@ func (p *Peer) close() {
 		// These operate on p's own data; always safe.
 		p.Bitmap.Range(func(u uint32) {
 			if !p.d.HasState(Seeding) {
-				p.d.picker.decRefcount(u)
+				p.d.picker.Load().decRefcount(u)
 			}
 		})
 		// Abort blocks that were requested from the picker (sent to peer).
 		p.myRequests.Range(func(req proto.ChunkRequest, _ time.Time) bool {
 			bi := int(req.Begin / uint32(defaultBlockSize))
-			p.d.picker.abortDownload(req.PieceIndex, bi)
+			p.d.picker.Load().abortDownload(req.PieceIndex, bi)
 			return true
 		})
 
 		// Also abort blocks that were picked but not yet sent.
 		p.rqMu.Lock()
 		for _, b := range p.requestQueue {
-			p.d.picker.abortDownload(b.pieceIndex, b.blockIndex)
+			p.d.picker.Load().abortDownload(b.pieceIndex, b.blockIndex)
 		}
 		p.rqMu.Unlock()
 
@@ -310,7 +310,7 @@ func (p *Peer) sendBlockRequests() {
 
 		// Skip if peer is choking us (unless allowed fast)
 		if p.peerChoking.Load() && !p.allowFast.Contains(block.pieceIndex) {
-			p.d.picker.abortDownload(block.pieceIndex, block.blockIndex)
+			p.d.picker.Load().abortDownload(block.pieceIndex, block.blockIndex)
 			continue
 		}
 
@@ -438,7 +438,7 @@ func (p *Peer) checkRequestTimeouts() {
 				// Abort each timed-out block individually so other peers can pick them up.
 				for _, req := range timedOutReqs {
 					bi := int(req.Begin / uint32(defaultBlockSize))
-					p.d.picker.abortDownload(req.PieceIndex, bi)
+					p.d.picker.Load().abortDownload(req.PieceIndex, bi)
 					p.myRequests.Delete(req)
 				}
 
@@ -453,7 +453,7 @@ func (p *Peer) checkRequestTimeouts() {
 					// Clear all remaining in-flight requests on snub.
 					p.myRequests.Range(func(req proto.ChunkRequest, _ time.Time) bool {
 						bi := int(req.Begin / uint32(defaultBlockSize))
-						p.d.picker.abortDownload(req.PieceIndex, bi)
+						p.d.picker.Load().abortDownload(req.PieceIndex, bi)
 						p.myRequests.Delete(req)
 						return true
 					})
@@ -606,7 +606,7 @@ func (p *Peer) start(skipHandshake bool) {
 			// Update picker: increment refcount for each piece the peer has
 			event.Bitmap.Range(func(u uint32) {
 				if !p.d.HasState(Seeding) {
-					p.d.picker.incRefcount(u)
+					p.d.picker.Load().incRefcount(u)
 				}
 			})
 			if !p.isSeed.Load() && p.Bitmap.Count() == p.d.info.NumPieces {
@@ -622,7 +622,7 @@ func (p *Peer) start(skipHandshake bool) {
 
 			p.Bitmap.Set(event.Index)
 			if !p.d.HasState(Seeding) {
-				p.d.picker.incRefcount(event.Index)
+				p.d.picker.Load().incRefcount(event.Index)
 			}
 			if !p.isSeed.Load() && p.Bitmap.Count() == p.d.info.NumPieces {
 				p.isSeed.Store(true)
@@ -720,7 +720,7 @@ func (p *Peer) start(skipHandshake bool) {
 			if event.ExtensionID == p.extDontHaveID.Load() {
 				p.Bitmap.Unset(event.Index)
 				if !p.d.HasState(Seeding) {
-					p.d.picker.decRefcount(event.Index)
+					p.d.picker.Load().decRefcount(event.Index)
 				}
 				continue
 			}
@@ -730,13 +730,13 @@ func (p *Peer) start(skipHandshake bool) {
 			// Decrement old pieces before replacing bitmap with full set
 			p.Bitmap.Range(func(u uint32) {
 				if !p.d.HasState(Seeding) {
-					p.d.picker.decRefcount(u)
+					p.d.picker.Load().decRefcount(u)
 				}
 			})
 			p.Bitmap.Fill()
 			if !p.d.HasState(Seeding) {
 				for i := range p.d.info.NumPieces {
-					p.d.picker.incRefcount(i)
+					p.d.picker.Load().incRefcount(i)
 				}
 			}
 			p.isSeed.Store(true)
@@ -748,7 +748,7 @@ func (p *Peer) start(skipHandshake bool) {
 			// Decrement old pieces before clearing
 			p.Bitmap.Range(func(u uint32) {
 				if !p.d.HasState(Seeding) {
-					p.d.picker.decRefcount(u)
+					p.d.picker.Load().decRefcount(u)
 				}
 			})
 			p.Bitmap.Clear()
@@ -761,7 +761,7 @@ func (p *Peer) start(skipHandshake bool) {
 
 			// Abort in the picker so other peers can request this block.
 			bi := int(event.Req.Begin / uint32(defaultBlockSize))
-			p.d.picker.abortDownload(event.Req.PieceIndex, bi)
+			p.d.picker.Load().abortDownload(event.Req.PieceIndex, bi)
 
 			// Remove matching entry from requestQueue if present.
 			p.rqMu.Lock()

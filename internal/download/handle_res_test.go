@@ -74,7 +74,6 @@ func newTestDownload(t testing.TB, numPieces uint32, blocksPerPiece uint32, newS
 		log:            zerolog.New(zerolog.Nop()),
 		store:          newStore(info),
 		normalChunkLen: uint32(normalChunkLen),
-		picker:         newPiecePicker(info, completedBm),
 		chunk: chunkState{
 			done: make(bitmap.Bitmap, (int64(info.NumPieces)*(normalChunkLen)+63)/64),
 			mu:   sync.RWMutex{},
@@ -92,13 +91,14 @@ func newTestDownload(t testing.TB, numPieces uint32, blocksPerPiece uint32, newS
 		scheduleRequestSignal: make(chan empty.Empty, 1),
 		Trk:                   tracker.New(ctx, tracker.Config{}),
 	}
+	d.picker.Store(newPiecePicker(info, completedBm))
 	d.state.Store(uint32(Downloading))
 	return d
 }
 
 func resetDownload(d *Download) {
 	d.completedBm.Clear()
-	d.picker.resetAll()
+	d.picker.Load().resetAll()
 	d.completed.Store(0)
 	d.downloaded.Store(0)
 	d.chunk.heap = heap.Heap[responseChunk]{}

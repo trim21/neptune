@@ -24,15 +24,27 @@ const (
 	blockStateFinished                    // block has been written to disk
 )
 
-// blockInfo tracks per-block metadata: which peer requested it, how many peers
-// have it in their queues, and the current state.
-type blockInfo struct {
-	// peer that requested this block (nil if none)
-	peer *Peer
-	// number of peers that have this block in their download or request queue
-	numPeers uint16
-	// current state of this block
-	state blockState
+// blockStates stores per-block state using 2 bits per block packed into bytes.
+// 00=None, 01=Requested, 10=Writing, 11=Finished. 4 blocks per byte.
+type blockStates struct {
+	data []byte
+}
+
+func newBlockStates(numBlocks int) blockStates {
+	return blockStates{data: make([]byte, (numBlocks+3)/4)}
+}
+
+func (bs blockStates) get(idx int) blockState {
+	return blockState((bs.data[idx>>2] >> ((idx & 3) << 1)) & 0x3)
+}
+
+func (bs blockStates) set(idx int, s blockState) {
+	shift := (idx & 3) << 1
+	bs.data[idx>>2] = (bs.data[idx>>2] &^ (0x3 << shift)) | (byte(s) << shift)
+}
+
+func (bs blockStates) resetAll() {
+	clear(bs.data)
 }
 
 // downloadingPiece represents a piece that is partially downloaded.
@@ -62,7 +74,7 @@ type piecePicker struct {
 	pieces             []uint32
 	piecePriorities    []uint32
 	downloadingPieces  []downloadingPiece
-	blockInfos         []blockInfo
+	blockInfos         blockStates
 	blockSize          int64
 	downloadQueueSize  int
 	numWantLeft        int
@@ -89,7 +101,7 @@ func newPiecePicker(info meta.Info, completedBm *bm.Bitmap) *piecePicker {
 		pieces:          make([]uint32, numPieces),
 		completedBm:     completedBm,
 		dirty:           true,
-		blockInfos:      make([]blockInfo, int(numPieces)*int(blocksPerPiece)),
+		blockInfos:      newBlockStates(int(numPieces) * int(blocksPerPiece)),
 	}
 
 	// initialize pieces array
@@ -121,6 +133,9 @@ func (pp *piecePicker) blockInfoIdx(pieceIndex uint32) int {
 // incRefcount increments the reference count for all blocks in the given piece.
 // Called when a peer acquires a piece (bitfield/have).
 func (pp *piecePicker) incRefcount(pieceIndex uint32) {
+	if pp == nil {
+		return
+	}
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
 
@@ -134,6 +149,9 @@ func (pp *piecePicker) incRefcount(pieceIndex uint32) {
 // decRefcount decrements the reference count for all blocks in the given piece.
 // Called when a peer loses a piece (disconnect, dont_have).
 func (pp *piecePicker) decRefcount(pieceIndex uint32) {
+	if pp == nil {
+		return
+	}
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
 
@@ -148,19 +166,19 @@ func (pp *piecePicker) decRefcount(pieceIndex uint32) {
 // weHave marks a piece as completed (we now have it).
 // It clears all block states for that piece and increments the completed counter.
 func (pp *piecePicker) weHave(pieceIndex uint32, info meta.Info) {
+	if pp == nil {
+		return
+	}
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
 
 	idx := pp.blockInfoIdx(pieceIndex)
 	nb := pp.numBlocksInPiece(info, pieceIndex)
 	for i := range int(nb) {
-		bi := &pp.blockInfos[idx+i]
-		if bi.state == blockStateRequested {
+		if pp.blockInfos.get(idx+i) == blockStateRequested {
 			pp.downloadQueueSize--
 		}
-		bi.state = blockStateFinished
-		bi.peer = nil
-		bi.numPeers = 0
+		pp.blockInfos.set(idx+i, blockStateFinished)
 	}
 	pp.removeDownloadingPieceLocked(pieceIndex)
 	pp.numCompletedPieces++
@@ -169,17 +187,18 @@ func (pp *piecePicker) weHave(pieceIndex uint32, info meta.Info) {
 
 // markAsWriting marks a block as being written to disk.
 func (pp *piecePicker) markAsWriting(pieceIndex uint32, blockIndex int) {
+	if pp == nil {
+		return
+	}
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
 
 	idx := pp.blockInfoIdx(pieceIndex) + blockIndex
-	bi := &pp.blockInfos[idx]
-	oldState := bi.state
-	if bi.state == blockStateRequested {
+	oldState := pp.blockInfos.get(idx)
+	if oldState == blockStateRequested {
 		pp.downloadQueueSize--
 	}
-	bi.state = blockStateWriting
-	bi.peer = nil
+	pp.blockInfos.set(idx, blockStateWriting)
 
 	// Update downloadingPiece counters
 	if dp := pp.findDownloadingPiece(pieceIndex); dp != nil {
@@ -192,14 +211,15 @@ func (pp *piecePicker) markAsWriting(pieceIndex uint32, blockIndex int) {
 
 // markAsFinished marks a block as having been written to disk.
 func (pp *piecePicker) markAsFinished(pieceIndex uint32, blockIndex int) {
+	if pp == nil {
+		return
+	}
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
 
 	idx := pp.blockInfoIdx(pieceIndex) + blockIndex
-	bi := &pp.blockInfos[idx]
-	oldState := bi.state
-	bi.state = blockStateFinished
-	bi.peer = nil
+	oldState := pp.blockInfos.get(idx)
+	pp.blockInfos.set(idx, blockStateFinished)
 
 	// Update downloadingPiece counters
 	if dp := pp.findDownloadingPiece(pieceIndex); dp != nil {
@@ -211,18 +231,18 @@ func (pp *piecePicker) markAsFinished(pieceIndex uint32, blockIndex int) {
 }
 
 // markAsRequesting marks a block as requested from a peer.
-func (pp *piecePicker) markAsRequesting(pieceIndex uint32, blockIndex int, peer *Peer) {
+func (pp *piecePicker) markAsRequesting(pieceIndex uint32, blockIndex int) {
+	if pp == nil {
+		return
+	}
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
 
 	idx := pp.blockInfoIdx(pieceIndex) + blockIndex
-	bi := &pp.blockInfos[idx]
-	if bi.state == blockStateNone {
+	if pp.blockInfos.get(idx) == blockStateNone {
 		pp.downloadQueueSize++
 	}
-	bi.state = blockStateRequested
-	bi.peer = peer
-	bi.numPeers++
+	pp.blockInfos.set(idx, blockStateRequested)
 
 	// Update downloadingPiece counters
 	if dp := pp.findDownloadingPiece(pieceIndex); dp != nil {
@@ -230,40 +250,32 @@ func (pp *piecePicker) markAsRequesting(pieceIndex uint32, blockIndex int, peer 
 	}
 }
 
-// getNumPeers returns the number of peers requesting the given block.
-func (pp *piecePicker) getNumPeers(pieceIndex uint32, blockIndex int) int {
-	pp.mu.Lock()
-	defer pp.mu.Unlock()
-
-	idx := pp.blockInfoIdx(pieceIndex) + blockIndex
-	return int(pp.blockInfos[idx].numPeers)
-}
-
 // abortDownload releases a block that was requested but not received.
 // Called when a request is canceled or times out.
 func (pp *piecePicker) abortDownload(pieceIndex uint32, blockIndex int) {
+	if pp == nil {
+		return
+	}
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
 
 	idx := pp.blockInfoIdx(pieceIndex) + blockIndex
-	bi := &pp.blockInfos[idx]
-	if bi.state == blockStateRequested {
+	if pp.blockInfos.get(idx) == blockStateRequested {
 		pp.downloadQueueSize--
 	}
-	bi.state = blockStateNone
-	bi.peer = nil
-	if bi.numPeers > 0 {
-		bi.numPeers--
-	}
+	pp.blockInfos.set(idx, blockStateNone)
 }
 
 // isFinished returns true if the block is finished.
 func (pp *piecePicker) isFinished(pieceIndex uint32, blockIndex int) bool {
+	if pp == nil {
+		return true
+	}
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
 
 	idx := pp.blockInfoIdx(pieceIndex) + blockIndex
-	return pp.blockInfos[idx].state == blockStateFinished
+	return pp.blockInfos.get(idx) == blockStateFinished
 }
 
 // rebuildPriorities re-sorts the piece priority array.
@@ -271,6 +283,9 @@ func (pp *piecePicker) isFinished(pieceIndex uint32, blockIndex int) bool {
 // Partially downloaded pieces stay in the array — pickPieces handles them
 // via the partial-pieces phase first, then falls back to the priority list.
 func (pp *piecePicker) rebuildPriorities(info meta.Info) {
+	if pp == nil {
+		return
+	}
 	if !pp.dirty {
 		return
 	}
@@ -306,10 +321,13 @@ func (pp *piecePicker) rebuildPriorities(info meta.Info) {
 
 // allBlocksFinished returns true if every block of the given piece is finished.
 func (pp *piecePicker) allBlocksFinished(pieceIndex uint32, info meta.Info) bool {
+	if pp == nil {
+		return true
+	}
 	idx := pp.blockInfoIdx(pieceIndex)
 	nb := pp.numBlocksInPiece(info, pieceIndex)
 	for i := range int(nb) {
-		if pp.blockInfos[idx+i].state != blockStateFinished {
+		if pp.blockInfos.get(idx+i) != blockStateFinished {
 			return false
 		}
 	}
@@ -318,6 +336,9 @@ func (pp *piecePicker) allBlocksFinished(pieceIndex uint32, info meta.Info) bool
 
 // updatePiecePriority recalculates the priority for a piece based on its availability.
 func (pp *piecePicker) updatePiecePriority(pieceIndex uint32) {
+	if pp == nil {
+		return
+	}
 	avail := pp.availability[pieceIndex]
 	if avail == 0 {
 		avail = 1 // ensure positive priority
@@ -360,6 +381,9 @@ func (pp *piecePicker) pickPieces(
 	suggestedPieces []uint32,
 	info meta.Info,
 ) pickResult {
+	if pp == nil {
+		return pickResult{}
+	}
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
 
@@ -394,8 +418,7 @@ func (pp *piecePicker) pickPieces(
 		idx := pp.blockInfoIdx(dp.index)
 		freeBlocks := 0
 		for i := range int(dp.blocksInPiece) {
-			bi := &pp.blockInfos[idx+i]
-			if bi.state == blockStateNone {
+			if pp.blockInfos.get(idx+i) == blockStateNone {
 				freeBlocks++
 			}
 		}
@@ -446,8 +469,7 @@ func (pp *piecePicker) pickPieces(
 		}
 		blocksInPiece := int(dp.blocksInPiece)
 		for i := range blocksInPiece {
-			bi := &pp.blockInfos[idx+i]
-			switch bi.state {
+			switch pp.blockInfos.get(idx + i) {
 			case blockStateNone:
 				if preferContiguous <= 0 && numBlocks > 0 {
 					result.freeBlocks = append(result.freeBlocks, pieceBlock{p.pieceIndex, i})
@@ -455,9 +477,7 @@ func (pp *piecePicker) pickPieces(
 				}
 			case blockStateRequested:
 				// busy block — only used in endgame
-				if bi.numPeers > 0 {
-					result.busyBlocks = append(result.busyBlocks, pieceBlock{p.pieceIndex, i})
-				}
+				result.busyBlocks = append(result.busyBlocks, pieceBlock{p.pieceIndex, i})
 			}
 		}
 	}
@@ -583,8 +603,7 @@ func (pp *piecePicker) pickBlocksFromPiece(
 
 	// find free blocks
 	for i := range blocksInPiece {
-		bi := &pp.blockInfos[idx+i]
-		switch bi.state {
+		switch pp.blockInfos.get(idx + i) {
 		case blockStateNone:
 			result.freeBlocks = append(result.freeBlocks, pieceBlock{pieceIndex, i})
 			*numBlocks--
@@ -621,6 +640,9 @@ func (pp *piecePicker) isAlreadyPicked(pieceIndex uint32, result *pickResult) bo
 
 // addDownloadingPiece adds a piece to the downloading set.
 func (pp *piecePicker) addDownloadingPiece(pieceIndex uint32, info meta.Info) {
+	if pp == nil {
+		return
+	}
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
 
@@ -654,6 +676,9 @@ func (pp *piecePicker) addDownloadingPiece(pieceIndex uint32, info meta.Info) {
 
 // removeDownloadingPiece removes a piece from the downloading set.
 func (pp *piecePicker) removeDownloadingPiece(pieceIndex uint32) {
+	if pp == nil {
+		return
+	}
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
 
@@ -668,6 +693,9 @@ func (pp *piecePicker) removeDownloadingPiece(pieceIndex uint32) {
 
 // countBusyBlocks returns the number of busy (requested) blocks in a piece.
 func (pp *piecePicker) countBusyBlocks(pieceIndex uint32, info meta.Info) int {
+	if pp == nil {
+		return 0
+	}
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
 
@@ -675,7 +703,7 @@ func (pp *piecePicker) countBusyBlocks(pieceIndex uint32, info meta.Info) int {
 	nb := pp.numBlocksInPiece(info, pieceIndex)
 	count := 0
 	for i := range int(nb) {
-		if pp.blockInfos[idx+i].state == blockStateRequested {
+		if pp.blockInfos.get(idx+i) == blockStateRequested {
 			count++
 		}
 	}
@@ -706,6 +734,9 @@ type DownloadingPieceInfo struct {
 
 // DebugDownloadingPieces returns detail about every in-flight piece.
 func (pp *piecePicker) DebugDownloadingPieces(info meta.Info) []DownloadingPieceInfo {
+	if pp == nil {
+		return nil
+	}
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
 
@@ -720,7 +751,7 @@ func (pp *piecePicker) DebugDownloadingPieces(info meta.Info) []DownloadingPiece
 			Locked:     dp.locked,
 		}
 		for i := range blocksInPiece {
-			switch pp.blockInfos[idx+i].state {
+			switch pp.blockInfos.get(idx + i) {
 			case blockStateNone:
 				di.Free++
 			case blockStateRequested:
@@ -738,6 +769,9 @@ func (pp *piecePicker) DebugDownloadingPieces(info meta.Info) []DownloadingPiece
 
 // DebugStats returns picker state summary for debugging.
 func (pp *piecePicker) DebugStats(info meta.Info) PickerStats {
+	if pp == nil {
+		return PickerStats{}
+	}
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
 
@@ -751,7 +785,7 @@ func (pp *piecePicker) DebugStats(info meta.Info) PickerStats {
 		idx := pp.blockInfoIdx(pi)
 		nb := pp.numBlocksInPiece(info, pi)
 		for i := range int(nb) {
-			switch pp.blockInfos[idx+i].state {
+			switch pp.blockInfos.get(idx + i) {
 			case blockStateNone:
 				st.FreeBlocks++
 			case blockStateRequested:
@@ -768,19 +802,19 @@ func (pp *piecePicker) DebugStats(info meta.Info) PickerStats {
 
 // resetPiece resets all blocks in a piece to state none (for hash check failure).
 func (pp *piecePicker) resetPiece(pieceIndex uint32, info meta.Info) {
+	if pp == nil {
+		return
+	}
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
 
 	idx := pp.blockInfoIdx(pieceIndex)
 	nb := pp.numBlocksInPiece(info, pieceIndex)
 	for i := range int(nb) {
-		bi := &pp.blockInfos[idx+i]
-		if bi.state == blockStateRequested {
+		if pp.blockInfos.get(idx+i) == blockStateRequested {
 			pp.downloadQueueSize--
 		}
-		bi.state = blockStateNone
-		bi.peer = nil
-		bi.numPeers = 0
+		pp.blockInfos.set(idx+i, blockStateNone)
 	}
 	pp.removeDownloadingPieceLocked(pieceIndex)
 	pp.dirty = true
@@ -789,14 +823,13 @@ func (pp *piecePicker) resetPiece(pieceIndex uint32, info meta.Info) {
 // resetAll resets all block states to none and clears downloading pieces.
 // Used during recheck (AsyncCheck) when completedBm is cleared.
 func (pp *piecePicker) resetAll() {
+	if pp == nil {
+		return
+	}
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
 
-	for i := range pp.blockInfos {
-		pp.blockInfos[i].state = blockStateNone
-		pp.blockInfos[i].peer = nil
-		pp.blockInfos[i].numPeers = 0
-	}
+	pp.blockInfos.resetAll()
 	pp.downloadingPieces = pp.downloadingPieces[:0]
 	pp.downloadQueueSize = 0
 	pp.numCompletedPieces = 0
