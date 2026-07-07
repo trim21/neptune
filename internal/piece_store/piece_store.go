@@ -22,7 +22,6 @@ type Store interface {
 type FileStore struct {
 	fp       *filepool.FilePool
 	basePath string
-	pieces   meta.PieceInfo
 	info     meta.Info
 }
 
@@ -32,6 +31,5 @@ func NewFileStore(info meta.Info, basePath string, fp *filepool.FilePool) *FileS
 		info:     info,
 		basePath: basePath,
 		fp:       fp,
-		pieces:   meta.BuildPieceInfos(info),
 	}
 }

@@ -81,8 +81,6 @@ func New(sess *session.Session, m *metainfo.MetaInfo, info meta.Info, basePath s
 			done: make(bitmap.Bitmap, (int64(info.NumPieces)*((info.PieceLength+defaultBlockSize-1)/defaultBlockSize)+63)/64),
 		},
 
-		pieceInfo: meta.BuildPieceInfos(info),
-
 		private: info.Private,
 
 		bitfieldSize: (info.NumPieces + 7) / 8,

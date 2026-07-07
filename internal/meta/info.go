@@ -6,7 +6,9 @@ package meta
 import (
 	"crypto/sha1"
 	"errors"
+	"iter"
 	"path/filepath"
+	"sort"
 
 	"github.com/samber/lo"
 
@@ -25,6 +27,7 @@ type Info struct {
 	Comment       string
 	Pieces        []metainfo.Hash
 	Files         []File
+	fileOffsets   []int64 // cumulative byte offsets, len(Files)+1
 	TotalLength   int64
 	PieceLength   int64
 	LastPieceSize int64
@@ -44,6 +47,13 @@ func (info *Info) PieceLen(index uint32) int64 {
 	return info.PieceLength
 }
 
+// PieceFileChunks returns an iterator over the file chunks for a piece.
+// Zero allocations.
+func (info *Info) PieceFileChunks(pieceIndex uint32) iter.Seq[FileChunkInfo] {
+	start := int64(pieceIndex) * info.PieceLength
+	return info.FileChunks(start, start+info.PieceLen(pieceIndex))
+}
+
 // PieceBlockCount returns the number of default-block-size blocks in the piece.
 func (info *Info) PieceBlockCount(index uint32) int {
 	length := info.PieceLength
@@ -51,6 +61,29 @@ func (info *Info) PieceBlockCount(index uint32) int {
 		length = info.LastPieceSize
 	}
 	return int((length + DefaultBlockSize - 1) / DefaultBlockSize)
+}
+
+// FileChunks returns an iterator over contiguous byte ranges within [start, end).
+// Zero allocations; the FileChunkInfo struct is passed on the stack.
+func (info *Info) FileChunks(start, end int64) iter.Seq[FileChunkInfo] {
+	return func(yield func(FileChunkInfo) bool) {
+		if start >= end || len(info.Files) == 0 {
+			return
+		}
+		idx := sort.Search(len(info.Files), func(i int) bool {
+			return info.fileOffsets[i+1] > start
+		})
+		for start < end && idx < len(info.Files) {
+			fileStart := info.fileOffsets[idx]
+			fileEnd := info.fileOffsets[idx+1]
+			chunkEnd := min(end, fileEnd)
+			if !yield(FileChunkInfo{FileIndex: idx, OffsetOfFile: start - fileStart, Length: chunkEnd - start}) {
+				return
+			}
+			start = chunkEnd
+			idx++
+		}
+	}
 }
 
 var ErrNotV1Torrent = errors.New("torrent is not valid torrent, only v1 torrent is supported")
@@ -112,6 +145,15 @@ func FromTorrent(m metainfo.MetaInfo) (Info, error) {
 	if int64(i.NumPieces) != (i.TotalLength+i.PieceLength-1)/i.PieceLength {
 		return Info{}, ErrInvalidLength
 	}
+
+	// Precompute cumulative file offsets for O(log N) file lookups.
+	i.fileOffsets = make([]int64, len(i.Files)+1)
+	var off int64
+	for idx, f := range i.Files {
+		i.fileOffsets[idx] = off
+		off += f.Length
+	}
+	i.fileOffsets[len(i.Files)] = off
 
 	return i, nil
 }

@@ -131,30 +131,30 @@ type Download struct {
 	Trk                    *tracker.Trackers
 	completedBm            *bm.Bitmap
 	wantedBm               *bm.Bitmap
-	pieceInfo              meta.PieceInfo
-	chunk                  chunkState
-	info                   meta.Info
-	backgroundWg           sync.WaitGroup
-	completed              atomic.Int64
-	CompletedAt            atomic.Int64
-	state                  atomic.Uint32
-	downloaded             atomic.Int64
-	corrupted              atomic.Int64
-	uploaded               atomic.Int64
-	peerIDCounter          atomic.Uint64
-	uploadAtStart          int64
-	unchokeSlotIdx         int
-	AddAt                  int64
-	peerLeechers           atomic.Int64
-	peerSeeds              atomic.Int64
-	downloadAtStart        int64
-	selectedSize           atomic.Int64
-	unchokeCycleOffset     int
-	corruptedPiecesMu      sync.Mutex
-	normalChunkLen         uint32
-	bitfieldSize           uint32
-	peerID                 proto.PeerID
-	private                bool
+
+	chunk              chunkState
+	info               meta.Info
+	backgroundWg       sync.WaitGroup
+	completed          atomic.Int64
+	CompletedAt        atomic.Int64
+	state              atomic.Uint32
+	downloaded         atomic.Int64
+	corrupted          atomic.Int64
+	uploaded           atomic.Int64
+	peerIDCounter      atomic.Uint64
+	uploadAtStart      int64
+	unchokeSlotIdx     int
+	AddAt              int64
+	peerLeechers       atomic.Int64
+	peerSeeds          atomic.Int64
+	downloadAtStart    int64
+	selectedSize       atomic.Int64
+	unchokeCycleOffset int
+	corruptedPiecesMu  sync.Mutex
+	normalChunkLen     uint32
+	bitfieldSize       uint32
+	peerID             proto.PeerID
+	private            bool
 }
 
 type chunkState struct {
@@ -217,8 +217,8 @@ func (d *Download) hasSelectedFilesUnsafe(pieceIndex uint32) bool {
 	if d.s.selectedFilesSet == nil {
 		return true
 	}
-	for _, c := range d.pieceInfo.FileChunks(pieceIndex) {
-		if _, ok := d.s.selectedFilesSet[c.FileIndex]; ok {
+	for chunk := range d.info.PieceFileChunks(pieceIndex) {
+		if _, ok := d.s.selectedFilesSet[chunk.FileIndex]; ok {
 			return true
 		}
 	}

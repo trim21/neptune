@@ -50,8 +50,8 @@ func (d *Download) SetFilePriority(fileIDs []int, priority int) error {
 			}
 
 			touchesChanged := false
-			for _, fc := range d.pieceInfo.FileChunks(pi) {
-				if _, ok := fileIDSet[fc.FileIndex]; ok {
+			for chunk := range d.info.PieceFileChunks(pi) {
+				if _, ok := fileIDSet[chunk.FileIndex]; ok {
 					touchesChanged = true
 					break
 				}

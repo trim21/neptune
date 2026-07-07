@@ -78,7 +78,7 @@ func newTestDownload(t testing.TB, numPieces uint32, blocksPerPiece uint32, newS
 			done: make(bitmap.Bitmap, (int64(info.NumPieces)*(normalChunkLen)+63)/64),
 			mu:   sync.RWMutex{},
 		},
-		pieceInfo:             meta.BuildPieceInfos(info),
+
 		pieceDownloadRate:     flowrate.New(time.Second, 5*time.Second),
 		ioDownloadRate:        flowrate.New(time.Second, 5*time.Second),
 		pieceUploadRate:       flowrate.New(time.Second, 5*time.Second),
