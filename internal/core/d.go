@@ -414,7 +414,7 @@ func (d *Download) markUnselectedPiecesDoneUnsafe() {
 	d.completedBm.OR(unwanted)
 
 	unwanted.Range(func(i uint32) {
-		d.picker.weHave(i)
+		d.picker.weHave(i, d.info)
 	})
 }
 

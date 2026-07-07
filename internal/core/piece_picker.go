@@ -147,13 +147,13 @@ func (pp *piecePicker) decRefcount(pieceIndex uint32) {
 
 // weHave marks a piece as completed (we now have it).
 // It clears all block states for that piece and increments the completed counter.
-func (pp *piecePicker) weHave(pieceIndex uint32) {
+func (pp *piecePicker) weHave(pieceIndex uint32, info meta.Info) {
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
 
 	idx := pp.blockInfoIdx(pieceIndex)
-	blocksInPiece := int(pp.blocksPerPiece)
-	for i := range blocksInPiece {
+	nb := pp.numBlocksInPiece(info, pieceIndex)
+	for i := range int(nb) {
 		bi := &pp.blockInfos[idx+i]
 		if bi.state == blockStateRequested {
 			pp.downloadQueueSize--
@@ -270,14 +270,14 @@ func (pp *piecePicker) isFinished(pieceIndex uint32, blockIndex int) bool {
 // Only fully-completed pieces (all blocks finished) are excluded.
 // Partially downloaded pieces stay in the array — pickPieces handles them
 // via the partial-pieces phase first, then falls back to the priority list.
-func (pp *piecePicker) rebuildPriorities() {
+func (pp *piecePicker) rebuildPriorities(info meta.Info) {
 	if !pp.dirty {
 		return
 	}
 
 	available := pp.pieces[:0]
 	for _, pi := range pp.pieces {
-		if pp.completedBm.Contains(pi) || pp.allBlocksFinished(pi) {
+		if pp.completedBm.Contains(pi) || pp.allBlocksFinished(pi, info) {
 			continue
 		}
 		available = append(available, pi)
@@ -305,9 +305,10 @@ func (pp *piecePicker) rebuildPriorities() {
 }
 
 // allBlocksFinished returns true if every block of the given piece is finished.
-func (pp *piecePicker) allBlocksFinished(pieceIndex uint32) bool {
+func (pp *piecePicker) allBlocksFinished(pieceIndex uint32, info meta.Info) bool {
 	idx := pp.blockInfoIdx(pieceIndex)
-	for i := range int(pp.blocksPerPiece) {
+	nb := pp.numBlocksInPiece(info, pieceIndex)
+	for i := range int(nb) {
 		if pp.blockInfos[idx+i].state != blockStateFinished {
 			return false
 		}
@@ -362,14 +363,14 @@ func (pp *piecePicker) pickPieces(
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
 
-	pp.rebuildPriorities()
+	pp.rebuildPriorities(info)
 
 	var result pickResult
 
 	// ── Startup mode: no completed pieces and no partial pieces yet ──
 	// Pick a random medium-rarity piece to quickly get something to upload.
 	if pp.numCompletedPieces == 0 && len(pp.downloadingPieces) == 0 {
-		pp.pickStartupBlock(bitfield, choked, allowedFast, &result)
+		pp.pickStartupBlock(bitfield, choked, allowedFast, &result, info)
 		if len(result.freeBlocks) > 0 {
 			return result
 		}
@@ -482,7 +483,7 @@ func (pp *piecePicker) pickPieces(
 		bestPriority := uint32(0)
 
 		for _, pi := range pp.pieces {
-			if pp.completedBm.Contains(pi) || pp.allBlocksFinished(pi) {
+			if pp.completedBm.Contains(pi) || pp.allBlocksFinished(pi, info) {
 				continue
 			}
 			if !bitfield.Contains(pi) {
@@ -524,6 +525,7 @@ func (pp *piecePicker) pickStartupBlock(
 	choked bool,
 	allowedFast *bm.Bitmap,
 	result *pickResult,
+	info meta.Info,
 ) {
 	// Collect all pieces the peer has that we want.
 	var candidates []uint32
@@ -534,7 +536,7 @@ func (pp *piecePicker) pickStartupBlock(
 		if choked && !allowedFast.Contains(pi) {
 			continue
 		}
-		if pp.allBlocksFinished(pi) {
+		if pp.allBlocksFinished(pi, info) {
 			continue
 		}
 		candidates = append(candidates, pi)
@@ -745,17 +747,20 @@ func (pp *piecePicker) DebugStats(info meta.Info) PickerStats {
 		DownloadQueue: pp.downloadQueueSize,
 	}
 
-	totalBlocks := int(pp.numPieces) * int(pp.blocksPerPiece)
-	for i := range totalBlocks {
-		switch pp.blockInfos[i].state {
-		case blockStateNone:
-			st.FreeBlocks++
-		case blockStateRequested:
-			st.RequestedBlocks++
-		case blockStateWriting:
-			st.WritingBlocks++
-		case blockStateFinished:
-			st.FinishedBlocks++
+	for pi := range pp.numPieces {
+		idx := pp.blockInfoIdx(pi)
+		nb := pp.numBlocksInPiece(info, pi)
+		for i := range int(nb) {
+			switch pp.blockInfos[idx+i].state {
+			case blockStateNone:
+				st.FreeBlocks++
+			case blockStateRequested:
+				st.RequestedBlocks++
+			case blockStateWriting:
+				st.WritingBlocks++
+			case blockStateFinished:
+				st.FinishedBlocks++
+			}
 		}
 	}
 	return st

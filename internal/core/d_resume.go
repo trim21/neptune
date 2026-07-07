@@ -137,7 +137,7 @@ func (c *Client) UnmarshalResume(data []byte, totalDownloads int) error {
 	d.completedBm = bm.FromBitfields(r.Bitfield, d.info.NumPieces)
 	for i := range d.info.NumPieces {
 		if d.completedBm.Contains(i) {
-			d.picker.weHave(i)
+			d.picker.weHave(i, d.info)
 		}
 	}
 	d.markUnselectedPiecesDoneUnsafe()

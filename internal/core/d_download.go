@@ -434,7 +434,7 @@ func (d *Download) checkPiece(pieceIndex uint32) error {
 	notHave := d.completedBm.SetX(pieceIndex)
 
 	// Mark piece as fully owned in the picker
-	d.picker.weHave(pieceIndex)
+	d.picker.weHave(pieceIndex, d.info)
 
 	if notHave {
 		d.completed.Add(pieceSize)
