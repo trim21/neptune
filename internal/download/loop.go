@@ -125,7 +125,7 @@ func (d *Download) startBackground() {
 		optimisticTicker := time.NewTicker(30 * time.Second)
 		defer optimisticTicker.Stop()
 
-		connectTicker := time.NewTicker(time.Second)
+		connectTicker := time.NewTicker(30 * time.Second)
 		defer connectTicker.Stop()
 
 		turnoverTicker := time.NewTicker(time.Minute)
@@ -141,7 +141,9 @@ func (d *Download) startBackground() {
 				d.recalcPeerCounts()
 				continue
 			case <-optimisticTicker.C:
-				d.optimisticUnchoke()
+				if d.HasState(Downloading) {
+					d.optimisticUnchoke()
+				}
 				continue
 
 			case peers := <-d.peersCh:
