@@ -29,6 +29,8 @@ import (
 	"neptune/internal/session"
 )
 
+const defaultBlockSize = meta.DefaultBlockSize
+
 type State uint8
 
 //go:generate go tool golang.org/x/tools/cmd/stringer -type=State
@@ -129,7 +131,7 @@ type Download struct {
 	Trk                    *tracker.Trackers
 	completedBm            *bm.Bitmap
 	wantedBm               *bm.Bitmap
-	pieceInfo              piece_store.PieceInfo
+	pieceInfo              meta.PieceInfo
 	chunk                  chunkState
 	info                   meta.Info
 	backgroundWg           sync.WaitGroup

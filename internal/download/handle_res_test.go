@@ -79,7 +79,7 @@ func newTestDownload(t testing.TB, numPieces uint32, blocksPerPiece uint32, newS
 			done: make(bitmap.Bitmap, (int64(info.NumPieces)*(normalChunkLen)+63)/64),
 			mu:   sync.RWMutex{},
 		},
-		pieceInfo:             piece_store.BuildPieceInfos(info),
+		pieceInfo:             meta.BuildPieceInfos(info),
 		pieceDownloadRate:     flowrate.New(time.Second, 5*time.Second),
 		ioDownloadRate:        flowrate.New(time.Second, 5*time.Second),
 		pieceUploadRate:       flowrate.New(time.Second, 5*time.Second),
@@ -141,7 +141,7 @@ func dumpState(d *Download) string {
 	fmt.Fprintf(&sb, "pending=%v\n", pending)
 	fmt.Fprintf(&sb, "done=%v\n", done)
 	for pi := range d.info.NumPieces {
-		total := int(piece_store.PieceChunksCount(d.info, pi))
+		total := d.info.PieceBlockCount(pi)
 		start := pi * d.normalChunkLen
 		end := start + uint32(total)
 		p := 0
@@ -163,7 +163,7 @@ func dumpState(d *Download) string {
 
 func allDone(d *Download) bool {
 	for pi := range d.info.NumPieces {
-		total := int(piece_store.PieceChunksCount(d.info, pi))
+		total := (d.info.PieceBlockCount(pi))
 		done := 0
 		start := pi * d.normalChunkLen
 		end := start + uint32(total)
@@ -194,7 +194,7 @@ func TestHandleResOrder(t *testing.T) {
 
 	var all []chunkDesc
 	for pi := range uint32(numPieces) {
-		nb := int(piece_store.PieceChunksCount(d.info, pi))
+		nb := (d.info.PieceBlockCount(pi))
 		for bi := range nb {
 			ch := pieceChunk(d.info, pi, bi)
 			all = append(all, chunkDesc{
@@ -233,7 +233,7 @@ func TestHandleResOrder(t *testing.T) {
 		var o []chunkDesc
 		for pi := range uint32(numPieces) {
 			for _, c := range all {
-				if c.pieceIndex == pi && int(c.begin/defaultBlockSize) == int(piece_store.PieceChunksCount(d.info, pi))-1 {
+				if c.pieceIndex == pi && int(c.begin/defaultBlockSize) == (d.info.PieceBlockCount(pi))-1 {
 					o = append(o, c)
 				}
 			}
@@ -281,7 +281,7 @@ func TestHandleResLargePiece(t *testing.T) {
 
 	var all []chunkDesc
 	for pi := range uint32(numPieces) {
-		nb := int(piece_store.PieceChunksCount(d.info, pi))
+		nb := d.info.PieceBlockCount(pi)
 		for bi := range nb {
 			ch := pieceChunk(d.info, pi, bi)
 			all = append(all, chunkDesc{
@@ -342,7 +342,7 @@ func FuzzHandleRes(f *testing.F) {
 
 		var all []chunkDesc
 		for pi := range uint32(numPieces) {
-			nb := int(piece_store.PieceChunksCount(d.info, pi))
+			nb := d.info.PieceBlockCount(pi)
 			for bi := range nb {
 				ch := pieceChunk(d.info, pi, bi)
 				all = append(all, chunkDesc{

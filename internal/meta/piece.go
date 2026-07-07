@@ -1,11 +1,14 @@
 // Copyright 2024 trim21 <trim21.me@gmail.com>
 // SPDX-License-Identifier: GPL-3.0-only
 
-package piece_store
+package meta
 
-import (
-	"neptune/internal/meta"
-)
+// FileChunkInfo describes a contiguous byte range within a single file.
+type FileChunkInfo struct {
+	FileIndex    int
+	OffsetOfFile int64
+	Length       int64
+}
 
 // PieceInfo maps piece indices to their file chunk layout. It is precomputed
 // once per torrent and provides O(1) zero-alloc chunk lookups.
@@ -20,32 +23,25 @@ func (p *PieceInfo) FileChunks(index uint32) []FileChunkInfo {
 }
 
 // BuildPieceInfos precomputes file chunk layouts for all pieces.
-func BuildPieceInfos(info meta.Info) PieceInfo {
+func BuildPieceInfos(info Info) PieceInfo {
 	offsets := make([]uint32, info.NumPieces+1)
 	chunks := make([]FileChunkInfo, 0, info.NumPieces)
 
 	for i := range info.NumPieces {
 		offsets[i] = uint32(len(chunks))
-		chunks = append(chunks, pieceFileInfos(i, info)...)
+		chunks = append(chunks, pieceFileChunks(i, info)...)
 	}
 
 	offsets[info.NumPieces] = uint32(len(chunks))
 	return PieceInfo{offsets: offsets, chunks: chunks}
 }
 
-// FileChunkInfo describes a contiguous byte range within a single file.
-type FileChunkInfo struct {
-	FileIndex    int
-	OffsetOfFile int64
-	Length       int64
-}
-
-func pieceFileInfos(i uint32, info meta.Info) []FileChunkInfo {
+func pieceFileChunks(i uint32, info Info) []FileChunkInfo {
 	return FileChunks(info, int64(i)*info.PieceLength, min(int64(i+1)*info.PieceLength, info.TotalLength))
 }
 
 // FileChunks returns the chunk layout for the given torrent byte range.
-func FileChunks(info meta.Info, pieceStart, end int64) []FileChunkInfo {
+func FileChunks(info Info, pieceStart, end int64) []FileChunkInfo {
 	var currentFileStart int64
 	var needToRead = end - pieceStart
 	var fileIndex int
@@ -82,15 +78,4 @@ func FileChunks(info meta.Info, pieceStart, end int64) []FileChunkInfo {
 	}
 
 	return result
-}
-
-const defaultBlockSize = 16 * 1024
-
-// PieceChunksCount returns the number of default-block-size chunks in a piece.
-func PieceChunksCount(info meta.Info, index uint32) int64 {
-	length := info.PieceLength
-	if index == info.NumPieces-1 {
-		length = info.LastPieceSize
-	}
-	return (length + defaultBlockSize - 1) / defaultBlockSize
 }

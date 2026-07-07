@@ -6,13 +6,9 @@ package download
 import (
 	"time"
 
-	"github.com/docker/go-units"
-
 	"neptune/internal/client/tracker"
 	"neptune/internal/pkg/empty"
 )
-
-const defaultBlockSize = units.KiB * 16
 
 func (d *Download) Start() error {
 	if d.completedBm.Count() == d.info.NumPieces {

@@ -12,7 +12,6 @@ import (
 
 	"neptune/internal/client/tracker"
 	"neptune/internal/meta"
-	"neptune/internal/piece_store"
 	"neptune/internal/pkg/as"
 	"neptune/internal/pkg/empty"
 	"neptune/internal/pkg/global/tasks"
@@ -167,7 +166,7 @@ func (d *Download) handleRes(res *proto.ChunkResponse) {
 
 	// Check if this chunk completes a piece — extract and flush early.
 	piecePiStart := res.PieceIndex * d.normalChunkLen
-	piecePiEnd := piecePiStart + uint32(piece_store.PieceChunksCount(d.info, res.PieceIndex))
+	piecePiEnd := piecePiStart + uint32(d.info.PieceBlockCount(res.PieceIndex))
 	allAccounted := true
 	for i := piecePiStart; i < piecePiEnd; i++ {
 		d.chunk.mu.RLock()
@@ -307,7 +306,7 @@ func (d *Download) handlePieceFromHeap(index uint32) {
 
 	// Count already-done chunks for this piece.
 	piecePiStart := index * d.normalChunkLen
-	piecePiEnd := piecePiStart + uint32(piece_store.PieceChunksCount(d.info, index))
+	piecePiEnd := piecePiStart + uint32(d.info.PieceBlockCount(index))
 	d.chunk.mu.RLock()
 	doneCount := 0
 	for i := piecePiStart; i < piecePiEnd; i++ {
@@ -317,7 +316,7 @@ func (d *Download) handlePieceFromHeap(index uint32) {
 	}
 	d.chunk.mu.RUnlock()
 
-	totalNeeded := int(piece_store.PieceChunksCount(d.info, index))
+	totalNeeded := d.info.PieceBlockCount(index)
 	if pendingChunks.Len()+doneCount != totalNeeded {
 		return
 	}
@@ -378,7 +377,7 @@ func (d *Download) handlePieceFromHeap(index uint32) {
 	}
 
 	// Mark all blocks as finished in the picker
-	for bi := range int(piece_store.PieceChunksCount(d.info, index)) {
+	for bi := range d.info.PieceBlockCount(index) {
 		d.picker.markAsFinished(index, bi)
 	}
 
@@ -394,7 +393,7 @@ func (d *Download) handlePieceFromHeap(index uint32) {
 
 func (d *Download) checkPieceBitmapDone(index uint32) bool {
 	pieceCidStart := index * d.normalChunkLen
-	pieceCidEnd := pieceCidStart + uint32(piece_store.PieceChunksCount(d.info, index))
+	pieceCidEnd := pieceCidStart + uint32(d.info.PieceBlockCount(index))
 
 	d.chunk.mu.RLock()
 	defer d.chunk.mu.RUnlock()
@@ -424,7 +423,7 @@ func (d *Download) checkPiece(pieceIndex uint32) error {
 		d.corruptedPiecesMu.Unlock()
 		d.corrupted.Add(pieceSize)
 		start := pieceIndex * d.normalChunkLen
-		end := start + uint32(piece_store.PieceChunksCount(d.info, pieceIndex))
+		end := start + uint32(d.info.PieceBlockCount(pieceIndex))
 		d.chunk.mu.Lock()
 		for i := start; i < end; i++ {
 			d.chunk.done.Remove(i)

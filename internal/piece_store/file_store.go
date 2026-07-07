@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"neptune/internal/meta"
 	"neptune/internal/pkg/fadvise"
 )
 
@@ -20,7 +21,7 @@ func (s *FileStore) WriteChunk(pieceIndex uint32, begin uint32, data []byte) err
 	offset := int64(pieceIndex)*s.info.PieceLength + int64(begin)
 	size := int64(len(data))
 	var off int64
-	for _, chunk := range FileChunks(s.info, offset, offset+size) {
+	for _, chunk := range meta.FileChunks(s.info, offset, offset+size) {
 		f, fresh, err := s.fp.Open(
 			s.filePath(chunk.FileIndex),
 			os.O_RDWR|os.O_CREATE, os.ModePerm, time.Hour,
@@ -46,7 +47,7 @@ func (s *FileStore) ReadChunk(pieceIndex uint32, begin uint32, data []byte) (int
 	offset := int64(pieceIndex)*s.info.PieceLength + int64(begin)
 	size := int64(len(data))
 	var n int
-	for _, chunk := range FileChunks(s.info, offset, offset+size) {
+	for _, chunk := range meta.FileChunks(s.info, offset, offset+size) {
 		f, fresh, err := s.fp.Open(s.filePath(chunk.FileIndex), os.O_RDONLY, 0, time.Hour)
 		if err != nil {
 			return n, err

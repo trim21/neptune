@@ -33,12 +33,24 @@ type Info struct {
 	Private       bool
 }
 
+const DefaultBlockSize = 16 * 1024
+
 // PieceLen returns the byte length of the piece at the given index.
+// DefaultBlockSize is the standard BitTorrent block size (16 KiB).
 func (info *Info) PieceLen(index uint32) int64 {
 	if index == info.NumPieces-1 {
 		return info.LastPieceSize
 	}
 	return info.PieceLength
+}
+
+// PieceBlockCount returns the number of default-block-size blocks in the piece.
+func (info *Info) PieceBlockCount(index uint32) int {
+	length := info.PieceLength
+	if index == info.NumPieces-1 {
+		length = info.LastPieceSize
+	}
+	return int((length + DefaultBlockSize - 1) / DefaultBlockSize)
 }
 
 var ErrNotV1Torrent = errors.New("torrent is not valid torrent, only v1 torrent is supported")
