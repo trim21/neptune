@@ -14,7 +14,6 @@ import (
 	"neptune/internal/mse"
 	"neptune/internal/pkg/empty"
 	"neptune/internal/pkg/global"
-	"neptune/internal/pkg/global/tasks"
 	"neptune/internal/proto"
 )
 
@@ -57,9 +56,7 @@ func (d *Download) connectToPeers(maxSlots int) int {
 				continue
 			}
 			d.session.ConnCount.Add(1)
-			tasks.Submit(func() {
-				d.tryDial(candidate)
-			})
+			go d.tryDial(candidate)
 			connected++
 			if connected >= maxSlots {
 				return connected
