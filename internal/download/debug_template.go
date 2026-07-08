@@ -36,6 +36,8 @@ type debugPageData struct {
 	NetRate           string
 	UploadRate        string
 	Progress          string
+	TotalSize         string
+	SelectedSize      string
 	Downloaded        string
 	Completed         string
 	Waste             string
@@ -135,6 +137,8 @@ func BuildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 		NetRate:      humanizeHumanReadable(d.ioDownloadRate),
 		UploadRate:   humanizeHumanReadable(d.pieceUploadRate),
 		Progress:     fmt.Sprintf("%.2f%%", float64(d.completed.Load())/float64(d.SelectedSize())*100),
+		TotalSize:    humanize.IBytes(uint64(d.info.TotalLength)),
+		SelectedSize: humanize.IBytes(uint64(d.SelectedSize())),
 		Downloaded:   humanize.IBytes(uint64(d.downloaded.Load())),
 		Completed:    humanize.IBytes(uint64(d.completed.Load())),
 		Waste:        humanize.IBytes(uint64(d.downloaded.Load() - d.completed.Load())),
