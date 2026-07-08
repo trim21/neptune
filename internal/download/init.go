@@ -221,9 +221,10 @@ func (d *Download) check(resumed bool, skipHashCheck bool) {
 	}
 
 	if !resumed {
-		// unsafe methods are safe here because d hasn't been shared with other goroutines yet.
+		d.s.mu.RLock()
 		d.markUnselectedPiecesDoneUnsafe()
 		d.completed.Store(d.computeCompletedUnsafe())
+		d.s.mu.RUnlock()
 		d.pieceDownloadRate.Reset()
 
 		d.log.Debug().Msgf("done size %s", humanize.IBytes(uint64(d.completedBm.Count())*uint64(d.info.PieceLength)))

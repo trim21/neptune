@@ -85,7 +85,7 @@ if err != nil {
 hash := metainfo.Hash(raw)
 ```
 
-A shared helper `checkInfoHash()` exists in `internal/web/torrent_speed_limit.go:19` — prefer using it for new methods.
+A shared helper `checkInfoHash()` exists in `internal/web/torrent_speed_limit.go` — prefer using it for new methods.
 
 ## Error Handling
 
@@ -99,7 +99,7 @@ if err != nil {
 }
 ```
 
-The JSON-RPC handler (`internal/web/jsonrpc/handler.go:290`) checks for the `ErrWithAppCode` interface. When present, the error code replaces the default `-32603` (InternalError) and the error message is sent verbatim.
+The JSON-RPC handler (`internal/web/jsonrpc/handler.go`) checks for the `ErrWithAppCode` interface. When present, the error code replaces the default `-32603` (InternalError) and the error message is sent verbatim.
 
 **Error code conventions by existing methods:**
 
@@ -125,7 +125,7 @@ return errgo.Wrap(err, "failed to do something")
 
 ## How `h.Add(u)` Works
 
-`Handler.Add()` in `internal/web/jsonrpc/handler.go:95`:
+`Handler.Add()` in `internal/web/jsonrpc/handler.go`:
 1. Extracts the method name via `usecase.HasName` interface (panics if missing).
 2. Wraps the usecase through registered middlewares.
 3. Stores the method in the handler's method map.
@@ -140,7 +140,7 @@ The `ServeHTTP` handler then:
 
 ## Auth
 
-All JSON-RPC methods are behind a single auth middleware in `web.go:138`:
+All JSON-RPC methods are behind a single auth middleware in `web.go`:
 
 ```go
 r.With(middleware.NoCache, auth).Handle("POST /json_rpc", h)

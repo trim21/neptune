@@ -276,6 +276,7 @@ func BuildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 	if fullMode {
 		files := make([]debugFile, 0, len(d.info.Files))
 		var offset int64
+		d.s.mu.RLock()
 		for i, file := range d.info.Files {
 			selected := "yes"
 			if d.s.selectedFilesSet != nil {
@@ -309,6 +310,7 @@ func BuildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 
 			offset += file.Length
 		}
+		d.s.mu.RUnlock()
 		data.Files = files
 
 		// Piece ranges

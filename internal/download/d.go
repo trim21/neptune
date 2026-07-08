@@ -205,6 +205,8 @@ func (d *Download) setError(err error) {
 }
 
 func (d *Download) isFileSelected(fileIndex int) bool {
+	d.s.mu.RLock()
+	defer d.s.mu.RUnlock()
 	if d.s.selectedFilesSet == nil {
 		return true
 	}

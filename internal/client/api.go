@@ -166,6 +166,10 @@ func (c *Client) AddTorrent(raw []byte, m *metainfo.MetaInfo, info meta.Info, do
 		return fmt.Errorf("torrent %s exists", info.Hash)
 	}
 
+	// Start Init before making the download visible in downloadMap,
+	// so that no other goroutine can access d before Init begins.
+	go d.Init(false, skipHashCheck)
+
 	c.downloads = append(c.downloads, d)
 
 	slices.SortFunc(c.downloads, func(a, b *Download) int {
@@ -174,8 +178,6 @@ func (c *Client) AddTorrent(raw []byte, m *metainfo.MetaInfo, info meta.Info, do
 
 	c.downloadMap[info.Hash] = d
 	c.infoHashes = lo.Keys(c.downloadMap)
-
-	go d.Init(false, skipHashCheck)
 
 	return nil
 }
