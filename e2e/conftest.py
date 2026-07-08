@@ -262,9 +262,9 @@ def qb_client() -> Iterator[httpx.Client]:
     """Authenticated qBittorrent Web API client."""
     client = httpx.Client(base_url=QB_WEBUI, timeout=30)
 
-    # Wait for QB to be ready.
-    deadline = time.monotonic() + 30
-    while time.monotonic() < deadline:
+        # Wait for QB to be ready.
+        deadline = time.monotonic() + 90
+        while time.monotonic() < deadline:
         try:
             resp = client.get("/api/v2/app/version")
             if resp.status_code == 200:
