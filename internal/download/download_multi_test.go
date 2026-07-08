@@ -108,16 +108,28 @@ func FuzzDownloadMultiPeer_Async(f *testing.F) {
 			select {
 			case <-deadline:
 				hasCapable := false
+				peersAlive := 0
+				peersUnchoked := 0
+				peersInterested := 0
 				d.peers.Range(func(_ uint64, p Peer) bool {
-					if !p.Closed() && !p.IsChoking() {
+					if !p.Closed() {
 						hasCapable = true
-						return false
+						peersAlive++
+					}
+					if !p.Closed() && !p.IsChoking() {
+						peersUnchoked++
+					}
+					if p.IsOurInterested() {
+						peersInterested++
 					}
 					return true
 				})
 				if hasCapable && d.completedBm.Count() < numPieces {
-					t.Errorf("download incomplete: %d/%d, corrupt=%v, seed=%d",
-						d.completedBm.Count(), numPieces, corruptPieces, seed)
+					t.Errorf("download incomplete: %d/%d, corrupt=%v, seed=%d,"+
+						" alivePeer=%d unchoked=%d interested=%d\n%s",
+						d.completedBm.Count(), numPieces, corruptPieces, seed,
+						peersAlive, peersUnchoked, peersInterested,
+						dumpState(d))
 				}
 				return
 
@@ -157,7 +169,31 @@ func FuzzDownloadMultiPeer_Async(f *testing.F) {
 						return true
 					})
 					for _, p := range toClose {
-						p.Close()
+						// Don't close a peer if it would make any non-completed
+						// piece unavailable among remaining peers.
+						if d.peers.Size() <= 1 {
+							break
+						}
+						safeToClose := true
+						p.PeerBitmap().Range(func(pi uint32) {
+							if d.completedBm.Contains(pi) {
+								return
+							}
+							hasOther := false
+							d.peers.Range(func(_ uint64, other Peer) bool {
+								if other.ID() != p.ID() && !other.Closed() && other.PeerBitmap().Contains(pi) {
+									hasOther = true
+									return false
+								}
+								return true
+							})
+							if !hasOther {
+								safeToClose = false
+							}
+						})
+						if safeToClose {
+							p.Close()
+						}
 					}
 				}
 
