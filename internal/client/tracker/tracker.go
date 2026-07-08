@@ -33,7 +33,7 @@ type AnnounceEvent string
 
 const (
 	EventStarted   AnnounceEvent = "started"
-	EventCompleted AnnounceEvent = "Completed"
+	EventCompleted AnnounceEvent = "completed"
 	EventStopped   AnnounceEvent = "stopped"
 )
 
