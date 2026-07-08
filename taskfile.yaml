@@ -32,7 +32,7 @@ tasks:
       - cp -r e2e/testdata/fixtures/test-fixture e2e/testdata/qb-downloads/test-fixture
 
   e2e:up:
-    desc: start e2e Docker services (tracker + qBittorrent)
+    desc: start e2e Docker services (qBittorrent only)
     cmds:
       - docker compose -f e2e/docker-compose.yml up -d
 
