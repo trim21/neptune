@@ -88,6 +88,11 @@ func New(c *client.Client, token string, enableDebug bool) http.Handler {
 	}
 
 	r.Mount("/debug/neptune", c.DebugHandlers())
+	r.HandleFunc("/debug/state", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		c.DumpState(w)
+	})
 	r.HandleFunc("/debug/events", trace.Events)
 
 	if enableDebug {
