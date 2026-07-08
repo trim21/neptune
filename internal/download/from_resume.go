@@ -14,6 +14,7 @@ import (
 	"neptune/internal/meta"
 	"neptune/internal/metainfo"
 	"neptune/internal/pkg/bm"
+	"neptune/internal/pkg/random"
 	"neptune/internal/session"
 )
 
@@ -52,6 +53,12 @@ func ResumeFromData(sess *session.Session, data []byte) (*Download, error) {
 	}
 
 	d := New(sess, m, info, r.BasePath, r.Tags, r.Custom, r.SelectedFiles)
+
+	if r.TrackerKey != "" {
+		d.Trk.Key = r.TrackerKey
+	} else {
+		d.Trk.Key = random.URLSafeStr(16)
+	}
 
 	d.completedBm = bm.FromBitfields(r.Bitfield, d.info.NumPieces)
 	if d.completedBm.Count() == d.info.NumPieces {

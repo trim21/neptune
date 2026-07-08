@@ -32,6 +32,7 @@ func normalizeResumeState(s State) ResumeState {
 	return ResumeActive
 }
 
+//nolint:fieldalignment
 type resume struct {
 	BasePath      string
 	InfoHash      string
@@ -49,6 +50,7 @@ type resume struct {
 	Downloaded         int64
 	Uploaded           int64
 	Corrupted          int64
+	TrackerKey         string
 	State              ResumeState
 	PiecePickStrategy  uint32
 }
@@ -120,6 +122,7 @@ func (d *Download) MarshalBinary() (data []byte, err error) {
 		DownloadSpeedLimit: d.downloadLimiter.Rate(),
 		UploadSpeedLimit:   d.uploadLimiter.Rate(),
 		Trackers:           d.Trk.URLs(),
+		TrackerKey:         d.Trk.Key,
 		PiecePickStrategy:  uint32(d.GetPiecePickStrategy()),
 	})
 }

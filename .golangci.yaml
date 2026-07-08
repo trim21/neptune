@@ -118,6 +118,10 @@ linters:
           - govet
         path: internal/web/jsonrpc/
       - linters:
+          - govet
+        path: internal/download/resume.go
+        text: "fieldalignment"
+      - linters:
           - forbidigo
         path: main.go
     paths:
