@@ -3,8 +3,8 @@ name = "neptune-e2e"
 version = "0.0.0"
 requires-python = ">=3.12"
 dependencies = [
-    "bencode2>=0.1",
-    "httpx>=0.28",
-    "pytest>=8",
-    "pytest-timeout>=2",
+  "bencode2>=0.1",
+  "httpx>=0.28",
+  "pytest>=8",
+  "pytest-timeout>=2",
 ]
