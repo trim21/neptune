@@ -159,7 +159,7 @@ jobs:
         run: go build -tags release -o e2e/testdata/neptune .
 
       - name: Generate fixtures
-        run: uv run python e2e/gen_fixtures.py
+        run: uv run --directory e2e python gen_fixtures.py
 
       - name: Copy fixture data for QB seeding
         run: cp -r e2e/testdata/fixtures/test-fixture e2e/testdata/qb-downloads/test-fixture
@@ -179,7 +179,7 @@ jobs:
           done
 
       - name: Run ${{ matrix.suite }} tests
-        run: uv run pytest e2e/test_${{ matrix.suite }}.py -v --timeout=90 -p no:cacheprovider
+        run: uv run --directory e2e pytest test_${{ matrix.suite }}.py -v --timeout=90 -p no:cacheprovider
 
       - name: Docker logs (on failure)
         if: failure()
