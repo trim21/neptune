@@ -23,6 +23,38 @@ tasks:
       - go test -fuzz=FuzzHandleRes -fuzztime={{ .FUZZ_TIME }} -tags assert ./internal/download/
       - go test -fuzz=FuzzDownloadMultiPeer_Async -fuzztime={{ .FUZZ_TIME }} -tags assert ./internal/download/
 
+  e2e:fixtures:
+    desc: generate e2e test fixtures and copy to qB data dir for seeding
+    cmds:
+      - uv run --directory e2e python gen_fixtures.py
+      - mkdir -p e2e/testdata/qb-downloads
+      - cp -r e2e/testdata/fixtures/test-fixture e2e/testdata/qb-downloads/test-fixture
+      - cp -r e2e/testdata/fixtures/test-fixture e2e/testdata/qb-downloads/test-fixture
+
+  e2e:up:
+    desc: start e2e Docker services (qBittorrent only)
+    cmds:
+      - docker compose -f e2e/docker-compose.yml up -d
+
+  e2e:down:
+    desc: stop e2e Docker services
+    cmds:
+      - docker compose -f e2e/docker-compose.yml down
+
+  e2e:build:
+    desc: build neptune binary for e2e tests
+    cmds:
+      - go build -tags release -o e2e/testdata/neptune .
+
+  e2e:test:
+    desc: run e2e tests
+    cmds:
+      - task: e2e:build
+      - task: e2e:fixtures
+      - uv run --directory e2e pytest . -v -m e2e --timeout=90
+    env:
+      E2E_TRACKER_URL: "http://127.0.0.1:6969/announce"
+
   mod-tidy:
     cmds:
       - go mod tidy

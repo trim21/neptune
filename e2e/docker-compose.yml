@@ -1,0 +1,25 @@
+# Neptune e2e test dependencies
+
+services:
+  tracker:
+    image: wiltonsr/opentracker:open
+    ports:
+      - "6969:6969"
+      - "6969:6969/udp"
+
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:latest
+    container_name: neptune-e2e-qb
+    restart: unless-stopped
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Etc/UTC
+      - WEBUI_PORT=8090
+    ports:
+      - "8090:8090"
+      - "56881:56881"
+      - "56881:56881/udp"
+    volumes:
+      - ./testdata/qb-config:/config
+      - ./testdata/qb-downloads:/downloads

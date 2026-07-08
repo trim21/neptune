@@ -134,3 +134,59 @@ jobs:
       - run: echo "/home/runner/.dprint/bin" >> $GITHUB_PATH
       - run: dprint output-file-paths
       - run: dprint check
+
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        suite:
+          - neptune_neptune
+          - qbittorrent
+          - encryption
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - uses: trim21/actions/setup-go@master
+        with:
+          cache-namespace: e2e
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Build neptune
+        run: go build -tags release -o e2e/testdata/neptune .
+
+      - name: Generate fixtures
+        run: uv run --directory e2e python gen_fixtures.py
+
+      - name: Copy fixture data for QB seeding
+        run: |
+          mkdir -p e2e/testdata/qb-downloads
+          cp -r e2e/testdata/fixtures/test-fixture e2e/testdata/qb-downloads/test-fixture
+
+      - name: Start Docker services
+        run: docker compose -f e2e/docker-compose.yml up -d
+
+      - name: Wait for Docker services
+        run: |
+          for i in $(seq 1 45); do
+            if curl -sf http://127.0.0.1:8090/api/v2/app/version > /dev/null 2>&1; then
+              echo "qBittorrent ready"
+              break
+            fi
+            echo "waiting... ($i)"
+            sleep 2
+          done
+
+      - name: Run ${{ matrix.suite }} tests
+        run: uv run --directory e2e pytest test_${{ matrix.suite }}.py -v --timeout=90 -p no:cacheprovider
+
+      - name: Docker logs (on failure)
+        if: failure()
+        run: docker compose -f e2e/docker-compose.yml logs
+
+      - name: Stop Docker services
+        if: always()
+        run: docker compose -f e2e/docker-compose.yml down -v
