@@ -61,7 +61,7 @@ func addTorrent(h *jsonrpc.Handler, c *client.Client) {
 				downloadDir = c.Config().App.DownloadDir
 			} else {
 				if !req.IsBaseDir {
-					downloadDir = filepath.Join(req.DownloadDir, info.Name)
+					downloadDir = filepath.Join(req.DownloadDir, meta.SafePathComponent(info.Name))
 				}
 			}
 

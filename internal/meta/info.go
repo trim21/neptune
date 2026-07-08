@@ -114,17 +114,22 @@ func FromTorrent(m metainfo.MetaInfo) (Info, error) {
 	var files []File
 	if len(info.Files) != 0 {
 		files = lo.Map(info.Files, func(item metainfo.FileInfo, index int) File {
+			rawPath := item.BestPath()
+			for i, c := range rawPath {
+				rawPath[i] = SafePathComponent(c)
+			}
 			return File{
-				Path:    filepath.Join(item.BestPath()...),
-				RawPath: item.BestPath(),
+				Path:    filepath.Join(rawPath...),
+				RawPath: rawPath,
 				Length:  item.Length,
 			}
 		})
 	} else {
+		name := SafePathComponent(info.BestName())
 		files = []File{
 			{
-				Path:    info.BestName(),
-				RawPath: []string{info.BestName()},
+				Path:    name,
+				RawPath: []string{name},
 				Length:  info.TotalLength(),
 			},
 		}

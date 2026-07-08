@@ -23,7 +23,8 @@ type resume struct {
 	Tags          []string
 	Custom        map[string]string
 	Trackers      [][]string
-	SelectedFiles []int // indices of files selected for download. nil means all files.
+	SelectedFiles []int    // indices of files selected for download. nil means all files.
+	FilePaths     []string // file paths (relative to BasePath), persisted to survive truncation algorithm changes
 	// Per-torrent speed limits in bytes per second. 0 means unlimited.
 	DownloadSpeedLimit int64
 	UploadSpeedLimit   int64
@@ -33,6 +34,14 @@ type resume struct {
 	Uploaded           int64
 	Corrupted          int64
 	State              State
+}
+
+func (d *Download) filePaths() []string {
+	paths := make([]string, len(d.info.Files))
+	for i, f := range d.info.Files {
+		paths[i] = f.Path
+	}
+	return paths
 }
 
 func (d *Download) resumeFilePath() (dir, file string) {
@@ -90,6 +99,7 @@ func (d *Download) MarshalBinary() (data []byte, err error) {
 		AddAt:              d.AddAt,
 		CompletedAt:        d.CompletedAt.Load(),
 		SelectedFiles:      selectedFiles,
+		FilePaths:          d.filePaths(),
 		DownloadSpeedLimit: d.downloadLimiter.Rate(),
 		UploadSpeedLimit:   d.uploadLimiter.Rate(),
 		Trackers:           d.Trk.URLs(),

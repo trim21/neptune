@@ -39,6 +39,11 @@ func ResumeFromData(sess *session.Session, data []byte) (*Download, error) {
 		return nil, errgo.Wrap(err, "failed to decode torrent data")
 	}
 
+	// Restore persisted file paths to survive truncation algorithm changes.
+	if len(r.FilePaths) == len(info.Files) {
+		meta.RestoreFilePaths(info.Files, r.FilePaths)
+	}
+
 	if r.SelectedFiles == nil {
 		r.SelectedFiles = make([]int, len(info.Files))
 		for i := range info.Files {
