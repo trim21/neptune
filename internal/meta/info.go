@@ -123,8 +123,9 @@ func FromTorrent(m metainfo.MetaInfo) (Info, error) {
 	} else {
 		files = []File{
 			{
-				Path:   info.BestName(),
-				Length: info.TotalLength(),
+				Path:    info.BestName(),
+				RawPath: []string{info.BestName()},
+				Length:  info.TotalLength(),
 			},
 		}
 	}
