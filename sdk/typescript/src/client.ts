@@ -1,4 +1,4 @@
-import {NeptuneHTTPError, NeptuneRPCError} from './errors.ts';
+import {NeptuneConnectionError, NeptuneHTTPError, NeptuneRPCError} from './errors.ts';
 import type {
   AddTorrentParams,
   AddTorrentResult,
@@ -148,8 +148,9 @@ export class NeptuneClient {
    * @param method  – the method name (e.g. `'torrent.list'`).
    * @param params  – method parameters (optional when the method takes none).
    * @returns The parsed result.
+   * @throws {NeptuneConnectionError} when a low-level connection failure occurs.
+   * @throws {NeptuneHTTPError} when the server returns a non-2xx HTTP status.
    * @throws {NeptuneRPCError} when the server returns a JSON-RPC error.
-   * @throws {NeptuneHTTPError} when the HTTP request fails.
    */
   async call<M extends NeptuneMethod>(
     method: M,
@@ -177,7 +178,7 @@ export class NeptuneClient {
         body: JSON.stringify(request),
       });
     } catch (err) {
-      throw new NeptuneHTTPError(`Failed to reach Neptune at ${this.#baseUrl}: ${String(err)}`);
+      throw new NeptuneConnectionError(`Failed to reach Neptune at ${this.#baseUrl}: ${String(err)}`, err);
     }
 
     if (!response.ok) {
