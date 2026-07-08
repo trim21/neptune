@@ -23,6 +23,7 @@ func asyncPeer(d *Download, numPieces uint32, seed uint64) *mockPeer {
 	p := newMockPeer()
 	p.resChan = d.resChan
 	p.info = d.info
+	p.dl = d
 	p.peerID = rng.Uint64()
 	p.setNumPieces(numPieces)
 

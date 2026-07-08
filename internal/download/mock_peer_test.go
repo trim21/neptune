@@ -7,6 +7,7 @@ package download
 
 import (
 	"net/netip"
+	"sync"
 	"time"
 
 	"go.uber.org/atomic"
@@ -22,36 +23,38 @@ import (
 // Default values produce a sane, usable peer (not closed, not choking, empty bitmap).
 type mockPeer struct {
 	closeErr        error
-	ourInterested   *atomic.Bool
-	peerChoking     *atomic.Bool
+	preferred       *atomic.Bool
+	inQueueMap      map[proto.ChunkRequest]bool
 	disconnecting   *atomic.Bool
 	isSeed          *atomic.Bool
 	snubbed         *atomic.Bool
 	peerInterested  *atomic.Bool
 	ourChoking      *atomic.Bool
-	preferred       *atomic.Bool
+	ourInterested   *atomic.Bool
+	peerChoking     *atomic.Bool
 	closed          *atomic.Bool
 	fastBitmap      *bm.Bitmap
-	inQueueMap      map[proto.ChunkRequest]bool
 	bitmap          *bm.Bitmap
 	lastUnchokeAt   *atomic.Time
 	peerRequests    map[proto.ChunkRequest]empty.Empty
 	responseFunc    func(res *proto.ChunkResponse) bool
 	resChan         chan *proto.ChunkResponse
+	dl              *Download
 	addr            netip.AddrPort
+	lastPickDebug   string
 	peerIDString    string
 	userAgent       string
-	lastPickDebug   string
 	lastPickRes     pickResult
 	queued          []pieceBlock
 	enqueuedBlocks  []pieceBlock
 	requestsSent    []proto.ChunkRequest
 	info            meta.Info
-	downloadRate    flowrate.Monitor
 	uploadRate      flowrate.Monitor
+	downloadRate    flowrate.Monitor
 	peerID          uint64
 	downloadTotal   int64
 	sendBlockCalled int
+	mu              sync.Mutex
 	desiredSize     int32
 	outstanding     int32
 	queueLimit      uint32
@@ -120,6 +123,14 @@ func (m *mockPeer) Close() {
 	if m.closed.Swap(true) {
 		return // already closed
 	}
+	// Abort enqueued blocks in the picker, matching peerImpl.Close() behavior.
+	if m.dl != nil {
+		m.mu.Lock()
+		for _, b := range m.queued {
+			m.dl.picker.Load().abortDownload(b.pieceIndex, b.blockIndex)
+		}
+		m.mu.Unlock()
+	}
 	m.closedCalled = true
 }
 func (m *mockPeer) Closed() bool          { return m.closed.Load() }
@@ -181,15 +192,24 @@ func (m *mockPeer) IsInQueue(chunk proto.ChunkRequest) bool {
 	return m.inQueueMap[chunk]
 }
 func (m *mockPeer) EnqueueBlock(pieceIndex uint32, blockIndex int) {
+	m.mu.Lock()
 	m.enqueuedBlocks = append(m.enqueuedBlocks, pieceBlock{pieceIndex: pieceIndex, blockIndex: blockIndex})
-	m.queued = append(m.queued, pieceBlock{pieceIndex: pieceIndex, blockIndex: blockIndex})
+	// Don't enqueue if already closed — matches production where Close()
+	// destroys the request queue via conn.Close().
+	if !m.closed.Load() {
+		m.queued = append(m.queued, pieceBlock{pieceIndex: pieceIndex, blockIndex: blockIndex})
+	}
+	m.mu.Unlock()
 }
 func (m *mockPeer) SendBlockRequests() {
 	m.sendBlockCalled++
-	for _, b := range m.queued {
+	m.mu.Lock()
+	queued := m.queued
+	m.queued = m.queued[:0]
+	m.mu.Unlock()
+	for _, b := range queued {
 		m.Request(pieceChunk(m.info, b.pieceIndex, b.blockIndex))
 	}
-	m.queued = m.queued[:0]
 }
 func (m *mockPeer) Request(chunk proto.ChunkRequest) {
 	m.requestsSent = append(m.requestsSent, chunk)

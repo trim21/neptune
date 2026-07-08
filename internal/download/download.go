@@ -582,10 +582,16 @@ func (d *Download) requestABlock(p Peer) {
 			continue
 		}
 
+		p.EnqueueBlock(fb.pieceIndex, fb.blockIndex)
+		enqueueBlockDelay()
+		// Re-check: Close() may have called abortDownload for this block
+		// between EnqueueBlock and now. Don't re-mark as requesting.
+		if p.Closed() {
+			numRequests--
+			continue
+		}
 		d.picker.Load().markAsRequesting(fb.pieceIndex, fb.blockIndex)
 		d.picker.Load().addDownloadingPiece(fb.pieceIndex, d.info)
-
-		p.EnqueueBlock(fb.pieceIndex, fb.blockIndex)
 
 		numRequests--
 		freeBlocksPicked++
@@ -637,10 +643,13 @@ func (d *Download) requestABlock(p Peer) {
 			continue
 		}
 
+		p.EnqueueBlock(bb.pieceIndex, bb.blockIndex)
+		enqueueBlockDelay()
+		if p.Closed() {
+			continue
+		}
 		d.picker.Load().markAsRequesting(bb.pieceIndex, bb.blockIndex)
 		d.picker.Load().addDownloadingPiece(bb.pieceIndex, d.info)
-
-		p.EnqueueBlock(bb.pieceIndex, bb.blockIndex)
 
 		// Drain after adding a busy block too.
 		p.SendBlockRequests()
