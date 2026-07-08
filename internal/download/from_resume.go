@@ -87,6 +87,14 @@ func ResumeFromData(sess *session.Session, data []byte) (*Download, error) {
 	d.downloadLimiter.Update(r.DownloadSpeedLimit)
 	d.uploadLimiter.Update(r.UploadSpeedLimit)
 
+	// Restore piece pick strategy from resume.
+	// Clamp unknown values to rarest-first.
+	s := r.PiecePickStrategy
+	if s > 1 {
+		s = 0
+	}
+	d.piecePickStrategy.Store(s)
+
 	return d, nil
 }
 

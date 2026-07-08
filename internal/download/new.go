@@ -29,6 +29,16 @@ import (
 	"neptune/internal/session"
 )
 
+// defaultStrategy returns the client-level default piece pick strategy.
+// Falls back to rarest-first when the config value is empty or unrecognized.
+func defaultStrategy(cfg string) PiecePickStrategy {
+	s, err := PiecePickStrategyFromString(cfg)
+	if err != nil {
+		return StrategyRarestFirst
+	}
+	return s
+}
+
 // New creates a new Download.
 func New(sess *session.Session, m *metainfo.MetaInfo, info meta.Info, basePath string, tags []string, custom map[string]string, selectedFiles []int) *Download {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -111,6 +121,8 @@ func New(sess *session.Session, m *metainfo.MetaInfo, info meta.Info, basePath s
 	d.wantedBm = bm.New(info.NumPieces)
 	d.buildSelectedPiecesBmUnsafe()
 
+	strategy := defaultStrategy(sess.Config.App.PiecePickStrategy)
+	d.piecePickStrategy.Store(uint32(strategy))
 	d.picker.Store(newPiecePicker(info, completedBm, d.wantedBm))
 
 	d.peerList.d = d

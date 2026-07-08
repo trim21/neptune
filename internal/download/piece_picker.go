@@ -4,6 +4,7 @@
 package download
 
 import (
+	"fmt"
 	"math/rand/v2"
 	"slices"
 	"sort"
@@ -12,6 +13,40 @@ import (
 	"neptune/internal/meta"
 	"neptune/internal/pkg/bm"
 )
+
+// PiecePickStrategy controls the piece selection order.
+type PiecePickStrategy uint32
+
+const (
+	// StrategyRarestFirst prioritizes rare pieces (default).
+	StrategyRarestFirst PiecePickStrategy = 0
+	// StrategySequential picks pieces in ascending index order.
+	StrategySequential PiecePickStrategy = 1
+)
+
+// String returns the human-readable name of the strategy.
+func (s PiecePickStrategy) String() string {
+	switch s {
+	case StrategySequential:
+		return "sequential"
+	case StrategyRarestFirst:
+		return "rarest-first"
+	default:
+		return "<invalid>"
+	}
+}
+
+// PiecePickStrategyFromString parses a strategy string.
+func PiecePickStrategyFromString(s string) (PiecePickStrategy, error) {
+	switch s {
+	case "rarest-first":
+		return StrategyRarestFirst, nil
+	case "sequential":
+		return StrategySequential, nil
+	default:
+		return 0, fmt.Errorf("invalid piece pick strategy %q: must be 'rarest-first' or 'sequential'", s)
+	}
+}
 
 // blockState represents the state of an individual block within a piece.
 type blockState uint8
@@ -261,7 +296,7 @@ func (pp *piecePicker) isFinished(pieceIndex uint32, blockIndex int) bool {
 // Only fully-completed pieces (all blocks finished) are excluded.
 // Partially downloaded pieces stay in the array — pickPieces handles them
 // via the partial-pieces phase first, then falls back to the priority list.
-func (pp *piecePicker) rebuildPriorities(info meta.Info) {
+func (pp *piecePicker) rebuildPriorities(info meta.Info, strategy PiecePickStrategy) {
 	if pp == nil {
 		return
 	}
@@ -278,21 +313,25 @@ func (pp *piecePicker) rebuildPriorities(info meta.Info) {
 	}
 	pieces := available.ToArray()
 
-	// sort by priority descending, then by piece index
-	slices.SortFunc(pieces, func(a, b uint32) int {
-		pa := pp.piecePriorities[a]
-		pb := pp.piecePriorities[b]
-		if pa != pb {
-			if pa > pb {
+	if strategy == StrategySequential {
+		// Sequential: pieces from ToArray() are already in ascending order.
+	} else {
+		// Rarest-first (default): sort by priority descending, then by piece index.
+		slices.SortFunc(pieces, func(a, b uint32) int {
+			pa := pp.piecePriorities[a]
+			pb := pp.piecePriorities[b]
+			if pa != pb {
+				if pa > pb {
+					return -1
+				}
+				return 1
+			}
+			if a < b {
 				return -1
 			}
 			return 1
-		}
-		if a < b {
-			return -1
-		}
-		return 1
-	})
+		})
+	}
 
 	pp.pieces = pieces
 	pp.numWantLeft = len(pieces)
@@ -340,7 +379,7 @@ type pickResult struct {
 	busyBlocks []pieceBlock
 }
 
-// pickPieces picks blocks for a peer using rarest-first strategy.
+// pickPieces picks blocks for a peer using the given piece pick strategy.
 //
 // Parameters:
 //   - bitfield: pieces the peer has
@@ -350,8 +389,9 @@ type pickResult struct {
 //   - preferContiguous: >0 means prefer whole pieces, value is the number of contiguous blocks
 //   - suggestedPieces: pieces suggested by the peer
 //   - info: torrent metadata for block counts
+//   - strategy: piece selection strategy (rarest-first or sequential)
 //
-// It first prioritizes partial pieces (highest progress first), then uses rarest-first.
+// It first prioritizes partial pieces (highest progress first), then uses the given strategy.
 //
 //nolint:unparam
 func (pp *piecePicker) pickPieces(
@@ -362,6 +402,7 @@ func (pp *piecePicker) pickPieces(
 	preferContiguous int,
 	suggestedPieces []uint32,
 	info meta.Info,
+	strategy PiecePickStrategy,
 	// re-use the slice to avoid alloc
 	result pickResult,
 ) pickResult {
@@ -371,7 +412,7 @@ func (pp *piecePicker) pickPieces(
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
 
-	pp.rebuildPriorities(info)
+	pp.rebuildPriorities(info, strategy)
 
 	// Reuse slices from previous call.
 	result.freeBlocks = result.freeBlocks[:0]
@@ -379,7 +420,8 @@ func (pp *piecePicker) pickPieces(
 
 	// ── Startup mode: no completed pieces and no partial pieces yet ──
 	// Pick a random medium-rarity piece to quickly get something to upload.
-	if pp.numCompletedPieces == 0 && len(pp.downloadingPieces) == 0 {
+	// Skip startup mode in sequential strategy — always start from piece 0.
+	if strategy != StrategySequential && pp.numCompletedPieces == 0 && len(pp.downloadingPieces) == 0 {
 		pp.pickStartupBlock(bitfield, choked, allowedFast, &result, info)
 		if len(result.freeBlocks) > 0 {
 			return result

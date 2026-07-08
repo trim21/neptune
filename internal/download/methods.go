@@ -117,3 +117,15 @@ func (d *Download) DataFiles() []string {
 	}
 	return result
 }
+
+// SetPiecePickStrategy updates the per-download piece pick strategy
+// and persists the change to the resume file.
+func (d *Download) SetPiecePickStrategy(s PiecePickStrategy) {
+	d.piecePickStrategy.Store(uint32(s))
+	d.saveResume()
+}
+
+// GetPiecePickStrategy returns the current per-download piece pick strategy.
+func (d *Download) GetPiecePickStrategy() PiecePickStrategy {
+	return PiecePickStrategy(d.piecePickStrategy.Load())
+}

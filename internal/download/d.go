@@ -106,7 +106,6 @@ func validTransition(from, to State) bool {
 // ctx should be canceled when torrent is removed, not stopped.
 type Download struct {
 	log                    zerolog.Logger
-	s                      downloadState
 	ctx                    context.Context
 	store                  piece_store.PieceStore
 	corruptedPieces        map[uint32]int
@@ -131,30 +130,31 @@ type Download struct {
 	Trk                    *tracker.Trackers
 	completedBm            *bm.Bitmap
 	wantedBm               *bm.Bitmap
-
-	chunk              chunkState
-	info               meta.Info
-	backgroundWg       sync.WaitGroup
-	completed          atomic.Int64
-	CompletedAt        atomic.Int64
-	state              atomic.Uint32
-	downloaded         atomic.Int64
-	corrupted          atomic.Int64
-	uploaded           atomic.Int64
-	peerIDCounter      atomic.Uint64
-	uploadAtStart      int64
-	unchokeSlotIdx     int
-	AddAt              int64
-	peerLeechers       atomic.Int64
-	peerSeeds          atomic.Int64
-	downloadAtStart    int64
-	selectedSize       atomic.Int64
-	unchokeCycleOffset int
-	corruptedPiecesMu  sync.Mutex
-	normalChunkLen     uint32
-	bitfieldSize       uint32
-	peerID             proto.PeerID
-	private            bool
+	s                      downloadState
+	chunk                  chunkState
+	info                   meta.Info
+	backgroundWg           sync.WaitGroup
+	piecePickStrategy      atomic.Uint32
+	completed              atomic.Int64
+	CompletedAt            atomic.Int64
+	state                  atomic.Uint32
+	downloaded             atomic.Int64
+	corrupted              atomic.Int64
+	uploaded               atomic.Int64
+	peerIDCounter          atomic.Uint64
+	uploadAtStart          int64
+	unchokeSlotIdx         int
+	AddAt                  int64
+	peerLeechers           atomic.Int64
+	peerSeeds              atomic.Int64
+	downloadAtStart        int64
+	selectedSize           atomic.Int64
+	unchokeCycleOffset     int
+	corruptedPiecesMu      sync.Mutex
+	normalChunkLen         uint32
+	bitfieldSize           uint32
+	peerID                 proto.PeerID
+	private                bool
 }
 
 type chunkState struct {

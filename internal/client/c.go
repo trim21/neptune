@@ -10,7 +10,10 @@ import (
 	"os"
 	"sync"
 
+	"go.uber.org/atomic"
+
 	"neptune/internal/config"
+	"neptune/internal/download"
 	"neptune/internal/metainfo"
 	"neptune/internal/pkg/flowrate"
 	"neptune/internal/pkg/ratelimit"
@@ -28,6 +31,10 @@ func New(cfg config.Config, sessionPath string, debug bool) *Client {
 		fh:          make(map[string]*os.File),
 	}
 
+	if s, err := download.PiecePickStrategyFromString(cfg.App.PiecePickStrategy); err == nil {
+		c.piecePickStrategy.Store(uint32(s))
+	}
+
 	c.startUploadPool()
 	sess.InitMetrics()
 
@@ -41,14 +48,15 @@ type incomingConn struct {
 }
 
 type Client struct {
-	session     *session.Session
-	downloadMap map[metainfo.Hash]*Download
-	connChan    chan incomingConn
-	fh          map[string]*os.File
-	downloads   []*Download
-	infoHashes  []metainfo.Hash
-	checkQueue  []metainfo.Hash
-	m           sync.RWMutex
+	session           *session.Session
+	downloadMap       map[metainfo.Hash]*Download
+	connChan          chan incomingConn
+	fh                map[string]*os.File
+	downloads         []*Download
+	infoHashes        []metainfo.Hash
+	checkQueue        []metainfo.Hash
+	piecePickStrategy atomic.Uint32
+	m                 sync.RWMutex
 }
 
 type DownloadInfo struct {

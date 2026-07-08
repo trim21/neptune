@@ -12,7 +12,14 @@ import (
 )
 
 func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath string, tags []string, custom map[string]string, selectedFiles []int) *Download {
-	return download.New(c.session, m, info, basePath, tags, custom, selectedFiles)
+	d := download.New(c.session, m, info, basePath, tags, custom, selectedFiles)
+
+	// Apply the client-level default piece pick strategy, which may differ
+	// from the config file value if the user changed it via RPC.
+	strategy := download.PiecePickStrategy(c.piecePickStrategy.Load())
+	d.SetPiecePickStrategy(strategy)
+
+	return d
 }
 
 func (c *Client) UnmarshalResume(data []byte, totalDownloads int) error {

@@ -50,6 +50,7 @@ type resume struct {
 	Uploaded           int64
 	Corrupted          int64
 	State              ResumeState
+	PiecePickStrategy  uint32
 }
 
 func (d *Download) filePaths() []string {
@@ -119,5 +120,6 @@ func (d *Download) MarshalBinary() (data []byte, err error) {
 		DownloadSpeedLimit: d.downloadLimiter.Rate(),
 		UploadSpeedLimit:   d.uploadLimiter.Rate(),
 		Trackers:           d.Trk.URLs(),
+		PiecePickStrategy:  uint32(d.GetPiecePickStrategy()),
 	})
 }

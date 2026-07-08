@@ -308,13 +308,13 @@ func TestPickerResetsPieceIntoCandidates(t *testing.T) {
 	}
 
 	// At this point, piece 0 is allBlocksResponded → rebuildPriorities removes it.
-	pp.rebuildPriorities(info)
+	pp.rebuildPriorities(info, StrategyRarestFirst)
 
 	// Verify piece 0 is NOT pickable (allBlocksResponded, waiting for hash).
 	bitfield := bm.New(numPieces)
 	bitfield.Fill()
 	result := pickResult{}
-	result = pp.pickPieces(bitfield, false, nil, 100, 0, nil, info, result)
+	result = pp.pickPieces(bitfield, false, nil, 100, 0, nil, info, StrategyRarestFirst, result)
 	for _, fb := range result.freeBlocks {
 		if fb.pieceIndex == 0 {
 			t.Fatal("piece 0 should not be pickable before resetPiece")
@@ -341,7 +341,7 @@ func TestPickerResetsPieceIntoCandidates(t *testing.T) {
 	t.Logf("allBlocksResponded(0)=%v", pp.allBlocksResponded(0, info))
 	pp.mu.Unlock()
 
-	result = pp.pickPieces(bitfield, false, nil, 100, 0, nil, info, result)
+	result = pp.pickPieces(bitfield, false, nil, 100, 0, nil, info, StrategyRarestFirst, result)
 
 	pp.mu.Lock()
 	t.Logf("After pickPieces: pieces=%v", pp.pieces)
@@ -352,7 +352,7 @@ func TestPickerResetsPieceIntoCandidates(t *testing.T) {
 	t.Logf("allBlocksResponded(0)=%v", pp.allBlocksResponded(0, info))
 	pp.mu.Unlock()
 
-	result = pp.pickPieces(bitfield, false, nil, 100, 0, nil, info, result)
+	result = pp.pickPieces(bitfield, false, nil, 100, 0, nil, info, StrategyRarestFirst, result)
 
 	pp.mu.Lock()
 	t.Logf("After pickPieces: pieces=%v", pp.pieces)

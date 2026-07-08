@@ -134,6 +134,10 @@ func New(c *client.Client, token string, enableDebug bool) http.Handler {
 	getTransferConfig(h, c)
 	setRecheckOnComplete(h, c)
 	getRecheckOnComplete(h, c)
+	setPiecePickStrategy(h, c)
+	getPiecePickStrategy(h, c)
+	torrentSetPiecePickStrategy(h, c)
+	torrentGetPiecePickStrategy(h, c)
 	// MoveTorrent(h, c)
 
 	var auth = func(next http.Handler) http.Handler {

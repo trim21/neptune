@@ -608,6 +608,7 @@ func (d *Download) requestABlock(p Peer) {
 		0,
 		nil,
 		d.info,
+		d.GetPiecePickStrategy(),
 		lastPick,
 	)
 
