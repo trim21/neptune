@@ -96,8 +96,6 @@ func New(sess *session.Session, m *metainfo.MetaInfo, info meta.Info, basePath s
 		peersCh:      make(chan []tracker.DiscoveredPeer, 1),
 	}
 
-	d.picker.Store(newPiecePicker(info, completedBm))
-
 	d.completedBm = completedBm
 	d.wantedBm = bm.New(info.NumPieces)
 
@@ -105,6 +103,8 @@ func New(sess *session.Session, m *metainfo.MetaInfo, info meta.Info, basePath s
 	for i := range info.NumPieces {
 		d.wantedBm.Set(i)
 	}
+
+	d.picker.Store(newPiecePicker(info, completedBm, d.wantedBm))
 
 	d.peerList.d = d
 

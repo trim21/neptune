@@ -91,7 +91,9 @@ func newTestDownload(t testing.TB, numPieces uint32, blocksPerPiece uint32, newS
 		scheduleRequestSignal: make(chan empty.Empty, 1),
 		Trk:                   tracker.New(ctx, tracker.Config{}),
 	}
-	d.picker.Store(newPiecePicker(info, completedBm))
+	wantedBm := bm.New(info.NumPieces)
+	wantedBm.Fill()
+	d.picker.Store(newPiecePicker(info, completedBm, wantedBm))
 	d.state.Store(uint32(Downloading))
 	return d
 }

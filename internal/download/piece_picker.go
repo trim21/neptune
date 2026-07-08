@@ -70,6 +70,7 @@ const priorityFactor = 3
 // All public methods are safe for concurrent use.
 type piecePicker struct {
 	completedBm        *bm.Bitmap
+	wantedBm           *bm.Bitmap
 	availability       []uint16
 	pieces             []uint32
 	piecePriorities    []uint32
@@ -88,7 +89,8 @@ type piecePicker struct {
 // newPiecePicker creates a new piece picker for the given torrent info.
 // completedBm is the Download's completed bitmap — the picker reads it directly
 // instead of maintaining its own copy.
-func newPiecePicker(info meta.Info, completedBm *bm.Bitmap) *piecePicker {
+// wantedBm is the Download's wanted bitmap — tracks which pieces are selected.
+func newPiecePicker(info meta.Info, completedBm *bm.Bitmap, wantedBm *bm.Bitmap) *piecePicker {
 	numPieces := info.NumPieces
 	blocksPerPiece := uint32((info.PieceLength + defaultBlockSize - 1) / defaultBlockSize)
 
@@ -100,6 +102,7 @@ func newPiecePicker(info meta.Info, completedBm *bm.Bitmap) *piecePicker {
 		piecePriorities: make([]uint32, numPieces),
 		pieces:          make([]uint32, numPieces),
 		completedBm:     completedBm,
+		wantedBm:        wantedBm,
 		dirty:           true,
 		blockInfos:      newBlockStates(int(numPieces) * int(blocksPerPiece)),
 	}
@@ -282,7 +285,7 @@ func (pp *piecePicker) isFinished(pieceIndex uint32, blockIndex int) bool {
 // Only fully-completed pieces (all blocks finished) are excluded.
 // Partially downloaded pieces stay in the array — pickPieces handles them
 // via the partial-pieces phase first, then falls back to the priority list.
-func (pp *piecePicker) rebuildPriorities(info meta.Info) {
+func (pp *piecePicker) rebuildPriorities() {
 	if pp == nil {
 		return
 	}
@@ -290,13 +293,7 @@ func (pp *piecePicker) rebuildPriorities(info meta.Info) {
 		return
 	}
 
-	available := pp.pieces[:0]
-	for _, pi := range pp.pieces {
-		if pp.completedBm.Contains(pi) {
-			continue
-		}
-		available = append(available, pi)
-	}
+	available := pp.wantedBm.WithAndNot(pp.completedBm).ToArray()
 
 	// sort by priority descending, then by piece index
 	slices.SortFunc(available, func(a, b uint32) int {
@@ -389,7 +386,7 @@ func (pp *piecePicker) pickPieces(
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
 
-	pp.rebuildPriorities(info)
+	pp.rebuildPriorities()
 
 	// Reuse slices from previous call.
 	result.freeBlocks = result.freeBlocks[:0]
