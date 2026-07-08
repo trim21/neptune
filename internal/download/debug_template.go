@@ -42,6 +42,7 @@ type debugPageData struct {
 	Completed         string
 	Waste             string
 	Corrupted         string
+	ErrorMsg          string
 	FailingPieces     []debugFailingPiece
 	Trackers          []debugTracker
 	Peers             []debugPeer
@@ -143,6 +144,7 @@ func BuildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 		Completed:    humanize.IBytes(uint64(d.completed.Load())),
 		Waste:        humanize.IBytes(uint64(d.downloaded.Load() - d.completed.Load())),
 		Corrupted:    humanize.IBytes(uint64(d.corrupted.Load())),
+		ErrorMsg:     d.ErrorMsg(),
 		FullMode:     fullMode,
 	}
 

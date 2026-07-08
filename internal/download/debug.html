@@ -64,6 +64,11 @@ async function reannounce(e) {
   <div class="col"><div class="stat-label">Corrupted</div><div class="stat-value text-danger">{{.Corrupted}}</div></div>
 </div>
 
+{{if .ErrorMsg}}
+<h2>Error</h2>
+<div class="alert alert-danger" role="alert"><pre class="mb-0">{{.ErrorMsg}}</pre></div>
+{{end}}
+
 {{if .FailingPieces}}
 <h2>Failing Pieces</h2>
 <div class="table-responsive">
