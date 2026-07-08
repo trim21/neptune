@@ -92,17 +92,23 @@ func New(sess *session.Session, m *metainfo.MetaInfo, info meta.Info, basePath s
 		downloadLimiter: ratelimit.New(0),
 		uploadLimiter:   ratelimit.New(0),
 
-		selectedSize: *atomic.NewInt64(info.TotalLength),
-		peersCh:      make(chan []tracker.DiscoveredPeer, 1),
+		peersCh: make(chan []tracker.DiscoveredPeer, 1),
 	}
+
+	// Populate selectedFilesSet if only a subset of files is selected.
+	// nil means all files are selected.
+	if len(selectedFiles) > 0 && len(selectedFiles) < len(info.Files) {
+		d.s.selectedFilesSet = make(map[int]struct{}, len(selectedFiles))
+		for _, idx := range selectedFiles {
+			d.s.selectedFilesSet[idx] = struct{}{}
+		}
+	}
+
+	d.selectedSize = *atomic.NewInt64(d.computeSelectedSizeUnsafe())
 
 	d.completedBm = completedBm
 	d.wantedBm = bm.New(info.NumPieces)
-
-	// mark all pieces as wanted initially
-	for i := range info.NumPieces {
-		d.wantedBm.Set(i)
-	}
+	d.buildSelectedPiecesBmUnsafe()
 
 	d.picker.Store(newPiecePicker(info, completedBm, d.wantedBm))
 
