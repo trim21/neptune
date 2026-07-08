@@ -53,6 +53,8 @@ func (d *Download) connectToPeers(maxSlots int) int {
 			if !d.session.ConnSem.TryAcquire(1) {
 				d.peerList.clearDialing(candidate)
 				semFull = true
+				// Continue the inner loop to clearDialing remaining
+				// candidates, then stop: no point retrying until slots free up.
 				continue
 			}
 			d.session.ConnCount.Add(1)
@@ -61,6 +63,10 @@ func (d *Download) connectToPeers(maxSlots int) int {
 			if connected >= maxSlots {
 				return connected
 			}
+		}
+
+		if semFull {
+			return connected
 		}
 	}
 
