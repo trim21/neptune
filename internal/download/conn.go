@@ -126,17 +126,17 @@ func (d *Download) tryDial(pp *persistentPeer) {
 
 // recordDisconnect is called by Peer.close() to update shared peer tracking.
 // It only acts if p is the primary peer for its address (registered in connectedAddrs).
-func (d *Download) recordDisconnect(p *Peer) {
-	if actual, ok := d.connectedAddrs.Load(p.Address); !ok || actual != p {
+func (d *Download) recordDisconnect(p Peer) {
+	if actual, ok := d.connectedAddrs.Load(p.Addr()); !ok || actual != p {
 		return
 	}
-	d.connectedAddrs.Delete(p.Address)
+	d.connectedAddrs.Delete(p.Addr())
 
-	failed := p.closeErr != nil &&
-		!errors.Is(p.closeErr, io.EOF) &&
-		!errors.Is(p.closeErr, context.Canceled)
+	failed := p.CloseError() != nil &&
+		!errors.Is(p.CloseError(), io.EOF) &&
+		!errors.Is(p.CloseError(), context.Canceled)
 
-	d.peerList.connectionClosed(p.Address, time.Now().Unix(), p.hadTransfer, failed)
+	d.peerList.connectionClosed(p.Addr(), time.Now().Unix(), p.HadTransfer(), failed)
 
 	// Wake up connection loop to fill the freed slot.
 	select {
@@ -164,6 +164,6 @@ func (d *Download) peerTurnover() {
 
 	toDisconnect := d.peerList.peerTurnover(disconnectN)
 	for _, p := range toDisconnect {
-		p.close()
+		p.Close()
 	}
 }

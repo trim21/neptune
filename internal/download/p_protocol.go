@@ -32,7 +32,7 @@ type Event struct {
 	Ignored      bool
 }
 
-func (p *Peer) DecodeEvents() (Event, error) {
+func (p *peerImpl) DecodeEvents() (Event, error) {
 	err := p.Conn.SetReadDeadline(time.Now().Add(time.Minute * 3))
 	if err != nil {
 		return Event{}, err
@@ -149,7 +149,7 @@ func (p *Peer) DecodeEvents() (Event, error) {
 	return event, err
 }
 
-func (p *Peer) decodeBitfield(eventSize uint32) (Event, error) {
+func (p *peerImpl) decodeBitfield(eventSize uint32) (Event, error) {
 	eventSize = eventSize - 1
 
 	if eventSize != p.d.bitfieldSize {
@@ -168,7 +168,7 @@ func (p *Peer) decodeBitfield(eventSize uint32) (Event, error) {
 	return Event{Event: proto.Bitfield, Bitmap: bm.FromBitfields(buf, p.d.info.NumPieces)}, nil
 }
 
-func (p *Peer) decodeCancel() (Event, error) {
+func (p *peerImpl) decodeCancel() (Event, error) {
 	payload, err := proto.ReadRequestPayload(p.r)
 	if err != nil {
 		return Event{}, err
@@ -177,7 +177,7 @@ func (p *Peer) decodeCancel() (Event, error) {
 	return Event{Event: proto.Cancel, Req: payload}, nil
 }
 
-func (p *Peer) decodeRequest() (Event, error) {
+func (p *peerImpl) decodeRequest() (Event, error) {
 	payload, err := proto.ReadRequestPayload(p.r)
 	if err != nil {
 		return Event{}, err
@@ -186,7 +186,7 @@ func (p *Peer) decodeRequest() (Event, error) {
 	return Event{Event: proto.Request, Req: payload}, nil
 }
 
-func (p *Peer) decodeReject() (Event, error) {
+func (p *peerImpl) decodeReject() (Event, error) {
 	payload, err := proto.ReadRequestPayload(p.r)
 	if err != nil {
 		return Event{}, err
@@ -195,7 +195,7 @@ func (p *Peer) decodeReject() (Event, error) {
 	return Event{Event: proto.Reject, Req: payload}, nil
 }
 
-func (p *Peer) decodePiece(size uint32) (Event, error) {
+func (p *peerImpl) decodePiece(size uint32) (Event, error) {
 	if size >= defaultBlockSize*2 {
 		return Event{}, ErrPeerSendInvalidData
 	}
@@ -208,7 +208,7 @@ func (p *Peer) decodePiece(size uint32) (Event, error) {
 	return Event{Event: proto.Piece, Res: payload}, nil
 }
 
-func (p *Peer) write(e Event) error {
+func (p *peerImpl) write(e Event) error {
 	_ = p.Conn.SetWriteDeadline(time.Now().Add(time.Minute * 3))
 
 	p.lastSend.Store(time.Now())

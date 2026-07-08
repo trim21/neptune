@@ -35,7 +35,7 @@ func TestPeerResponseSendsOnceAndCountsOnce(t *testing.T) {
 		_, _ = io.Copy(io.Discard, c2)
 	})
 
-	p := &Peer{
+	p := &peerImpl{
 		Conn:            c1,
 		w:               bufio.NewWriterSize(c1, 64*1024),
 		log:             zerolog.New(io.Discard),
@@ -63,7 +63,7 @@ func TestPeerResponseNoRequestDoesNotWrite(t *testing.T) {
 	defer c1.Close()
 	defer c2.Close()
 
-	p := &Peer{
+	p := &peerImpl{
 		Conn:            c1,
 		w:               bufio.NewWriterSize(c1, 64*1024),
 		log:             zerolog.New(io.Discard),

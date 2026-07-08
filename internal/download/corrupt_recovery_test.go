@@ -95,7 +95,7 @@ func newTestEnv(t *testing.T, numPieces, blocksPerPiece uint32, failPieces []uin
 		uploadLimiter:         ratelimit.New(0),
 		downloadLimiter:       ratelimit.New(0),
 		normalChunkLen:        uint32(normalChunkLen),
-		peers:                 xsync.NewMap[uint64, *Peer](),
+		peers:                 xsync.NewMap[uint64, Peer](),
 		stateCond:             stateCond,
 		private:               false,
 		corruptedPieces:       make(map[uint32]int),

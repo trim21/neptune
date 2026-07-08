@@ -192,33 +192,33 @@ func BuildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 
 	// Peers
 	var peers []debugPeer
-	d.peers.Range(func(_ uint64, p *Peer) bool {
+	d.peers.Range(func(_ uint64, p Peer) bool {
 		dir := "out"
-		if p.Incoming {
+		if p.Incoming() {
 			dir = "in"
 		}
 		enc := "none"
-		if p.Encrypted {
+		if p.Encrypted() {
 			enc = "rc4"
 		}
 		peers = append(peers, debugPeer{
-			Address:      p.Address.String(),
-			DownRate:     humanize.IBytes(uint64(p.pieceDownloadRate.Status().CurRate)) + "/s",
-			UpRate:       humanize.IBytes(uint64(p.pieceUploadRate.Status().CurRate)) + "/s",
-			OurReq:       p.myRequests.Size(),
-			ReqQ:         len(p.requestQueue),
-			DesiredQ:     int(p.desiredQueueSize.Load()),
-			Client:       *p.UserAgent.Load(),
-			Progress:     fmt.Sprintf("%.1f%%", float64(p.Bitmap.Count())/float64(d.info.NumPieces)*100),
-			Snubbed:      p.snubbed.Load(),
-			PeerChoke:    p.peerChoking.Load(),
-			PeerInterest: p.peerInterested.Load(),
-			OurChoke:     p.ourChoking.Load(),
-			OurInterest:  p.ourInterested.Load(),
-			Fast:         fmt.Sprint(p.allowFast.ToArray()),
-			PeerReq:      p.peerRequests.Size(),
-			PeerID:       url.QueryEscape(p.peerID.Load().AsString()),
-			LastPick:     p.lastPickDebugString(),
+			Address:      p.Addr().String(),
+			DownRate:     humanize.IBytes(uint64(p.DownloadRate())) + "/s",
+			UpRate:       humanize.IBytes(uint64(p.UploadRate())) + "/s",
+			OurReq:       p.OutstandingRequests(),
+			ReqQ:         p.QueueLen(),
+			DesiredQ:     p.DesiredQueueSize(),
+			Client:       p.UserAgent(),
+			Progress:     fmt.Sprintf("%.1f%%", float64(p.PieceCount())/float64(d.info.NumPieces)*100),
+			Snubbed:      p.IsSnubbed(),
+			PeerChoke:    p.IsChoking(),
+			PeerInterest: p.IsPeerInterested(),
+			OurChoke:     p.IsOurChoking(),
+			OurInterest:  p.IsOurInterested(),
+			Fast:         fmt.Sprint(p.FastBitmap().ToArray()),
+			PeerReq:      p.PeerRequestCount(),
+			PeerID:       url.QueryEscape(p.PeerIDString()),
+			LastPick:     p.LastPickDebug(),
 			Direction:    dir,
 			Encryption:   enc,
 		})
@@ -231,10 +231,9 @@ func BuildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 	// Peer rate & total vs download
 	var peerTotalCurRate int64
 	var peerTotalBytes int64
-	d.peers.Range(func(_ uint64, p *Peer) bool {
-		s := p.pieceDownloadRate.Status()
-		peerTotalCurRate += s.CurRate
-		peerTotalBytes += s.Total
+	d.peers.Range(func(_ uint64, p Peer) bool {
+		peerTotalCurRate += p.DownloadRate()
+		peerTotalBytes += p.DownloadTotal()
 		return true
 	})
 	dlRate := d.pieceDownloadRate.Status().CurRate

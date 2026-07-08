@@ -5,6 +5,7 @@ linters:
   default: all
   disable:
     - funcorder
+    - interfacebloat
     - containedctx
     - contextcheck
     - cyclop

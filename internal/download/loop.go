@@ -181,9 +181,9 @@ func (d *Download) goBackground(fn func()) {
 }
 
 func (d *Download) optimisticUnchoke() {
-	var peers []*Peer
-	d.peers.Range(func(_ uint64, p *Peer) bool {
-		if !p.closed.Load() && !p.snubbed.Load() {
+	var peers []Peer
+	d.peers.Range(func(_ uint64, p Peer) bool {
+		if !p.Closed() && !p.IsSnubbed() {
 			peers = append(peers, p)
 		}
 		return true
@@ -195,7 +195,7 @@ func (d *Download) optimisticUnchoke() {
 
 	idx := int(time.Now().UnixNano()) % len(peers)
 	p := peers[idx]
-	d.log.Debug().Stringer("addr", p.Address).Msg("optimistic unchoke")
+	d.log.Debug().Stringer("addr", p.Addr()).Msg("optimistic unchoke")
 
 	select {
 	case d.scheduleRequestSignal <- empty.Empty{}:

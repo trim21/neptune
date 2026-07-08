@@ -118,8 +118,8 @@ type Download struct {
 	resChan                chan *proto.ChunkResponse
 	uploadLimiter          *ratelimit.Limiter
 	peersCh                chan []tracker.DiscoveredPeer
-	peers                  *xsync.Map[uint64, *Peer]
-	connectedAddrs         *xsync.Map[netip.AddrPort, *Peer]
+	peers                  *xsync.Map[uint64, Peer]
+	connectedAddrs         *xsync.Map[netip.AddrPort, Peer]
 	stateCond              *gsync.Cond
 	peerList               *peerList
 	picker                 atomic.Pointer[piecePicker]
@@ -296,8 +296,8 @@ func (d *Download) peerSeedLeecherCounts() (seeds, leechers int) {
 // recalcPeerCounts iterates all connected peers and refreshes the cached seed/leecher counters.
 func (d *Download) recalcPeerCounts() {
 	var seeds, leechers int64
-	d.peers.Range(func(_ uint64, p *Peer) bool {
-		if p.isSeed.Load() {
+	d.peers.Range(func(_ uint64, p Peer) bool {
+		if p.IsSeed() {
 			seeds++
 		} else {
 			leechers++

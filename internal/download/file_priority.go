@@ -118,8 +118,8 @@ func (d *Download) SetFilePriority(fileIDs []int, priority int) error {
 
 // CloseAllPeers closes all peer connections for this download.
 func (d *Download) CloseAllPeers() {
-	d.peers.Range(func(_ uint64, p *Peer) bool {
-		p.close()
+	d.peers.Range(func(_ uint64, p Peer) bool {
+		p.Close()
 		return true
 	})
 }

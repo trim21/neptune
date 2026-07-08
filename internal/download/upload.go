@@ -18,7 +18,7 @@ import (
 )
 
 type uploadReq struct {
-	peer *Peer
+	peer Peer
 	req  proto.ChunkRequest
 }
 
@@ -37,29 +37,29 @@ const (
 //   - Peers that have unchoked us (reciprocating) get order_base + rate bonus
 //   - Peers that haven't unchoked us get random weight (optimistic queue)
 //   - Preferred peers get a multiplier
-func peerUploadScore(p *Peer) (score uint32, isReciprocal bool) {
+func peerUploadScore(p Peer) (score uint32, isReciprocal bool) {
 	const orderBase uint32 = 1 << 30
 
 	multiplier := uint32(1)
-	if p.preferred.Load() {
+	if p.IsPreferred() {
 		multiplier = 4
 	}
 
 	// Peer has unchoked us — they're reciprocating.
-	if !p.peerChoking.Load() {
-		downRate := uint32(p.pieceDownloadRate.Status().CurRate) / 64
+	if !p.IsChoking() {
+		downRate := uint32(p.DownloadRate()) / 64
 		score = orderBase + downRate*multiplier
 		return score, true
 	}
 
 	// Peer hasn't unchoked us — optimistic, random weight.
 	// Lower weight for stingy peers (those we upload to at < 1KB/s).
-	upRate := uint32(p.pieceUploadRate.Status().CurRate) / 64
+	upRate := uint32(p.UploadRate()) / 64
 	if upRate < 2048/64 {
 		score = upRate * multiplier
 	} else {
 		base := uint32(1 << 10)
-		if p.preferred.Load() {
+		if p.IsPreferred() {
 			base *= 4
 		}
 		score = rand.Uint32N(base) * multiplier
@@ -79,7 +79,7 @@ func (d *Download) recalculateUnchokeSlots() {
 	now := time.Now()
 
 	type candidate struct {
-		peer        *Peer
+		peer        Peer
 		score       uint32
 		reciprocal  bool // peer has unchoked us
 		recentlyUnc bool // unchoked within grace period
@@ -87,30 +87,30 @@ func (d *Download) recalculateUnchokeSlots() {
 
 	var candidates []candidate
 
-	d.peers.Range(func(_ uint64, p *Peer) bool {
-		if p.closed.Load() {
+	d.peers.Range(func(_ uint64, p Peer) bool {
+		if p.Closed() {
 			return true
 		}
 
 		// Always choke snubbed peers.
-		if p.snubbed.Load() {
-			if p.ourChoking.CompareAndSwap(false, true) {
-				go p.sendEventX(Event{Event: proto.Choke})
+		if p.IsSnubbed() {
+			if p.SwapOurChoking(false, true) {
+				p.SendChoke()
 			}
 			return true
 		}
 
 		// Always choke uninterested peers — libtorrent only queues peers
 		// that explicitly signaled Interested.
-		if !p.peerInterested.Load() {
-			if p.ourChoking.CompareAndSwap(false, true) {
-				go p.sendEventX(Event{Event: proto.Choke})
+		if !p.IsPeerInterested() {
+			if p.SwapOurChoking(false, true) {
+				p.SendChoke()
 			}
 			return true
 		}
 
 		score, reciprocal := peerUploadScore(p)
-		recently := now.Sub(p.lastUnchokeAt.Load()) < unchokeGracePeriod
+		recently := now.Sub(p.LastUnchokeAt()) < unchokeGracePeriod
 
 		candidates = append(candidates, candidate{
 			peer:        p,
@@ -148,7 +148,7 @@ func (d *Download) recalculateUnchokeSlots() {
 	cycleN := max(1, totalSlots/unchokeCycleFraction)
 	d.unchokeCycleOffset = (d.unchokeCycleOffset + cycleN) % max(totalSlots, 1)
 
-	var unchokeSet []*Peer
+	var unchokeSet []Peer
 
 	// Fill normal slots: take top (normalSlots - cycleN) by score,
 	// then cycle the remaining slots starting at cycleOffset.
@@ -174,8 +174,8 @@ func (d *Download) recalculateUnchokeSlots() {
 	// Pick a random peer NOT already in the unchoke set.
 	if optimisticUnchokeN > 0 && len(candidates) > len(unchokeSet) {
 		// Collect peers not in unchokeSet.
-		var remaining []*Peer
-		inSet := make(map[*Peer]bool, len(unchokeSet))
+		var remaining []Peer
+		inSet := make(map[Peer]bool, len(unchokeSet))
 		for _, p := range unchokeSet {
 			inSet[p] = true
 		}
@@ -193,21 +193,21 @@ func (d *Download) recalculateUnchokeSlots() {
 
 	// ── Apply ───────────────────────────────────────────────────────
 	for _, p := range unchokeSet {
-		if p.ourChoking.CompareAndSwap(true, false) {
-			p.lastUnchokeAt.Store(now)
-			go p.sendEventX(Event{Event: proto.Unchoke})
+		if p.SwapOurChoking(true, false) {
+			p.SetLastUnchokeAt(now)
+			go p.SendUnchoke()
 		}
 	}
 
 	// Choke everyone not in the unchoke set.
-	inSet := make(map[*Peer]bool, len(unchokeSet))
+	inSet := make(map[Peer]bool, len(unchokeSet))
 	for _, p := range unchokeSet {
 		inSet[p] = true
 	}
 	for _, c := range candidates {
 		if !inSet[c.peer] {
-			if c.peer.ourChoking.CompareAndSwap(false, true) {
-				go c.peer.sendEventX(Event{Event: proto.Choke})
+			if c.peer.SwapOurChoking(false, true) {
+				c.peer.SendChoke()
 			}
 		}
 	}
@@ -222,15 +222,15 @@ func (d *Download) recalculateUnchokeSlots() {
 // setInterested is called when our interest in a peer changes.
 // If we become interested and the peer has free slots, we may unchoke
 // immediately (libtorrent's fast-path for new peers).
-func (d *Download) onPeerInterested(p *Peer) {
-	if !p.peerInterested.Load() || p.snubbed.Load() || p.closed.Load() {
+func (d *Download) onPeerInterested(p Peer) {
+	if !p.IsPeerInterested() || p.IsSnubbed() || p.Closed() {
 		return
 	}
 
 	// Count currently unchoked peers.
 	unchoked := 0
-	d.peers.Range(func(_ uint64, p2 *Peer) bool {
-		if !p2.closed.Load() && !p2.ourChoking.Load() {
+	d.peers.Range(func(_ uint64, p2 Peer) bool {
+		if !p2.Closed() && !p2.IsOurChoking() {
 			unchoked++
 		}
 		return true
@@ -241,9 +241,9 @@ func (d *Download) onPeerInterested(p *Peer) {
 	}
 
 	// Fast unchoke: new peer, slots available.
-	if p.ourChoking.CompareAndSwap(true, false) {
-		p.lastUnchokeAt.Store(time.Now())
-		go p.sendEventX(Event{Event: proto.Unchoke})
+	if p.SwapOurChoking(true, false) {
+		p.SetLastUnchokeAt(time.Now())
+		p.SendUnchoke()
 
 		select {
 		case d.scheduleResponseSignal <- empty.Empty{}:
@@ -281,20 +281,20 @@ func (d *Download) backgroundReqHandler() {
 			clear(requestsByPiece)
 
 			considered := 0
-			d.peers.Range(func(_ uint64, p *Peer) bool {
+			d.peers.Range(func(_ uint64, p Peer) bool {
 				if considered >= maxRequestsToConsiderPerWake {
 					return false
 				}
 
-				if p.closed.Load() || p.ourChoking.Load() {
+				if p.Closed() || p.IsOurChoking() {
 					return true
 				}
 
-				if p.peerRequests.Size() == 0 {
+				if p.PeerRequestCount() == 0 {
 					return true
 				}
 
-				p.peerRequests.Range(func(key proto.ChunkRequest, _ empty.Empty) bool {
+				p.ForEachPeerRequest(func(key proto.ChunkRequest, _ empty.Empty) bool {
 					requestsByPiece[key.PieceIndex] = append(requestsByPiece[key.PieceIndex], uploadReq{peer: p, req: key})
 					considered++
 					return considered < maxRequestsToConsiderPerWake
@@ -344,8 +344,8 @@ func (d *Download) backgroundReqHandler() {
 	}
 }
 
-func (d *Download) processUpload(peer *Peer, req proto.ChunkRequest, data []byte) {
-	if d.ctx.Err() != nil || peer.closed.Load() {
+func (d *Download) processUpload(peer Peer, req proto.ChunkRequest, data []byte) {
+	if d.ctx.Err() != nil || peer.Closed() {
 		return
 	}
 	if d.GetState()&(Downloading|Seeding) == 0 {
@@ -366,7 +366,7 @@ func (d *Download) processUpload(peer *Peer, req proto.ChunkRequest, data []byte
 				return
 			}
 			d.setError(err)
-			peer.close()
+			peer.Close()
 			return
 		}
 	}

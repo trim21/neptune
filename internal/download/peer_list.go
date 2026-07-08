@@ -14,7 +14,7 @@ import (
 // persistentPeer mirrors libtorrent's torrent_peer — permanent peer metadata
 // that survives connection/disconnection cycles.
 type persistentPeer struct {
-	connection       *Peer
+	connection       Peer
 	addrPort         netip.AddrPort
 	lastErr          string
 	lastSeen         int64
@@ -230,7 +230,7 @@ func compareAddr(a, b netip.AddrPort) int {
 
 // addOrUpdateIncoming ensures a peer entry exists for an incoming connection.
 // Returns true if this is a duplicate connection (peer already has connection).
-func (pl *peerList) addOrUpdateIncoming(addr netip.AddrPort, sessionTime int64, conn *Peer) (rejectDuplicate bool) {
+func (pl *peerList) addOrUpdateIncoming(addr netip.AddrPort, sessionTime int64, conn Peer) (rejectDuplicate bool) {
 	pl.mu.Lock()
 	defer pl.mu.Unlock()
 
@@ -267,7 +267,7 @@ func (pl *peerList) addOrUpdateIncoming(addr netip.AddrPort, sessionTime int64, 
 
 // newConnection attaches a connection to an existing peer entry.
 // Returns false if the peer wasn't found in the list.
-func (pl *peerList) newConnection(addr netip.AddrPort, conn *Peer, sessionTime int64) bool {
+func (pl *peerList) newConnection(addr netip.AddrPort, conn Peer, sessionTime int64) bool {
 	pl.mu.Lock()
 	defer pl.mu.Unlock()
 
@@ -532,7 +532,7 @@ func (pl *peerList) count() int {
 
 // peerTurnover disconnects up to 'count' slow peers to make room for new ones.
 // Mirrors libtorrent's disconnect_peers with optimistic_disconnect.
-func (pl *peerList) peerTurnover(count int) []*Peer {
+func (pl *peerList) peerTurnover(count int) []Peer {
 	pl.mu.Lock()
 	defer pl.mu.Unlock()
 
@@ -542,10 +542,10 @@ func (pl *peerList) peerTurnover(count int) []*Peer {
 	}
 	var connected []connectedPeer
 	for _, pp := range pl.peers {
-		if pp.connection != nil && !pp.connection.closed.Load() {
+		if pp.connection != nil && !pp.connection.Closed() {
 			connected = append(connected, connectedPeer{
 				p:          pp,
-				uploadRate: pp.connection.pieceUploadRate.Status().CurRate,
+				uploadRate: pp.connection.UploadRate(),
 			})
 		}
 	}
@@ -560,7 +560,7 @@ func (pl *peerList) peerTurnover(count int) []*Peer {
 		return 0
 	})
 
-	toDisconnect := make([]*Peer, 0, min(count, len(connected)))
+	toDisconnect := make([]Peer, 0, min(count, len(connected)))
 	for i := range min(count, len(connected)) {
 		toDisconnect = append(toDisconnect, connected[i].p.connection)
 	}

@@ -70,8 +70,8 @@ func New(sess *session.Session, m *metainfo.MetaInfo, info meta.Info, basePath s
 		ioDownloadRate:    flowrate.New(time.Second, 5*time.Second),
 		pieceUploadRate:   flowrate.New(time.Second, 5*time.Second),
 
-		peers:           xsync.NewMap[uint64, *Peer](),
-		connectedAddrs:  xsync.NewMap[netip.AddrPort, *Peer](),
+		peers:           xsync.NewMap[uint64, Peer](),
+		connectedAddrs:  xsync.NewMap[netip.AddrPort, Peer](),
 		peerList:        newPeerList(nil), // d set below
 		corruptedPieces: make(map[uint32]int),
 

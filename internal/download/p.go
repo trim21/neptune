@@ -52,11 +52,11 @@ func NewPeerID() (peerID proto.PeerID) {
 	return
 }
 
-func NewOutgoingPeer(conn net.Conn, d *Download, addr netip.AddrPort, encrypted bool) *Peer {
+func NewOutgoingPeer(conn net.Conn, d *Download, addr netip.AddrPort, encrypted bool) Peer {
 	return newPeer(conn, d, addr, false, nil, encrypted)
 }
 
-func NewIncomingPeer(conn net.Conn, d *Download, addr netip.AddrPort, h proto.Handshake, encrypted bool) *Peer {
+func NewIncomingPeer(conn net.Conn, d *Download, addr netip.AddrPort, h proto.Handshake, encrypted bool) Peer {
 	return newPeer(conn, d, addr, true, &h, encrypted)
 }
 
@@ -67,7 +67,7 @@ func newPeer(
 	skipReadHandshake bool,
 	h *proto.Handshake,
 	encrypted bool,
-) *Peer {
+) Peer {
 	ctx, cancel := context.WithCancel(d.ctx)
 	l := d.log.With().Stringer("addr", addr)
 	var ua string
@@ -76,7 +76,7 @@ func newPeer(
 		l = l.Str("peer_id", url.QueryEscape(h.PeerID.AsString()))
 	}
 
-	p := &Peer{
+	p := &peerImpl{
 		ctx:    ctx,
 		cancel: cancel,
 
@@ -88,9 +88,9 @@ func newPeer(
 		pieceDownloadRate: flowrate.New(time.Second, 5*time.Second),
 		Address:           addr,
 		id:                d.peerIDCounter.Add(1),
-		QueueLimit:        *atomic.NewUint32(2000),
-		Incoming:          skipReadHandshake,
-		Encrypted:         encrypted,
+		queueLimit:        *atomic.NewUint32(2000),
+		incoming:          skipReadHandshake,
+		encrypted:         encrypted,
 
 		ourChoking:     *atomic.NewBool(true),
 		ourInterested:  *atomic.NewBool(false),
@@ -99,7 +99,7 @@ func newPeer(
 
 		desiredQueueSize: *atomic.NewInt32(1),
 
-		UserAgent: *atomic.NewPointer(&ua),
+		userAgent: *atomic.NewPointer(&ua),
 
 		responseCond: gsync.NewCond(gsync.EmptyLock{}),
 
@@ -134,7 +134,7 @@ func newPeer(
 
 var ErrPeerSendInvalidData = errors.New("addrPort send invalid data")
 
-type Peer struct {
+type peerImpl struct {
 	log               zerolog.Logger
 	closeErr          error
 	ctx               context.Context
@@ -152,7 +152,7 @@ type Peer struct {
 	allowFast         *bm.Bitmap
 	peerRequests      *xsync.Map[proto.ChunkRequest, empty.Empty]
 	pieceDownloadRate *flowrate.Monitor
-	UserAgent         atomic.Pointer[string]
+	userAgent         atomic.Pointer[string]
 	responseCond      *gsync.Cond
 	peerID            atomic.Pointer[proto.PeerID]
 	w                 *bufio.Writer
@@ -165,7 +165,7 @@ type Peer struct {
 	id                uint64
 	disconnecting     atomic.Bool
 	isSeed            atomic.Bool
-	QueueLimit        atomic.Uint32
+	queueLimit        atomic.Uint32
 	desiredQueueSize  atomic.Int32
 	ourInterested     atomic.Bool
 	snubbed           atomic.Bool
@@ -182,15 +182,15 @@ type Peer struct {
 	extPexID          gsync.AtomicUint[proto.ExtensionMessage]
 	readBuf           [4]byte
 	writeBuf          [4]byte
-	Incoming          bool
-	Encrypted         bool
+	incoming          bool
+	encrypted         bool
 	fastExtension     bool
 	dhtEnabled        bool
 	subExtensions     bool
 	hadTransfer       bool
 }
 
-func (p *Peer) Response(res *proto.ChunkResponse) bool {
+func (p *peerImpl) Response(res *proto.ChunkResponse) bool {
 	p.hadTransfer = true
 	_, ok := p.peerRequests.LoadAndDelete(res.Request())
 	if !ok {
@@ -204,7 +204,7 @@ func (p *Peer) Response(res *proto.ChunkResponse) bool {
 	return true
 }
 
-func (p *Peer) Request(req proto.ChunkRequest) {
+func (p *peerImpl) Request(req proto.ChunkRequest) {
 	_, exist := p.myRequests.LoadOrStore(req, time.Now())
 	if exist {
 		p.log.Trace().Msg("myRequests already sent")
@@ -217,18 +217,18 @@ func (p *Peer) Request(req proto.ChunkRequest) {
 	})
 }
 
-func (p *Peer) Have(index uint32) {
+func (p *peerImpl) Have(index uint32) {
 	p.sendEventX(Event{
 		Index: index,
 		Event: proto.Have,
 	})
 }
 
-func (p *Peer) Unchoke() {
+func (p *peerImpl) Unchoke() {
 	p.sendEventX(Event{Event: proto.Unchoke})
 }
 
-func (p *Peer) close() {
+func (p *peerImpl) Close() {
 	if p.closed.CompareAndSwap(false, true) {
 		p.disconnecting.Store(true)
 		p.log.Trace().Caller(1).Msg("close")
@@ -286,7 +286,7 @@ func (p *Peer) close() {
 	}
 }
 
-func (p *Peer) sendBlockRequests() {
+func (p *peerImpl) sendBlockRequests() {
 	if p.closed.Load() || p.isDisconnecting() {
 		return
 	}
@@ -324,7 +324,7 @@ func (p *Peer) sendBlockRequests() {
 // It is the peer's self-driven entrypoint to the global piece picker:
 // when we learn about new pieces (Bitfield/Have), get unchoked, or receive data
 // (Piece), we immediately ask the picker for more blocks and flush them to the wire.
-func (p *Peer) requestBlocks() {
+func (p *peerImpl) requestBlocks() {
 	if p.closed.Load() || p.isDisconnecting() {
 		return
 	}
@@ -351,7 +351,7 @@ func (p *Peer) requestBlocks() {
 // Formula: desired = downloadRate * queueTime / blockSize
 // Clamped between [minRequestQueue, maxRequestQueue] and capped by peer's
 // advertised queue limit.
-func (p *Peer) updateDesiredQueueSize() int {
+func (p *peerImpl) updateDesiredQueueSize() int {
 	if p.snubbed.Load() {
 		return 1
 	}
@@ -364,7 +364,7 @@ func (p *Peer) updateDesiredQueueSize() int {
 	desired = min(desired, maxRequestQueue)
 
 	// Respect the peer's advertised queue limit as an upper bound.
-	peerLimit := int(p.QueueLimit.Load())
+	peerLimit := int(p.queueLimit.Load())
 	if peerLimit > 0 {
 		desired = min(desired, peerLimit/2)
 	}
@@ -374,14 +374,14 @@ func (p *Peer) updateDesiredQueueSize() int {
 }
 
 // requestQueueLen returns the length of the request queue under lock.
-func (p *Peer) requestQueueLen() int {
+func (p *peerImpl) requestQueueLen() int {
 	p.rqMu.Lock()
 	defer p.rqMu.Unlock()
 	return len(p.requestQueue)
 }
 
 // isInQueue checks if a chunk is already in the peer's request queue or request set.
-func (p *Peer) isInQueue(chunk proto.ChunkRequest) bool {
+func (p *peerImpl) IsInQueue(chunk proto.ChunkRequest) bool {
 	if _, ok := p.myRequests.Load(chunk); ok {
 		return true
 	}
@@ -400,18 +400,18 @@ func (p *Peer) isInQueue(chunk proto.ChunkRequest) bool {
 }
 
 // isDisconnecting returns true if the peer is in the process of disconnecting.
-func (p *Peer) isDisconnecting() bool {
+func (p *peerImpl) isDisconnecting() bool {
 	return p.disconnecting.Load()
 }
 
-func (p *Peer) lastPickDebugString() string {
+func (p *peerImpl) lastPickDebugString() string {
 	if s := p.lastPickDebug.Load(); s != nil {
 		return *s
 	}
 	return "-"
 }
 
-func (p *Peer) checkRequestTimeouts() {
+func (p *peerImpl) checkRequestTimeouts() {
 	const blockTimeout = 30 * time.Second
 	const snubThreshold = 5 // consecutive timeouts before snubbing
 
@@ -487,9 +487,9 @@ func (p *Peer) checkRequestTimeouts() {
 	}
 }
 
-func (p *Peer) start(skipHandshake bool) {
+func (p *peerImpl) start(skipHandshake bool) {
 	p.log.Trace().Msg("start")
-	defer p.close()
+	defer p.Close()
 
 	_ = p.Conn.SetWriteDeadline(time.Now().Add(time.Second * 30))
 	if err := proto.SendHandshake(p.Conn, p.d.info.Hash, NewPeerID(), p.d.private); err != nil {
@@ -519,7 +519,7 @@ func (p *Peer) start(skipHandshake bool) {
 		p.log = p.log.With().Str("peer_id", url.QueryEscape(string(h.PeerID[:]))).Logger()
 		p.log.Trace().Msg("connect to addrPort")
 		ua := util.ParsePeerID(h.PeerID)
-		p.UserAgent.Store(&ua)
+		p.userAgent.Store(&ua)
 	}
 
 	if p.fastExtension {
@@ -544,7 +544,7 @@ func (p *Peer) start(skipHandshake bool) {
 		timer := time.NewTicker(time.Second * 30)
 		defer timer.Stop()
 
-		defer p.close()
+		defer p.Close()
 
 		for {
 			select {
@@ -567,17 +567,17 @@ func (p *Peer) start(skipHandshake bool) {
 		// Another peer already owns this address. We lost the race.
 		// defer close() handles cleanup; it will see we are not in connectedAddrs
 		// and skip shared-state cleanup.
-		p.log.Trace().Uint64("existing_peer_id", actual.id).Msg("duplicate connection, closing")
+		p.log.Trace().Uint64("existing_peer_id", actual.ID()).Msg("duplicate connection, closing")
 		return
 	}
 
 	// Register in persistent peer list for reconnect/backoff tracking.
-	if p.Incoming {
+	if p.incoming {
 		if p.d.peerList.addOrUpdateIncoming(p.Address, time.Now().Unix(), p) {
 			// peerList already has a connection for this address.
 			// We need to back out; close() will clean up shared state
 			// because we are the primary in connectedAddrs.
-			p.close()
+			p.Close()
 			return
 		}
 	}
@@ -678,10 +678,10 @@ func (p *Peer) start(skipHandshake bool) {
 				p.log.Trace().Any("ext", event.ExtHandshake).Msg("receive extension handshake")
 
 				if event.ExtHandshake.V.Set {
-					p.UserAgent.Store(&event.ExtHandshake.V.Value)
+					p.userAgent.Store(&event.ExtHandshake.V.Value)
 				}
 				if event.ExtHandshake.QueueLength.Set {
-					p.QueueLimit.Store(event.ExtHandshake.QueueLength.Value)
+					p.queueLimit.Store(event.ExtHandshake.QueueLength.Value)
 				}
 
 				if event.ExtHandshake.Mapping.DontHave.Set {
@@ -806,7 +806,7 @@ func (p *Peer) start(skipHandshake bool) {
 	}
 }
 
-func (p *Peer) sendInitPayload() {
+func (p *peerImpl) sendInitPayload() {
 	bitmapCount := p.d.completedBm.Count()
 
 	var err error
@@ -820,7 +820,7 @@ func (p *Peer) sendInitPayload() {
 	}
 
 	if err != nil {
-		p.close()
+		p.Close()
 		return
 	}
 
@@ -839,13 +839,13 @@ func (p *Peer) sendInitPayload() {
 	}
 }
 
-func (p *Peer) sendEventX(e Event) {
+func (p *peerImpl) sendEventX(e Event) {
 	if p.sendEvent(e) != nil {
-		p.close()
+		p.Close()
 	}
 }
 
-func (p *Peer) sendEvent(e Event) error {
+func (p *peerImpl) sendEvent(e Event) error {
 	p.wm.Lock()
 	defer p.wm.Unlock()
 
@@ -861,7 +861,7 @@ func (p *Peer) sendEvent(e Event) error {
 	return p.w.Flush()
 }
 
-func (p *Peer) validateRequest(req proto.ChunkRequest) bool {
+func (p *peerImpl) validateRequest(req proto.ChunkRequest) bool {
 	if req.PieceIndex >= p.d.info.NumPieces {
 		return false
 	}
@@ -880,7 +880,7 @@ func (p *Peer) validateRequest(req proto.ChunkRequest) bool {
 	return req.Begin+req.Length <= pieceSize
 }
 
-func (p *Peer) resIsValid(res *proto.ChunkResponse) bool {
+func (p *peerImpl) resIsValid(res *proto.ChunkResponse) bool {
 	r := proto.ChunkRequest{
 		PieceIndex: res.PieceIndex,
 		Begin:      res.Begin,

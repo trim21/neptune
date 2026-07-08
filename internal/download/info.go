@@ -4,8 +4,6 @@
 package download
 
 import (
-	"github.com/samber/lo"
-
 	"neptune/internal/pkg/as"
 )
 
@@ -136,15 +134,15 @@ type PeerInfo struct {
 // PeerInfos returns a snapshot of all connected peers.
 func (d *Download) PeerInfos() []PeerInfo {
 	results := make([]PeerInfo, 0, d.peers.Size())
-	d.peers.Range(func(_ uint64, p *Peer) bool {
+	d.peers.Range(func(_ uint64, p Peer) bool {
 		results = append(results, PeerInfo{
-			Address:      p.Address.String(),
-			Client:       lo.FromPtrOr(p.UserAgent.Load(), ""),
-			Progress:     float64(p.Bitmap.Count()) / float64(d.info.NumPieces),
-			DownloadRate: p.pieceDownloadRate.Status().CurRate,
-			UploadRate:   p.pieceUploadRate.Status().CurRate,
-			IsIncoming:   p.Incoming,
-			Encrypted:    p.Encrypted,
+			Address:      p.Addr().String(),
+			Client:       p.UserAgent(),
+			Progress:     float64(p.PieceCount()) / float64(d.info.NumPieces),
+			DownloadRate: p.DownloadRate(),
+			UploadRate:   p.UploadRate(),
+			IsIncoming:   p.Incoming(),
+			Encrypted:    p.Encrypted(),
 		})
 		return true
 	})
