@@ -129,6 +129,7 @@ type Config struct {
 	PeerID          string
 	UploadedStart   int64
 	DownloadedStart int64
+	NumWant         int32
 	Port            uint16
 	Debug           bool
 }
@@ -154,6 +155,7 @@ type Trackers struct {
 	paused          atomic.Bool
 	downloadedStart int64
 	uploadedStart   int64
+	numWant         int32
 	mu              sync.RWMutex
 	port            uint16
 	debug           bool
@@ -179,6 +181,7 @@ func New(ctx context.Context, cfg Config) *Trackers {
 		downloadedStart: cfg.DownloadedStart,
 		completed:       cfg.Completed,
 		selectedSize:    cfg.SelectedSize,
+		numWant:         cfg.NumWant,
 
 		resumeCh: make(chan struct{}, 1),
 		queue:    make(chan AnnounceEvent, 1),
@@ -724,8 +727,11 @@ func (t *Trackers) announceReq(ctx context.Context, event AnnounceEvent) *resty.
 		SetQueryParam("compact", "1").
 		SetQueryParam("key", t.Key).
 		SetQueryParam("uploaded", strconv.FormatInt(t.uploaded.Load()-t.uploadedStart, 10)).
-		SetQueryParam("downloaded", strconv.FormatInt(t.downloaded.Load()-t.downloadedStart, 10)).
+		SetQueryParam("downloaded", strconv.FormatInt(t.completed.Load(), 10)).
 		SetQueryParam("left", strconv.FormatInt(t.selectedSize.Load()-t.completed.Load(), 10))
+	if t.numWant > 0 && event != EventStopped {
+		req.SetQueryParam("numwant", strconv.Itoa(int(t.numWant)))
+	}
 	if event != "" {
 		req.SetQueryParam("event", string(event))
 	}

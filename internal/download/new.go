@@ -144,6 +144,7 @@ func New(sess *session.Session, m *metainfo.MetaInfo, info meta.Info, basePath s
 		DownloadedStart: d.downloadAtStart,
 		Completed:       &d.completed,
 		SelectedSize:    &d.selectedSize,
+		NumWant:         200,
 		Debug:           sess.Debug,
 		PeersCh:         d.peersCh,
 	})
