@@ -346,6 +346,13 @@ func (d *Download) handlePieceFromHeap(index uint32) {
 	d.chunk.heap = *heap.FromSlice(filtered)
 
 	if doneCount == 0 {
+		// Sort pending chunks by Begin offset — they were collected from the
+		// heap backing array which is not fully sorted (only the root is guaranteed
+		// to be the minimum). Writing them out of order produces a corrupted piece.
+		slices.SortFunc(pendingChunks, func(a, b *proto.ChunkResponse) int {
+			return int(a.Begin) - int(b.Begin)
+		})
+
 		// Fast path: all chunks are pending, write the full piece at once.
 		buf := mempool.GetWithCap(int(d.info.PieceLen(index)))
 		defer mempool.Put(buf)
