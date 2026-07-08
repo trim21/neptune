@@ -33,6 +33,9 @@ type Application struct {
 	// downloaded. If any piece fails verification the torrent goes back to
 	// downloading to repair the corrupted blocks.
 	RecheckOnComplete bool `toml:"recheck-on-complete"`
+
+	// MaxRequestBodySize limits JSON-RPC request body size in bytes. 0 means no limit.
+	MaxRequestBodySize int64 `toml:"max-rpc-request-body-size"`
 }
 
 type Config struct {

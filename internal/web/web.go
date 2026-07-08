@@ -54,8 +54,9 @@ func New(c *client.Client, token string, enableDebug bool) http.Handler {
 	})
 
 	h := &jsonrpc.Handler{
-		OpenAPI:   &apiSchema,
-		Validator: v,
+		OpenAPI:     &apiSchema,
+		Validator:   v,
+		MaxBodySize: c.Config().App.MaxRequestBodySize,
 	}
 
 	r := chi.NewMux()

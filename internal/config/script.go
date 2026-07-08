@@ -20,7 +20,7 @@ import (
 // Moved from config.go to keep the public API clean.
 func LoadFromTOML(path string) (Config, error) {
 	var cfg = Config{
-		App: Application{MaxHTTPParallel: 100, GlobalConnectionLimit: 50},
+		App: Application{MaxHTTPParallel: 100, GlobalConnectionLimit: 500, MaxRequestBodySize: 50 << 20},
 	}
 
 	f, err := os.Open(path)
@@ -49,6 +49,7 @@ func LoadFromLua(path string) (Config, error) {
 		App: Application{
 			MaxHTTPParallel:       100,
 			GlobalConnectionLimit: 50,
+			MaxRequestBodySize:    50 << 20,
 		},
 	}
 
@@ -237,6 +238,17 @@ var configFields = map[string]configField{
 	"application.fallocate": {
 		setter: func(a *Application, v lua.LValue) error { a.Fallocate = lua.LVAsBool(v); return nil },
 		getter: func(a *Application) lua.LValue { return lua.LBool(a.Fallocate) },
+	},
+	"application.max-rpc-request-body-size": {
+		setter: func(a *Application, v lua.LValue) error {
+			n, err := toGoInt64(v)
+			if err != nil {
+				return err
+			}
+			a.MaxRequestBodySize = n
+			return nil
+		},
+		getter: func(a *Application) lua.LValue { return lua.LNumber(a.MaxRequestBodySize) },
 	},
 }
 

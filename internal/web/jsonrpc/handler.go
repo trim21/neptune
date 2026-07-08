@@ -7,7 +7,9 @@ package jsonrpc
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"reflect"
 
@@ -38,6 +40,9 @@ const ver = "2.0"
 type Handler struct {
 	OpenAPI   *OpenAPI
 	Validator *validator.Validate
+
+	// MaxBodySize limits the request body size in bytes. 0 means no limit.
+	MaxBodySize int64
 
 	methods     map[string]method
 	Middlewares []usecase.Middleware
@@ -169,9 +174,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		resp Response
 	)
 
-	if err := sonic.ConfigFastest.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.fail(w, fmt.Errorf("failed to unmarshal request: %w", err), CodeParseError)
+	data, err := readAllLimited(r.Body, h.MaxBodySize)
+	if err != nil {
+		if errors.Is(err, errBodyTooLarge) {
+			h.fail(w, err, CodeParseError)
+		} else {
+			h.fail(w, fmt.Errorf("failed to read request body: %w", err), CodeParseError)
+		}
+		return
+	}
 
+	if err := sonic.ConfigFastest.Unmarshal(data, &req); err != nil {
+		h.fail(w, fmt.Errorf("failed to unmarshal request: %w", err), CodeParseError)
 		return
 	}
 
@@ -331,4 +345,22 @@ func (h *Handler) fail(w http.ResponseWriter, err error, code ErrorCode) {
 
 		return
 	}
+}
+
+var errBodyTooLarge = fmt.Errorf("request body too large")
+
+func readAllLimited(r io.Reader, limit int64) ([]byte, error) {
+	if limit <= 0 {
+		return io.ReadAll(r)
+	}
+
+	buf := make([]byte, limit+1)
+	n, err := io.ReadFull(r, buf)
+	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) {
+		return nil, err
+	}
+	if int64(n) > limit {
+		return nil, errBodyTooLarge
+	}
+	return buf[:n], nil
 }
