@@ -91,6 +91,7 @@ func (d *Download) startBackground() {
 	// Connection + peer intake loop: handles incoming peers from all sources
 	// (tracker, PEX) and periodic connect / turnover.
 	d.goBackground(func() {
+		defer d.log.Info().Msg("main connection loop: exiting")
 		unchokeTicker := time.NewTicker(UnchokeInterval)
 		defer unchokeTicker.Stop()
 
@@ -106,6 +107,7 @@ func (d *Download) startBackground() {
 		for {
 			select {
 			case <-d.ctx.Done():
+				d.log.Info().Msg("main connection loop: exiting (ctx canceled)")
 				return
 
 			case <-unchokeTicker.C:

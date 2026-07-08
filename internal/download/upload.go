@@ -259,6 +259,7 @@ func (d *Download) onPeerInterested(p Peer) {
 // caches piece data to avoid redundant disk reads, and dispatches
 // to the upload pool for bounded concurrent processing.
 func (d *Download) backgroundReqHandler() {
+	defer d.log.Info().Msg("backgroundReqHandler: exiting")
 	var requestsByPiece = make(map[uint32][]uploadReq, 64)
 	var pieceOrder []struct {
 		index uint32
@@ -271,6 +272,7 @@ func (d *Download) backgroundReqHandler() {
 	for {
 		select {
 		case <-d.ctx.Done():
+			d.log.Info().Msg("backgroundReqHandler: exiting (ctx canceled)")
 			return
 		case <-d.scheduleResponseSignal:
 			if !d.HasState(Downloading | Seeding) {

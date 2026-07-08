@@ -28,9 +28,11 @@ const minRequestQueue = 2
 const maxRequestQueue = 2000
 
 func (d *Download) backgroundReqScheduler() {
+	defer d.log.Info().Msg("backgroundReqScheduler: exiting")
 	for {
 		select {
 		case <-d.ctx.Done():
+			d.log.Info().Msg("backgroundReqScheduler: exiting (ctx canceled)")
 			return
 		case <-d.scheduleRequestSignal:
 		}
@@ -80,10 +82,12 @@ const maxMergeBlocks = 10
 const maxChunkAge = 5 * time.Second
 
 func (d *Download) backgroundResHandler() {
+	defer d.log.Info().Msg("backgroundResHandler: exiting")
 	d.chunk.heap = heap.Heap[responseChunk]{}
 	for {
 		select {
 		case <-d.ctx.Done():
+			d.log.Info().Msg("backgroundResHandler: exiting (ctx canceled)")
 			return
 		case <-d.stateCond.C:
 			// State changed (e.g. pause). If we are no longer downloading,
@@ -111,9 +115,12 @@ func (d *Download) backgroundResHandler() {
 // Callers must ensure the handler goroutine is not concurrently
 // modifying the heap (i.e. state has transitioned away from Downloading).
 func (d *Download) drainHeap() {
+	heapLen := d.chunk.heap.Len()
+	d.log.Info().Int("chunks", heapLen).Msg("drainHeap: start flushing remaining chunks")
 	for d.chunk.heap.Len() > 0 {
 		d.flushContiguousFromHeap()
 	}
+	d.log.Info().Int("chunks", heapLen).Msg("drainHeap: done")
 }
 
 const defaultChunkHeapSizeLimit = 1000

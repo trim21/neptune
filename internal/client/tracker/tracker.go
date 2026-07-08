@@ -22,6 +22,7 @@ import (
 
 	"github.com/go-resty/resty/v2"
 	"github.com/puzpuzpuz/xsync/v4"
+	"github.com/rs/zerolog"
 	"github.com/samber/lo"
 	"github.com/trim21/errgo"
 	"github.com/trim21/go-bencode"
@@ -119,6 +120,7 @@ type TrackerTier struct {
 // Config holds the static configuration for Trackers.
 type Config struct {
 	HTTP            *resty.Client
+	Log             zerolog.Logger
 	Uploaded        *atomic.Int64
 	Downloaded      *atomic.Int64
 	Completed       *atomic.Int64
@@ -137,6 +139,7 @@ type Config struct {
 // Trackers manages announce trackers and the background announce loop.
 type Trackers struct {
 	ctx             context.Context
+	log             zerolog.Logger
 	http            *resty.Client
 	Seeds           *xsync.Map[string, int]
 	Leechers        *xsync.Map[string, int]
@@ -165,6 +168,7 @@ type Trackers struct {
 func New(ctx context.Context, cfg Config) *Trackers {
 	return &Trackers{
 		ctx:      ctx,
+		log:      cfg.Log,
 		Errors:   xsync.NewMap[string, string](),
 		Seeds:    xsync.NewMap[string, int](),
 		Leechers: xsync.NewMap[string, int](),
@@ -488,6 +492,8 @@ func (t *Trackers) announceToAll(event AnnounceEvent) {
 }
 
 func (t *Trackers) loop() {
+	defer t.log.Info().Msg("tracker loop: exiting")
+
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
 

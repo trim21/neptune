@@ -366,6 +366,8 @@ func (c *Client) Reannounce(h metainfo.Hash) error {
 }
 
 func (c *Client) RemoveTorrent(h metainfo.Hash, removeData bool) error {
+	log.Info().Stringer("hash", h).Bool("remove_data", removeData).Msg("torrent.remove: start")
+
 	c.m.Lock()
 
 	d, ok := c.downloadMap[h]
@@ -378,17 +380,24 @@ func (c *Client) RemoveTorrent(h metainfo.Hash, removeData bool) error {
 	c.downloads = gslice.Remove(c.downloads, d)
 	c.m.Unlock()
 
+	log.Info().Stringer("hash", h).Msg("torrent.remove: saving resume")
 	d.SaveResume()
+	log.Info().Stringer("hash", h).Msg("torrent.remove: resume saved, canceling context")
 	d.Cancel()
+	log.Info().Stringer("hash", h).Msg("torrent.remove: context canceled, waiting for background goroutines")
 	d.BackgroundWgWait()
+	log.Info().Stringer("hash", h).Msg("torrent.remove: background goroutines finished, closing peers")
 	d.CloseAllPeers()
+	log.Info().Stringer("hash", h).Msg("torrent.remove: all peers closed, removing files")
 
 	dir, file := d.ResumeFilePath()
 
 	err := os.Remove(file)
+	log.Info().Msg("torrent.remove: download.PruneEmptyDirectories(dir)")
 	err = multierr.Append(err, download.PruneEmptyDirectories(dir))
 	if removeData {
 		basePath := d.BasePath()
+		log.Info().Stringer("hash", h).Str("base_path", basePath).Msg("torrent.remove: deleting data files")
 		for _, f := range d.DataFiles() {
 			e := os.Remove(filepath.Join(basePath, f))
 			if os.IsNotExist(e) {
@@ -401,6 +410,12 @@ func (c *Client) RemoveTorrent(h metainfo.Hash, removeData bool) error {
 		if err != nil {
 			err = multierr.Append(err, download.PruneEmptyDirectories(basePath))
 		}
+	}
+
+	if err != nil {
+		log.Warn().Stringer("hash", h).Err(err).Msg("torrent.remove: finished with errors")
+	} else {
+		log.Info().Stringer("hash", h).Msg("torrent.remove: done")
 	}
 
 	return err
