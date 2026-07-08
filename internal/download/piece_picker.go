@@ -4,7 +4,6 @@
 package download
 
 import (
-	"math"
 	"math/rand/v2"
 	"slices"
 	"sort"
@@ -483,40 +482,29 @@ func (pp *piecePicker) pickPieces(
 		pp.pickBlocksFromPiece(pi, info, &numBlocks, &result)
 	}
 
-	// Phase 3: rarest-first via greedy scan — pick the best piece each iteration.
-	// Avoids sorting openPieces and calling rebuildPriorities per peer.
-	for numBlocks > 0 {
-		bestPiece := uint32(math.MaxUint32)
-		bestPriority := uint32(0)
+	// Phase 3: rarest-first via cursor scan — single pass over pre-sorted pieces.
+	// pp.pieces is already sorted by priority descending (rebuildPriorities),
+	// so a single cursor walk finds the next eligible piece in O(n) total.
+	for cursor := 0; numBlocks > 0 && cursor < len(pp.pieces); cursor++ {
+		pi := pp.pieces[cursor]
 
-		for _, pi := range pp.pieces {
-			if pp.completedBm.Contains(pi) || pp.allBlocksResponded(pi, info) {
-				continue
-			}
-			if !bitfield.Contains(pi) {
-				continue
-			}
-			if choked && !allowedFast.Contains(pi) {
-				continue
-			}
-			if pp.isAlreadyPicked(pi, &result) {
-				continue
-			}
-			if pp.findDownloadingPiece(pi) != nil {
-				continue
-			}
-			pri := pp.piecePriorities[pi]
-			if pri > bestPriority || (pri == bestPriority && pi < bestPiece) {
-				bestPriority = pri
-				bestPiece = pi
-			}
+		if pp.completedBm.Contains(pi) || pp.allBlocksResponded(pi, info) {
+			continue
+		}
+		if !bitfield.Contains(pi) {
+			continue
+		}
+		if choked && !allowedFast.Contains(pi) {
+			continue
+		}
+		if pp.isAlreadyPicked(pi, &result) {
+			continue
+		}
+		if pp.findDownloadingPiece(pi) != nil {
+			continue
 		}
 
-		if bestPiece == math.MaxUint32 {
-			break
-		}
-
-		pp.pickBlocksFromPiece(bestPiece, info, &numBlocks, &result)
+		pp.pickBlocksFromPiece(pi, info, &numBlocks, &result)
 	}
 	return result
 }
