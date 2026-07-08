@@ -260,11 +260,13 @@ def neptune(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Callable[[], N
 @pytest.fixture(scope="session")
 def qb_client() -> Iterator[httpx.Client]:
     """Authenticated qBittorrent Web API client."""
+    import subprocess
+
     client = httpx.Client(base_url=QB_WEBUI, timeout=30)
 
-        # Wait for QB to be ready.
-        deadline = time.monotonic() + 90
-        while time.monotonic() < deadline:
+    # Wait for QB to be ready.
+    deadline = time.monotonic() + 90
+    while time.monotonic() < deadline:
         try:
             resp = client.get("/api/v2/app/version")
             if resp.status_code == 200:
@@ -275,10 +277,20 @@ def qb_client() -> Iterator[httpx.Client]:
     else:
         pytest.fail("qBittorrent not ready")
 
-    # Login.
+    # Detect password from Docker logs (linuxserver image generates random pw).
+    result = subprocess.run(
+        ["docker", "logs", "neptune-e2e-qb"],
+        capture_output=True, text=True,
+    )
+    password = QB_PASSWORD
+    for line in reversed(result.stderr.split("\n") + result.stdout.split("\n")):
+        if "temporary password" in line.lower():
+            password = line.strip().split()[-1]
+            break
+
     resp = client.post(
         "/api/v2/auth/login",
-        data={"username": QB_USERNAME, "password": QB_PASSWORD},
+        data={"username": QB_USERNAME, "password": password},
     )
     if resp.status_code != 200:
         pytest.fail(f"QB login failed: {resp.status_code}")
