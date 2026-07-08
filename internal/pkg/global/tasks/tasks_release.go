@@ -6,5 +6,15 @@
 package tasks
 
 func Submit(task func()) {
-	_ = pool.Submit(task)
+	_ = ioPool.Submit(task)
+}
+
+// SubmitNet submits a network I/O task: connection handshake, HAVE broadcasts, etc.
+func SubmitNet(task func()) {
+	_ = netPool.Submit(task)
+}
+
+// SubmitIO submits a file I/O task: piece verification, disk reads/writes.
+func SubmitIO(task func()) {
+	_ = ioPool.Submit(task)
 }

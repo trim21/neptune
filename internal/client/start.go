@@ -176,7 +176,7 @@ func (c *Client) handleConn() {
 		case <-c.session.Ctx.Done():
 			return
 		case conn := <-c.connChan:
-			tasks.Submit(func() {
+			tasks.SubmitNet(func() {
 				h, err := proto.ReadHandshake(conn.conn)
 				if err != nil {
 					c.session.ConnSem.Release(1)

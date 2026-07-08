@@ -8,4 +8,8 @@ import (
 	"github.com/samber/lo"
 )
 
-var pool = lo.Must(ants.NewPool(20, ants.WithPreAlloc(true)))
+// ioPool handles file I/O tasks: piece verification, disk reads/writes.
+var ioPool = lo.Must(ants.NewPool(64, ants.WithPreAlloc(true)))
+
+// netPool handles network I/O tasks: connection handshake, HAVE broadcasts.
+var netPool = lo.Must(ants.NewPool(200, ants.WithPreAlloc(true)))

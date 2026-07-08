@@ -57,7 +57,7 @@ func (d *Download) backgroundReqScheduler() {
 }
 
 func (d *Download) have(index uint32) {
-	tasks.Submit(func() {
+	tasks.SubmitNet(func() {
 		d.peers.Range(func(_ uint64, p Peer) bool {
 			p.Have(index)
 			return true
@@ -266,7 +266,7 @@ func (d *Download) flushContiguousFromHeap() {
 	}
 
 	for _, pieceIndex := range completedPieces {
-		tasks.Submit(func() {
+		tasks.SubmitIO(func() {
 			err := d.checkPiece(pieceIndex)
 			if err != nil {
 				d.setError(err)
@@ -397,7 +397,7 @@ func (d *Download) handlePieceFromHeap(index uint32) {
 		}
 	}
 
-	tasks.Submit(func() {
+	tasks.SubmitIO(func() {
 		err := d.checkPiece(index)
 		if err != nil {
 			d.setError(err)

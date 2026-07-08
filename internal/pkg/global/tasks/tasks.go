@@ -8,3 +8,11 @@ package tasks
 func Submit(task func()) {
 	go task()
 }
+
+func SubmitNet(task func()) {
+	go task()
+}
+
+func SubmitIO(task func()) {
+	go task()
+}
