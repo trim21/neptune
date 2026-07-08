@@ -1,37 +1,32 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-bs-theme="dark">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>neptune – {{.Name}}</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 <style>
-  body { font-family: ui-monospace, monospace; font-size: 13px; line-height: 1.4;
-         background: #1a1a2e; color: #e0e0e0; margin: 16px; }
-  h2 { font-size: 16px; margin: 24px 0 8px; color: #f0f0f0; }
-  table { border-collapse: collapse; margin: 8px 0; width: 100%; }
-  th, td { padding: 3px 8px; text-align: left; white-space: nowrap; }
-  th { background: #16213e; color: #a0c4ff; font-weight: 600; position: sticky; top: 0; }
-  td { border-bottom: 1px solid #2a2a4a; }
-  tr:hover td { background: #16213e22; }
-  .stats { display: flex; gap: 32px; flex-wrap: wrap; margin: 8px 0; }
-  .stat { min-width: 140px; }
-  .stat .label { color: #888; font-size: 11px; }
-  .stat .value { color: #f0f0f0; font-size: 15px; }
-  button { margin: 8px 0; padding: 6px 16px; cursor: pointer; background: #0f3460;
-           color: #e0e0e0; border: 1px solid #16578a; border-radius: 4px; font-size: 13px; }
-  button:hover { background: #16578a; }
-  a { color: #a0c4ff; }
-  .err { color: #ff6b6b; }
+  body { font-family: ui-monospace, "Cascadia Code", "Source Code Pro", monospace; font-size: 13px; }
+  h2 { font-size: 16px; margin-top: 28px; }
+  h3 { font-size: 14px; margin-top: 20px; }
+  .table { font-size: 12px; margin-bottom: 0; }
+  .table td, .table th { padding: 2px 6px; vertical-align: middle; }
   .num { text-align: right; }
-  pre { margin: 0; white-space: pre-wrap; word-break: break-all; }
+  .err { color: #ff6b6b; }
+  pre { margin: 0; white-space: pre-wrap; word-break: break-all; color: #adb5bd; font-size: 12px; }
+  .stat-value { font-size: 18px; font-weight: 600; }
+  .stat-label { font-size: 10px; color: #6c757d; text-transform: uppercase; }
+  .footer { color: #495057; font-size: 11px; margin-top: 40px; }
 </style>
 </head>
-<body>
+<body class="p-3">
 
-<h2>{{.Name}}</h2>
+<h2 class="mb-1">{{.Name}}</h2>
+<small class="text-secondary font-monospace">{{.InfoHash}}</small>
 
-<form method="post" onsubmit="reannounce(event)">
-  <button type="submit">Reannounce</button>
-  <span id="reannounce-status"></span>
+<form method="post" onsubmit="reannounce(event)" class="my-2">
+  <button type="submit" class="btn btn-outline-light btn-sm">Reannounce</button>
+  <span id="reannounce-status" class="ms-2 small"></span>
 </form>
 
 <script>
@@ -56,34 +51,41 @@ async function reannounce(e) {
 }
 </script>
 
-<div class="stats">
-  <div class="stat"><div class="label">Download</div><div class="value">{{.DownloadRate}}</div></div>
-  <div class="stat"><div class="label">Upload</div><div class="value">{{.UploadRate}}</div></div>
-  <div class="stat"><div class="label">Progress</div><div class="value">{{.Progress}}</div></div>
-  <div class="stat"><div class="label">Total Size</div><div class="value">{{.TotalSize}}</div></div>
-  <div class="stat"><div class="label">Selected Size</div><div class="value">{{.SelectedSize}}</div></div>
-  <div class="stat"><div class="label">Completed</div><div class="value">{{.Completed}}</div></div>
-  <div class="stat"><div class="label">Downloaded</div><div class="value">{{.Downloaded}}</div></div>
-  <div class="stat"><div class="label">Waste</div><div class="value">{{.Waste}}</div></div>
-  <div class="stat"><div class="label">Corrupted</div><div class="value">{{.Corrupted}}</div></div>
+<div class="row row-cols-2 row-cols-md-3 row-cols-lg-5 g-2 mb-4">
+  <div class="col"><div class="stat-label">Download</div><div class="stat-value">{{.DownloadRate}}</div></div>
+  <div class="col"><div class="stat-label">Net Rate</div><div class="stat-value">{{.NetRate}}</div></div>
+  <div class="col"><div class="stat-label">Upload</div><div class="stat-value">{{.UploadRate}}</div></div>
+  <div class="col"><div class="stat-label">Progress</div><div class="stat-value">{{.Progress}}</div></div>
+  <div class="col"><div class="stat-label">Total Size</div><div class="stat-value">{{.TotalSize}}</div></div>
+  <div class="col"><div class="stat-label">Selected Size</div><div class="stat-value">{{.SelectedSize}}</div></div>
+  <div class="col"><div class="stat-label">Completed</div><div class="stat-value">{{.Completed}}</div></div>
+  <div class="col"><div class="stat-label">Downloaded</div><div class="stat-value">{{.Downloaded}}</div></div>
+  <div class="col"><div class="stat-label">Waste</div><div class="stat-value">{{.Waste}}</div></div>
+  <div class="col"><div class="stat-label">Corrupted</div><div class="stat-value text-danger">{{.Corrupted}}</div></div>
 </div>
 
 {{if .FailingPieces}}
 <h2>Failing Pieces</h2>
-<table>
-<tr><th>Piece</th><th class="num">Failures</th><th class="num">Busy Blocks</th></tr>
+<div class="table-responsive">
+<table class="table table-sm table-dark table-striped">
+<thead><tr><th>Piece</th><th class="num">Failures</th><th class="num">Busy Blocks</th></tr></thead>
+<tbody>
 {{range .FailingPieces}}<tr><td class="num">{{.Index}}</td><td class="num">{{.Count}}</td><td class="num">{{.BlockedBy}}</td></tr>
-{{end}}</table>
+{{end}}</tbody>
+</table>
+</div>
 {{end}}
 
 <h2>Trackers</h2>
-<table>
-<tr><th>Tier</th><th>URL</th><th class="num">Seeders</th><th class="num">Leechers</th>
+<div class="table-responsive">
+<table class="table table-sm table-dark table-striped">
+<thead><tr><th>Tier</th><th>URL</th><th class="num">Seed</th><th class="num">Leech</th>
     <th>Last Announce</th><th>Scheduled</th><th>Earliest</th>
-    <th class="num">Pending</th><th>Message</th><th>Error</th></tr>
+    <th class="num">Pend</th><th>Message</th><th>Error</th></tr></thead>
+<tbody>
 {{range .Trackers}}<tr>
   <td class="num">{{.Tier}}</td>
-  <td>{{.URL}}</td>
+  <td class="text-break">{{.URL}}</td>
   <td class="num">{{.Seeders}}</td>
   <td class="num">{{.Leechers}}</td>
   <td>{{.LastAnnounce}}</td>
@@ -93,14 +95,21 @@ async function reannounce(e) {
   <td>{{.Message}}</td>
   <td class="err">{{.Error}}</td>
 </tr>
-{{end}}</table>
+{{end}}</tbody>
+</table>
+</div>
 
 <h2>Peers</h2>
-<table>
-<tr><th>Address</th><th>Dir</th><th>Enc</th><th>Down Rate</th><th>Up Rate</th><th class="num">Our Req</th><th class="num">Req Q</th><th class="num">DesiredQ</th>
-    <th>Client</th><th class="num">Progress</th>
-    <th>Snubbed</th><th>Peer Choke</th><th>Peer Interest</th><th>Our Choke</th><th>Our Interest</th>
-    <th>Fast</th><th class="num">Peer Req</th><th>Last Pick</th><th>Peer ID</th></tr>
+<div class="table-responsive">
+<table class="table table-sm table-dark table-striped">
+<thead><tr>
+  <th>Address</th><th>Dir</th><th>Enc</th><th>Down Rate</th><th>Up Rate</th>
+  <th class="num">OReq</th><th class="num">ReqQ</th><th class="num">DesQ</th>
+  <th>Client</th><th class="num">Prog</th>
+  <th>Snub</th><th>PChk</th><th>PInt</th><th>OChk</th><th>OInt</th>
+  <th>Fast</th><th class="num">PReq</th><th>Last Pick</th><th>Peer ID</th>
+</tr></thead>
+<tbody>
 {{range .Peers}}<tr>
   <td>{{.Address}}</td>
   <td>{{.Direction}}</td>
@@ -110,7 +119,7 @@ async function reannounce(e) {
   <td class="num">{{.OurReq}}</td>
   <td class="num">{{.ReqQ}}</td>
   <td class="num">{{.DesiredQ}}</td>
-  <td>{{.Client}}</td>
+  <td class="text-break">{{.Client}}</td>
   <td class="num">{{.Progress}}</td>
   <td>{{.Snubbed}}</td>
   <td>{{.PeerChoke}}</td>
@@ -122,15 +131,19 @@ async function reannounce(e) {
   <td>{{.LastPick}}</td>
   <td>{{.PeerID}}</td>
 </tr>
-{{end}}</table>
+{{end}}</tbody>
+</table>
+</div>
 
 <h2>Picker</h2>
-<pre>{{.PickerText}}</pre>
+<pre class="bg-body-tertiary p-2 rounded">{{.PickerText}}</pre>
 
 {{if .DownloadingPieces}}
 <h3>Downloading Pieces (top {{len .DownloadingPieces}})</h3>
-<table>
-<tr><th class="num">Piece</th><th class="num">Blocks</th><th class="num">Free</th><th class="num">Req</th><th class="num">Responded</th><th>Hash</th><th>Locked</th></tr>
+<div class="table-responsive">
+<table class="table table-sm table-dark table-striped">
+<thead><tr><th class="num">Piece</th><th class="num">Blocks</th><th class="num">Free</th><th class="num">Req</th><th class="num">Resp</th><th>Hash</th><th>Locked</th></tr></thead>
+<tbody>
 {{range .DownloadingPieces}}<tr>
   <td class="num">{{.Index}}</td>
   <td class="num">{{.Blocks}}</td>
@@ -140,31 +153,44 @@ async function reannounce(e) {
   <td>{{.HashPassed}}</td>
   <td>{{.Locked}}</td>
 </tr>
-{{end}}</table>
+{{end}}</tbody>
+</table>
+</div>
 {{end}}
 
 {{if .FullMode}}
 <h2>Files</h2>
-<table>
-<tr><th class="num">#</th><th class="num">Size</th><th class="num">Progress</th><th>Selected</th><th>Path</th></tr>
+<div class="table-responsive">
+<table class="table table-sm table-dark table-striped">
+<thead><tr><th class="num">#</th><th class="num">Size</th><th class="num">Progress</th><th>Sel</th><th>Path</th></tr></thead>
+<tbody>
 {{range .Files}}<tr>
   <td class="num">{{.Index}}</td><td class="num">{{.Size}}</td><td class="num">{{.Progress}}</td>
-  <td>{{.Selected}}</td><td>{{.Path}}</td>
+  <td>{{.Selected}}</td><td class="text-break">{{.Path}}</td>
 </tr>
-{{end}}</table>
+{{end}}</tbody>
+</table>
+</div>
 
-{{range .PieceRanges}}<pre>{{.Text}}</pre>
+{{range .PieceRanges}}<pre class="bg-body-tertiary p-2 rounded mt-2">{{.Text}}</pre>
 {{end}}
 {{end}}
 
 {{if .PendingPeers}}
 <h2>Pending Peers</h2>
-<table>
-<tr><th>Address</th><th class="num">FailCount</th><th>Last Seen</th><th>Last Error</th><th>HadTrans</th><th>Connectable</th></tr>
-{{range .PendingPeers}}<tr><td>{{.Address}}</td><td class="num">{{.Failcount}}</td><td>{{.LastSeen}}</td><td>{{.LastError}}</td><td>{{.HadTrans}}</td><td>{{.Connectable}}</td></tr>
-{{end}}</table>
+<div class="table-responsive">
+<table class="table table-sm table-dark table-striped">
+<thead><tr><th>Address</th><th class="num">Fail</th><th>Last Seen</th><th>Last Error</th><th>HadTrans</th><th>Conn</th></tr></thead>
+<tbody>
+{{range .PendingPeers}}<tr>
+  <td>{{.Address}}</td><td class="num">{{.Failcount}}</td><td>{{.LastSeen}}</td>
+  <td class="text-break">{{.LastError}}</td><td>{{.HadTrans}}</td><td>{{.Connectable}}</td>
+</tr>
+{{end}}</tbody>
+</table>
+</div>
 {{end}}
 
-<p style="color:#555;font-size:11px;margin-top:32px">neptune debug</p>
+<p class="footer">neptune debug</p>
 </body>
 </html>
