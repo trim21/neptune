@@ -8,6 +8,7 @@ package download
 import (
 	"context"
 	"crypto/sha1"
+	"net/netip"
 	"slices"
 	"sync"
 	"testing"
@@ -16,6 +17,7 @@ import (
 	"github.com/kelindar/bitmap"
 	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/rs/zerolog"
+	"golang.org/x/sync/semaphore"
 
 	"neptune/internal/client/tracker"
 	"neptune/internal/meta"
@@ -79,12 +81,14 @@ func newTestEnv(t *testing.T, numPieces, blocksPerPiece uint32, failPieces []uin
 	}
 
 	d := &Download{
-		ctx:     ctx,
-		info:    info,
-		cancel:  cancel,
-		log:     zerolog.New(zerolog.Nop()),
-		store:   store,
-		session: &session.Session{},
+		ctx:    ctx,
+		info:   info,
+		cancel: cancel,
+		log:    zerolog.New(zerolog.Nop()),
+		store:  store,
+		session: &session.Session{
+			ConnSem: semaphore.NewWeighted(200),
+		},
 		chunk: chunkState{
 			done: make(bitmap.Bitmap, (int64(info.NumPieces)*(normalChunkLen)+63)/64),
 			mu:   sync.RWMutex{},
@@ -96,6 +100,7 @@ func newTestEnv(t *testing.T, numPieces, blocksPerPiece uint32, failPieces []uin
 		downloadLimiter:       ratelimit.New(0),
 		normalChunkLen:        uint32(normalChunkLen),
 		peers:                 xsync.NewMap[uint64, Peer](),
+		connectedAddrs:        xsync.NewMap[netip.AddrPort, Peer](),
 		stateCond:             stateCond,
 		private:               false,
 		corruptedPieces:       make(map[uint32]int),
@@ -108,6 +113,7 @@ func newTestEnv(t *testing.T, numPieces, blocksPerPiece uint32, failPieces []uin
 
 	d.completedBm = completedBm
 	d.wantedBm = wantedBm
+	d.peerList = newPeerList(d)
 	d.picker.Store(newPiecePicker(info, completedBm, wantedBm))
 	d.state.Store(uint32(Downloading))
 

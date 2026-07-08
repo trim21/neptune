@@ -11,6 +11,7 @@ import (
 
 	"go.uber.org/atomic"
 
+	"neptune/internal/meta"
 	"neptune/internal/pkg/bm"
 	"neptune/internal/pkg/empty"
 	"neptune/internal/pkg/flowrate"
@@ -21,33 +22,35 @@ import (
 // Default values produce a sane, usable peer (not closed, not choking, empty bitmap).
 type mockPeer struct {
 	closeErr        error
-	preferred       *atomic.Bool
-	closed          *atomic.Bool
+	ourInterested   *atomic.Bool
+	peerChoking     *atomic.Bool
 	disconnecting   *atomic.Bool
 	isSeed          *atomic.Bool
 	snubbed         *atomic.Bool
 	peerInterested  *atomic.Bool
 	ourChoking      *atomic.Bool
-	ourInterested   *atomic.Bool
-	inQueueMap      map[proto.ChunkRequest]bool
-	peerChoking     *atomic.Bool
+	preferred       *atomic.Bool
+	closed          *atomic.Bool
 	fastBitmap      *bm.Bitmap
+	inQueueMap      map[proto.ChunkRequest]bool
 	bitmap          *bm.Bitmap
 	lastUnchokeAt   *atomic.Time
 	peerRequests    map[proto.ChunkRequest]empty.Empty
 	responseFunc    func(res *proto.ChunkResponse) bool
+	resChan         chan *proto.ChunkResponse
 	addr            netip.AddrPort
-	userAgent       string
 	peerIDString    string
+	userAgent       string
 	lastPickDebug   string
 	lastPickRes     pickResult
 	queued          []pieceBlock
 	enqueuedBlocks  []pieceBlock
 	requestsSent    []proto.ChunkRequest
+	info            meta.Info
 	downloadRate    flowrate.Monitor
 	uploadRate      flowrate.Monitor
-	downloadTotal   int64
 	peerID          uint64
+	downloadTotal   int64
 	sendBlockCalled int
 	desiredSize     int32
 	outstanding     int32
@@ -114,8 +117,10 @@ func (m *mockPeer) Incoming() bool       { return m.incoming }
 // ── Lifecycle ────────────────────────────────────────────────────────
 
 func (m *mockPeer) Close() {
+	if m.closed.Swap(true) {
+		return // already closed
+	}
 	m.closedCalled = true
-	m.closed.Store(true)
 }
 func (m *mockPeer) Closed() bool          { return m.closed.Load() }
 func (m *mockPeer) IsDisconnecting() bool { return m.disconnecting.Load() }
@@ -161,7 +166,14 @@ func (m *mockPeer) UpdateUploadRate(bytes int)   { m.uploadRate.Update(bytes) }
 
 // ── Request queue (download side) ───────────────────────────────────
 
-func (m *mockPeer) OutstandingRequests() int { return int(m.outstanding) }
+func (m *mockPeer) OutstandingRequests() int {
+	if m.resChan != nil {
+		// Async mode: we can't track in-flight requests since responses
+		// arrive through resChan. Let desiredSize throttle the queue.
+		return 0
+	}
+	return int(m.outstanding)
+}
 func (m *mockPeer) QueueLen() int {
 	return len(m.queued)
 }
@@ -174,14 +186,24 @@ func (m *mockPeer) EnqueueBlock(pieceIndex uint32, blockIndex int) {
 }
 func (m *mockPeer) SendBlockRequests() {
 	m.sendBlockCalled++
-	for range m.queued {
-		m.atomicSetInt32(&m.outstanding, m.outstanding+1)
+	for _, b := range m.queued {
+		m.Request(pieceChunk(m.info, b.pieceIndex, b.blockIndex))
 	}
 	m.queued = m.queued[:0]
 }
 func (m *mockPeer) Request(chunk proto.ChunkRequest) {
 	m.requestsSent = append(m.requestsSent, chunk)
 	m.atomicSetInt32(&m.outstanding, m.outstanding+1)
+	// Async delivery via resChan.
+	if m.resChan != nil {
+		go func() {
+			m.resChan <- &proto.ChunkResponse{
+				PieceIndex: chunk.PieceIndex,
+				Begin:      chunk.Begin,
+				Data:       make([]byte, chunk.Length),
+			}
+		}()
+	}
 }
 func (m *mockPeer) DesiredQueueSize() int { return int(m.desiredSize) }
 

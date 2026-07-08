@@ -88,6 +88,21 @@ jobs:
     steps:
       - run: echo success
 
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - uses: trim21/actions/setup-go@master
+        with:
+          cache-namespace: fuzz
+
+      - name: Fuzz download multi-peer async
+        run: go test -fuzz=FuzzDownloadMultiPeer_Async -fuzztime=30s ./internal/download/
+
+      - name: Fuzz handleRes
+        run: go test -fuzz=FuzzHandleRes -fuzztime=30s ./internal/download/
+
   license:
     runs-on: ubuntu-latest
     steps:

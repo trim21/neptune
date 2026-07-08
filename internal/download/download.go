@@ -295,16 +295,25 @@ func (d *Download) mergeLimit() uint32 {
 //   - some chunks were already flushed by flushContiguousFromHeap: writes only
 //     the pending chunks at their respective offsets, then verifies the piece.
 func (d *Download) handlePieceFromHeap(index uint32) {
-	pendingChunks := heap.New[responseChunk]()
+	// Collect unique chunks for this piece from the heap.
+	// In endgame mode duplicate chunks may arrive; dedup by pi.
+	piecePiStart := index * d.normalChunkLen
+	piecePiEnd := piecePiStart + uint32(d.info.PieceBlockCount(index))
+
+	var pendingChunks []*proto.ChunkResponse
+	seen := make([]bool, piecePiEnd-piecePiStart)
+
 	for _, chunk := range d.chunk.heap.Data {
 		if chunk.res.PieceIndex == index {
-			pendingChunks.Push(chunk)
+			rel := chunk.pi - piecePiStart
+			if !seen[rel] {
+				seen[rel] = true
+				pendingChunks = append(pendingChunks, chunk.res)
+			}
 		}
 	}
 
 	// Count already-done chunks for this piece.
-	piecePiStart := index * d.normalChunkLen
-	piecePiEnd := piecePiStart + uint32(d.info.PieceBlockCount(index))
 	d.chunk.mu.RLock()
 	doneCount := 0
 	for i := piecePiStart; i < piecePiEnd; i++ {
@@ -315,18 +324,17 @@ func (d *Download) handlePieceFromHeap(index uint32) {
 	d.chunk.mu.RUnlock()
 
 	totalNeeded := d.info.PieceBlockCount(index)
-	if pendingChunks.Len()+doneCount != totalNeeded {
+	if len(pendingChunks)+doneCount != totalNeeded {
 		return
 	}
 
 	// No pending chunks — everything already flushed.
-	if pendingChunks.Len() == 0 {
+	if len(pendingChunks) == 0 {
 		return
 	}
 
 	// Remove all chunks belonging to the completed piece from the heap.
 	// In-place filter: keep only chunks with a different piece index.
-	// Single O(n) pass, avoids the O(k*n) cost of repeated slice removals.
 	filtered := d.chunk.heap.Data[:0]
 	for _, chunk := range d.chunk.heap.Data {
 		if chunk.res.PieceIndex != index {
@@ -343,14 +351,14 @@ func (d *Download) handlePieceFromHeap(index uint32) {
 		defer mempool.Put(buf)
 		buf.Reset()
 
-		for pendingChunks.Len() != 0 {
-			chunk := pendingChunks.Pop()
-			buf.Write(chunk.res.Data)
+		for _, res := range pendingChunks {
+			buf.Write(res.Data)
+			pi := res.Begin/defaultBlockSize + index*d.normalChunkLen
 			d.chunk.mu.Lock()
-			d.chunk.done.Set(chunk.pi)
-			d.chunk.pending.Remove(chunk.pi)
+			d.chunk.done.Set(pi)
+			d.chunk.pending.Remove(pi)
 			d.chunk.mu.Unlock()
-			proto.PiecePool.Put(chunk.res)
+			proto.PiecePool.Put(res)
 		}
 
 		err := d.store.WriteChunk(index, 0, buf.B)
@@ -360,17 +368,17 @@ func (d *Download) handlePieceFromHeap(index uint32) {
 	} else {
 		// Mixed case: some chunks were already flushed by flushContiguousFromHeap.
 		// Write each pending chunk at its correct offset.
-		for pendingChunks.Len() != 0 {
-			chunk := pendingChunks.Pop()
-			err := d.store.WriteChunk(index, chunk.res.Begin, chunk.res.Data)
+		for _, res := range pendingChunks {
+			err := d.store.WriteChunk(index, res.Begin, res.Data)
 			if err != nil {
 				return
 			}
+			pi := res.Begin/defaultBlockSize + index*d.normalChunkLen
 			d.chunk.mu.Lock()
-			d.chunk.done.Set(chunk.pi)
-			d.chunk.pending.Remove(chunk.pi)
+			d.chunk.done.Set(pi)
+			d.chunk.pending.Remove(pi)
 			d.chunk.mu.Unlock()
-			proto.PiecePool.Put(chunk.res)
+			proto.PiecePool.Put(res)
 		}
 	}
 

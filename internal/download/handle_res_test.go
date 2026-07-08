@@ -9,6 +9,7 @@ import (
 	"context"
 	"crypto/sha1"
 	"fmt"
+	"net/netip"
 	"slices"
 	"strings"
 	"sync"
@@ -18,6 +19,7 @@ import (
 	"github.com/kelindar/bitmap"
 	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/rs/zerolog"
+	"golang.org/x/sync/semaphore"
 
 	"neptune/internal/client/tracker"
 	"neptune/internal/meta"
@@ -66,6 +68,7 @@ func newTestDownload(t testing.TB, numPieces uint32, blocksPerPiece uint32, newS
 	d := &Download{
 		ctx: ctx,
 		session: &session.Session{
+			ConnSem:           semaphore.NewWeighted(200),
 			DownloadLimiter:   ratelimit.New(0),
 			UploadLimiter:     ratelimit.New(0),
 			PieceDownloadRate: flowrate.New(time.Second, 5*time.Second),
@@ -86,6 +89,7 @@ func newTestDownload(t testing.TB, numPieces uint32, blocksPerPiece uint32, newS
 		uploadLimiter:         ratelimit.New(0),
 		downloadLimiter:       ratelimit.New(0),
 		peers:                 xsync.NewMap[uint64, Peer](),
+		connectedAddrs:        xsync.NewMap[netip.AddrPort, Peer](),
 		stateCond:             stateCond,
 		private:               false,
 		corruptedPieces:       make(map[uint32]int),
@@ -96,6 +100,7 @@ func newTestDownload(t testing.TB, numPieces uint32, blocksPerPiece uint32, newS
 	wantedBm.Fill()
 	d.completedBm = completedBm
 	d.wantedBm = wantedBm
+	d.peerList = newPeerList(d)
 	d.picker.Store(newPiecePicker(info, completedBm, wantedBm))
 	d.state.Store(uint32(Downloading))
 	return d

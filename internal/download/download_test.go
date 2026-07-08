@@ -26,6 +26,7 @@ func newRequestABlockFixture(t *testing.T, numPieces uint32) (*Download, *mockPe
 	// Create a mock peer whose bitmap covers all pieces.
 	p := newMockPeer()
 	p.setNumPieces(numPieces)
+	p.info = d.info
 	p.bitmap.Fill()     // peer has all pieces
 	p.setDesiredSize(8) // want 8 outstanding requests
 	p.setChoking(false) // peer is not choking us

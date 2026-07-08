@@ -14,6 +14,15 @@ tasks:
     desc: run go test
     cmd: go test -count=1 -coverprofile=coverage.txt -covermode=atomic -tags assert ./...
 
+  fuzz:
+    desc: run all fuzz tests
+    vars:
+      FUZZ_TIME: '{{ default "15s" .FUZZ_TIME }}'
+    cmds:
+      - rm -rf internal/download/testdata
+      - go test -fuzz=FuzzHandleRes -fuzztime={{ .FUZZ_TIME }} -tags assert ./internal/download/
+      - go test -fuzz=FuzzDownloadMultiPeer_Async -fuzztime={{ .FUZZ_TIME }} -tags assert ./internal/download/
+
   mod-tidy:
     cmds:
       - go mod tidy
