@@ -13,6 +13,7 @@ import (
 
 	"github.com/bytedance/sonic"
 	"github.com/go-playground/validator/v10"
+	"github.com/rs/zerolog/log"
 	"github.com/swaggest/openapi-go"
 	"github.com/swaggest/usecase"
 
@@ -289,13 +290,24 @@ func (h *Handler) errResp(resp *Response, msg string, code ErrorCode, err error)
 	if e, ok := err.(ErrWithAppCode); ok {
 		resp.Error.Code = ErrorCode(e.AppErrCode())
 		resp.Error.Message = err.Error()
+
+		log.Warn().Err(err).Str("code", fmt.Sprintf("%d", resp.Error.Code)).Msg(msg)
+
 		return
 	}
 
 	resp.Error.Data = err.Error()
+
+	if code == CodeInternalError {
+		log.Error().Err(err).Msg(msg)
+	} else {
+		log.Warn().Err(err).Int("code", int(code)).Msg(msg)
+	}
 }
 
 func (h *Handler) fail(w http.ResponseWriter, err error, code ErrorCode) {
+	log.Error().Err(err).Int("code", int(code)).Msg("JSON-RPC error")
+
 	resp := Response{
 		JSONRPC: ver,
 		Error: &Error{
@@ -306,6 +318,7 @@ func (h *Handler) fail(w http.ResponseWriter, err error, code ErrorCode) {
 
 	data, err := sonic.ConfigFastest.Marshal(resp)
 	if err != nil {
+		log.Error().Err(err).Msg("failed to marshal JSON-RPC error response")
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 
 		return
@@ -313,6 +326,7 @@ func (h *Handler) fail(w http.ResponseWriter, err error, code ErrorCode) {
 
 	_, err = w.Write(data)
 	if err != nil {
+		log.Error().Err(err).Msg("failed to write JSON-RPC error response")
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 
 		return
