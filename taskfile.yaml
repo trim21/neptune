@@ -27,6 +27,7 @@ tasks:
     desc: generate e2e test fixtures and copy to qB data dir for seeding
     cmds:
       - uv run --directory e2e python gen_fixtures.py
+      - mkdir -p e2e/testdata/qb-downloads
       - cp -r e2e/testdata/fixtures/test-fixture e2e/testdata/qb-downloads/test-fixture
       - cp -r e2e/testdata/fixtures/test-fixture e2e/testdata/qb-downloads/test-fixture
 

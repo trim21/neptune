@@ -162,7 +162,9 @@ jobs:
         run: uv run --directory e2e python gen_fixtures.py
 
       - name: Copy fixture data for QB seeding
-        run: cp -r e2e/testdata/fixtures/test-fixture e2e/testdata/qb-downloads/test-fixture
+        run: |
+          mkdir -p e2e/testdata/qb-downloads
+          cp -r e2e/testdata/fixtures/test-fixture e2e/testdata/qb-downloads/test-fixture
 
       - name: Start Docker services
         run: docker compose -f e2e/docker-compose.yml up -d
