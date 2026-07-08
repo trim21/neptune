@@ -662,7 +662,12 @@ func (p *peerImpl) start(skipHandshake bool) {
 				p.log.Debug().Msg("peer un-snubbed: responding again")
 			}
 
-			p.d.resChan <- event.Res
+			select {
+			case p.d.resChan <- event.Res:
+			case <-p.ctx.Done():
+				proto.PiecePool.Put(event.Res)
+				return
+			}
 		case proto.Request:
 			if !p.validateRequest(event.Req) {
 				if p.fastExtension {
