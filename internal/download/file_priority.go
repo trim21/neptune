@@ -77,8 +77,12 @@ func (d *Download) SetFilePriority(fileIDs []int, priority int) error {
 			delete(d.s.selectedFilesSet, id)
 			if d.session.Config.App.Fallocate {
 				if f, err := os.OpenFile(filePath, os.O_WRONLY, 0); err == nil {
-					_ = f.Truncate(0)
-					_ = f.Truncate(tf.Length)
+					if err := f.Truncate(0); err != nil {
+						d.log.Warn().Err(err).Str("path", filePath).Msg("failed to truncate file to 0")
+					}
+					if err := f.Truncate(tf.Length); err != nil {
+						d.log.Warn().Err(err).Str("path", filePath).Msg("failed to truncate file to target size")
+					}
 					f.Close()
 				}
 			}
@@ -86,7 +90,9 @@ func (d *Download) SetFilePriority(fileIDs []int, priority int) error {
 			d.s.selectedFilesSet[id] = struct{}{}
 			if d.session.Config.App.Fallocate {
 				if f, err := os.OpenFile(filePath, os.O_WRONLY, 0); err == nil {
-					_ = fallocate.Fallocate(f, 0, tf.Length)
+					if err := fallocate.Fallocate(f, 0, tf.Length); err != nil {
+						d.log.Warn().Err(err).Str("path", filePath).Msg("failed to fallocate file")
+					}
 					f.Close()
 				}
 			}

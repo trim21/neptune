@@ -38,7 +38,9 @@ func onEvict(key cacheKey, value *File) {
 		return
 	}
 	log.Debug().Str("path", key.path).Msg("close file")
-	_ = value.File.Close()
+	if err := value.File.Close(); err != nil {
+		log.Warn().Err(err).Str("path", key.path).Msg("failed to close evicted file")
+	}
 	value.pool = nil
 }
 
@@ -125,6 +127,8 @@ func (f *File) Close() {
 	p.mu.Unlock()
 
 	f.ref.Store(0)
-	_ = f.File.Close()
+	if err := f.File.Close(); err != nil {
+		log.Warn().Err(err).Str("path", f.key.path).Msg("failed to close file")
+	}
 	f.pool = nil
 }

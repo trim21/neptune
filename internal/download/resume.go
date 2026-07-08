@@ -16,6 +16,22 @@ import (
 
 var _ encoding.BinaryMarshaler = (*Download)(nil)
 
+// ResumeState is the persisted download state in resume files.
+// Only two meaningful states: stopped or active (Downloading/Seeding based on completion).
+type ResumeState uint8
+
+const (
+	ResumeStopped ResumeState = 0
+	ResumeActive  ResumeState = 1
+)
+
+func normalizeResumeState(s State) ResumeState {
+	if s == Stopped {
+		return ResumeStopped
+	}
+	return ResumeActive
+}
+
 type resume struct {
 	BasePath      string
 	InfoHash      string
@@ -33,7 +49,7 @@ type resume struct {
 	Downloaded         int64
 	Uploaded           int64
 	Corrupted          int64
-	State              State
+	State              ResumeState
 }
 
 func (d *Download) filePaths() []string {
@@ -93,7 +109,7 @@ func (d *Download) MarshalBinary() (data []byte, err error) {
 		Corrupted:          d.corrupted.Load(),
 		Tags:               d.s.tags,
 		Custom:             d.s.custom,
-		State:              d.GetState(),
+		State:              normalizeResumeState(d.GetState()),
 		InfoHash:           d.info.Hash.Hex(),
 		Bitfield:           d.completedBm.Bitfield(),
 		AddAt:              d.AddAt,

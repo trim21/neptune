@@ -66,10 +66,14 @@ func (d *Download) move(ctx context.Context, target string, originalBasePath str
 	}
 
 	for _, file := range d.info.Files {
-		_ = os.Remove(filepath.Join(originalBasePath, file.Path))
+		if err := os.Remove(filepath.Join(originalBasePath, file.Path)); err != nil {
+			d.log.Warn().Err(err).Str("path", file.Path).Msg("failed to remove old file after move")
+		}
 	}
 
-	_ = pruneEmptyDir(originalBasePath)
+	if err := pruneEmptyDir(originalBasePath); err != nil {
+		d.log.Warn().Err(err).Str("path", originalBasePath).Msg("failed to prune empty dir after move")
+	}
 
 	return nil
 }

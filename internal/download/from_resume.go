@@ -63,9 +63,19 @@ func ResumeFromData(sess *session.Session, data []byte) (*Download, error) {
 			}
 		}
 	}
+	// Restore state from resume data. ResumeStopped maps to Stopped;
+	// anything else (including historical raw State values from old resume
+	// files) is treated as active.
 	d.markUnselectedPiecesDoneUnsafe()
 	d.completed.Store(d.computeCompletedUnsafe())
-	d.state.Store(uint32(r.State))
+
+	if r.State == ResumeStopped {
+		d.state.Store(uint32(Stopped))
+	} else if d.completedBm.Count() == d.info.NumPieces {
+		d.state.Store(uint32(Seeding))
+	} else {
+		d.state.Store(uint32(Downloading))
+	}
 	d.AddAt = r.AddAt
 	d.CompletedAt.Store(r.CompletedAt)
 

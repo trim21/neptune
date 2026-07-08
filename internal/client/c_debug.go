@@ -30,8 +30,8 @@ func (c *Client) DumpState(w io.Writer) {
 
 	// Snapshot download references under lock, then release.
 	type downloadEntry struct {
-		idx int
 		d   *download.Download
+		idx int
 	}
 	var entries []downloadEntry
 	for i, ih := range c.infoHashes {
@@ -83,24 +83,24 @@ func (c *Client) DumpState(w io.Writer) {
 }
 
 type stateDump struct {
+	IPv4          string `json:"ipv4"`
+	IPv6          string `json:"ipv6"`
 	Downloads     []any  `json:"downloads"`
-	IPv4          string                    `json:"ipv4"`
-	IPv6          string                    `json:"ipv6"`
-	DownloadRate  int64                     `json:"download_rate"`
-	DownloadTotal int64                     `json:"download_total"`
-	UploadRate    int64                     `json:"upload_rate"`
-	UploadTotal   int64                     `json:"upload_total"`
-	DownloadLimit int64                     `json:"download_limit"`
-	UploadLimit   int64                     `json:"upload_limit"`
-	HeapAlloc     uint64                    `json:"heap_alloc"`
-	HeapSys       uint64                    `json:"heap_sys"`
-	HeapObjects   uint64                    `json:"heap_objects"`
-	StackInUse    uint64                    `json:"stack_in_use"`
-	Goroutines    int                       `json:"goroutines"`
-	Connections   uint32                    `json:"connections"`
-	Torrents      int                       `json:"torrents"`
-	CheckQueue    int                       `json:"check_queue"`
-	UploadQLen    int                       `json:"upload_queue_len"`
-	UploadQCap    int                       `json:"upload_queue_cap"`
-	NumGC         uint32                    `json:"num_gc"`
+	HeapSys       uint64 `json:"heap_sys"`
+	StackInUse    uint64 `json:"stack_in_use"`
+	UploadRate    int64  `json:"upload_rate"`
+	UploadTotal   int64  `json:"upload_total"`
+	DownloadLimit int64  `json:"download_limit"`
+	UploadLimit   int64  `json:"upload_limit"`
+	HeapAlloc     uint64 `json:"heap_alloc"`
+	DownloadRate  int64  `json:"download_rate"`
+	HeapObjects   uint64 `json:"heap_objects"`
+	DownloadTotal int64  `json:"download_total"`
+	Goroutines    int    `json:"goroutines"`
+	UploadQCap    int    `json:"upload_queue_cap"`
+	Torrents      int    `json:"torrents"`
+	CheckQueue    int    `json:"check_queue"`
+	UploadQLen    int    `json:"upload_queue_len"`
+	Connections   uint32 `json:"connections"`
+	NumGC         uint32 `json:"num_gc"`
 }

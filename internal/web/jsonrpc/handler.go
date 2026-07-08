@@ -347,7 +347,7 @@ func (h *Handler) fail(w http.ResponseWriter, err error, code ErrorCode) {
 	}
 }
 
-var errBodyTooLarge = fmt.Errorf("request body too large")
+var errBodyTooLarge = errors.New("request body too large")
 
 func readAllLimited(r io.Reader, limit int64) ([]byte, error) {
 	if limit <= 0 {
