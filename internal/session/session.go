@@ -56,6 +56,7 @@ type Session struct {
 	TorrentPath       string
 	randKey           []byte
 	Config            config.Config
+	RecheckOnComplete atomic.Bool
 	ConnCount         atomic.Uint32
 	MSEForce          bool
 	MSEEnabled        bool
@@ -129,6 +130,8 @@ func New(cfg config.Config, sessionPath string, debug bool) *Session {
 		randKey: random.Bytes(32),
 		Debug:   debug,
 	}
+
+	s.RecheckOnComplete.Store(cfg.App.RecheckOnComplete)
 
 	s.IPv4.Store(v4)
 	s.IPv6.Store(v6)

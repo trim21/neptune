@@ -28,6 +28,11 @@ type Application struct {
 	GlobalUploadSpeedLimit int64 `toml:"global-upload-speed-limit"`
 
 	Fallocate bool `toml:"fallocate"`
+
+	// RecheckOnComplete enables automatic hash re-check after all pieces are
+	// downloaded. If any piece fails verification the torrent goes back to
+	// downloading to repair the corrupted blocks.
+	RecheckOnComplete bool `toml:"recheck-on-complete"`
 }
 
 type Config struct {

@@ -223,6 +223,20 @@ class ReplaceTrackersRequest:
     replacements: dict[str, str]
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SetRecheckOnCompleteRequest:
+    """Parameters for client.set_recheck_on_complete."""
+
+    enabled: bool
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class GetRecheckOnCompleteResponse:
+    """Response for client.get_recheck_on_complete."""
+
+    enabled: bool
+
+
 # ── Response types ────────────────────────────────────────────────────
 
 

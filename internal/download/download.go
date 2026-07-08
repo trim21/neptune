@@ -466,6 +466,11 @@ func (d *Download) checkDone() {
 		return
 	}
 
+	if d.session.RecheckOnComplete.Load() {
+		d.recheckAfterComplete()
+		return
+	}
+
 	if err := d.transition(Seeding); err != nil {
 		d.log.Error().Err(err).Msg("failed to transition state in checkDone")
 		return
@@ -485,6 +490,71 @@ func (d *Download) checkDone() {
 
 	// Release picker memory — no longer needed when seeding.
 	d.picker.Store(nil)
+}
+
+// recheckAfterComplete transitions to Checking, re-hashes all pieces, and
+// completes the download (Seeding + announce) when all pass, or goes back to
+// Downloading so corrupt pieces are re-fetched.
+func (d *Download) recheckAfterComplete() {
+	if err := d.transition(Checking); err != nil {
+		d.log.Error().Err(err).Msg("failed to start completion recheck")
+		return
+	}
+	d.completedBm.Clear()
+	d.picker.Load().resetAll()
+	d.completed.Store(0)
+	d.stateCond.Broadcast()
+
+	d.runHashCheck(func() {
+		d.CompletedAt.Store(time.Now().Unix())
+
+		d.peers.Range(func(_ uint64, p Peer) bool {
+			if p.PeerBitmap().Count() == d.info.NumPieces {
+				p.Close()
+			}
+			return true
+		})
+
+		d.Trk.Announce(tracker.EventCompleted)
+		d.picker.Store(nil)
+	})
+}
+
+// runHashCheck spawns a goroutine that re-hashes all pieces via initCheck.
+// When all pieces pass, onSeeding is called right before transition(Seeding).
+func (d *Download) runHashCheck(onSeeding func()) {
+	go func() {
+		if err := d.initCheck(); err != nil {
+			if d.ctx.Err() != nil {
+				return
+			}
+			d.setError(err)
+			d.log.Err(err).Msg("hash check failed")
+			return
+		}
+
+		d.s.mu.RLock()
+		d.markUnselectedPiecesDoneUnsafe()
+		d.completed.Store(d.computeCompletedUnsafe())
+		d.s.mu.RUnlock()
+		d.pieceDownloadRate.Reset()
+
+		if d.completedBm.Count() == d.info.NumPieces {
+			if onSeeding != nil {
+				onSeeding()
+			}
+			if err := d.transition(Seeding); err != nil {
+				d.log.Error().Err(err).Msg("failed to transition after hash check")
+				return
+			}
+		} else {
+			if err := d.transition(Downloading); err != nil {
+				d.log.Error().Err(err).Msg("failed to transition after hash check")
+				return
+			}
+		}
+		d.stateCond.Broadcast()
+	}()
 }
 
 // requestABlock picks blocks for a single peer using the global piece picker.

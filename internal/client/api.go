@@ -532,3 +532,15 @@ func writePieceRanges(w io.Writer, label string, bits *bm.Bitmap) {
 	}
 	_, _ = fmt.Fprintln(w)
 }
+
+// SetRecheckOnComplete enables or disables automatic hash re-check when a
+// download finishes (all pieces obtained).
+func (c *Client) SetRecheckOnComplete(enabled bool) {
+	c.session.RecheckOnComplete.Store(enabled)
+}
+
+// GetRecheckOnComplete reports whether automatic hash re-check on completion
+// is currently enabled.
+func (c *Client) GetRecheckOnComplete() bool {
+	return c.session.RecheckOnComplete.Load()
+}

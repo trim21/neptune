@@ -18,6 +18,7 @@ from .models import (
     AddTorrentResponse,
     AddTrackerRequest,
     DelCustomRequest,
+    GetRecheckOnCompleteResponse,
     InfoHashRequest,
     ListTorrentRequest,
     MoveTorrentRequest,
@@ -27,6 +28,7 @@ from .models import (
     SetCustomRequest,
     SetFilePriorityRequest,
     SetGlobalSpeedLimitRequest,
+    SetRecheckOnCompleteRequest,
     SetSpeedLimitRequest,
     TagsRequest,
     TorrentFilesResponse,
@@ -298,6 +300,20 @@ class NeptuneClient:
     def client_get_transfer_config(self) -> TransferConfig:
         """Get global download/upload speed limits."""
         return _validate(TransferConfig, self._call("client.get_transfer_config"))
+
+    def client_set_recheck_on_complete(self, enabled: bool) -> None:
+        """Enable/disable automatic recheck on download completion."""
+        self._call(
+            "client.set_recheck_on_complete",
+            SetRecheckOnCompleteRequest(enabled=enabled),
+        )
+
+    def client_get_recheck_on_complete(self) -> GetRecheckOnCompleteResponse:
+        """Check whether automatic recheck on completion is enabled."""
+        return _validate(
+            GetRecheckOnCompleteResponse,
+            self._call("client.get_recheck_on_complete"),
+        )
 
     # ── torrent — file priority ────────────────────────────────────────
 

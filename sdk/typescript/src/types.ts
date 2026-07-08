@@ -198,3 +198,14 @@ export interface UpdateCustomParams extends InfoHashParams {
 export interface DelCustomParams extends InfoHashParams {
   key: string;
 }
+
+/** Parameters for client.set_recheck_on_complete. */
+export interface SetRecheckOnCompleteParams {
+  /** Whether to recheck all pieces on download completion. */
+  enabled: boolean;
+}
+
+/** Response for client.get_recheck_on_complete. */
+export interface GetRecheckOnCompleteResult {
+  enabled: boolean;
+}

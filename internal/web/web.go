@@ -126,6 +126,8 @@ func New(c *client.Client, token string, enableDebug bool) http.Handler {
 	setGlobalDownloadLimit(h, c)
 	setGlobalUploadLimit(h, c)
 	getTransferConfig(h, c)
+	setRecheckOnComplete(h, c)
+	getRecheckOnComplete(h, c)
 	// MoveTorrent(h, c)
 
 	var auth = func(next http.Handler) http.Handler {

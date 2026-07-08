@@ -4,6 +4,7 @@ import type {
   AddTorrentResult,
   AddTrackerParams,
   DelCustomParams,
+  GetRecheckOnCompleteResult,
   GlobalSpeedLimitParams,
   InfoHashParams,
   ListTorrentParams,
@@ -13,6 +14,7 @@ import type {
   ReplaceTrackersParams,
   SetCustomParams,
   SetFilePriorityParams,
+  SetRecheckOnCompleteParams,
   SpeedLimitParams,
   TagsParams,
   TorrentFiles,
@@ -76,6 +78,8 @@ export interface NeptuneMethodMap {
   'client.set_download_limit': {params: GlobalSpeedLimitParams; result: void};
   'client.set_upload_limit': {params: GlobalSpeedLimitParams; result: void};
   'client.get_transfer_config': {params: Record<string, never>; result: TransferConfig};
+  'client.set_recheck_on_complete': {params: SetRecheckOnCompleteParams; result: void};
+  'client.get_recheck_on_complete': {params: Record<string, never>; result: GetRecheckOnCompleteResult};
 }
 
 /** Union of all method name strings. */
