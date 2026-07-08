@@ -192,9 +192,8 @@ def test_torrent_add_encodes_base64(mock_api, client):
 
 
 def test_torrent_remove(mock_api, client):
-    mock_api.post("/json_rpc").mock(return_value=_ok({"torrents": []}))
-    result = client.torrent_remove("aabb", delete_data=True)
-    assert result.torrents == []
+    mock_api.post("/json_rpc").mock(return_value=_ok({}))
+    client.torrent_remove("aabb", delete_data=True)
 
     payload = json.loads(mock_api.calls.last.request.content)
     assert payload["params"]["delete_data"] is True

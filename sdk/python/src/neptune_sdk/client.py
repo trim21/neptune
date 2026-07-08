@@ -211,16 +211,11 @@ class NeptuneClient:
             MoveTorrentRequest(info_hash=info_hash, target_base_path=target_base_path),
         )
 
-    def torrent_remove(
-        self, info_hash: str, *, delete_data: bool = False
-    ) -> TorrentListResponse:
-        """Remove a torrent and return updated list."""
-        return _validate(
-            TorrentListResponse,
-            self._call(
-                "torrent.remove",
-                RemoveTorrentRequest(info_hash=info_hash, delete_data=delete_data),
-            ),
+    def torrent_remove(self, info_hash: str, *, delete_data: bool = False) -> None:
+        """Remove a torrent."""
+        self._call(
+            "torrent.remove",
+            RemoveTorrentRequest(info_hash=info_hash, delete_data=delete_data),
         )
 
     def torrent_start(self, info_hash: str) -> None:

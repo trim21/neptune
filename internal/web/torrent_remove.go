@@ -20,9 +20,7 @@ type removeTorrentRequest struct {
 	DeleteData bool   `description:"delete torrent data" json:"delete_data" required:"false"`
 }
 
-type removeTorrentResponse struct {
-	client.TorrentList
-}
+type removeTorrentResponse struct{}
 
 func removeTorrent(h *jsonrpc.Handler, c *client.Client) {
 	u := usecase.NewInteractor[*removeTorrentRequest, removeTorrentResponse](
