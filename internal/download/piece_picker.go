@@ -292,7 +292,7 @@ func (pp *piecePicker) rebuildPriorities(info meta.Info) {
 
 	available := pp.pieces[:0]
 	for _, pi := range pp.pieces {
-		if pp.completedBm.Contains(pi) || pp.allBlocksFinished(pi, info) {
+		if pp.completedBm.Contains(pi) {
 			continue
 		}
 		available = append(available, pi)
