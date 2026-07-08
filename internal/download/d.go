@@ -194,6 +194,8 @@ func (d *Download) ErrorMsg() string {
 
 // if download encounter an error must stop downloading/uploading.
 func (d *Download) setError(err error) {
+	d.log.Error().Err(err).Msg("setError")
+
 	if err == io.EOF {
 		panic("unexpected EOF error")
 	}

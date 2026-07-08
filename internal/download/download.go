@@ -262,6 +262,7 @@ func (d *Download) flushContiguousFromHeap() {
 		tasks.Submit(func() {
 			err := d.checkPiece(pieceIndex)
 			if err != nil {
+				d.setError(err)
 				return
 			}
 
@@ -392,6 +393,7 @@ func (d *Download) handlePieceFromHeap(index uint32) {
 	tasks.Submit(func() {
 		err := d.checkPiece(index)
 		if err != nil {
+			d.setError(err)
 			return
 		}
 
