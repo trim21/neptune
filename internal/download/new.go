@@ -6,6 +6,7 @@ package download
 import (
 	"context"
 	"net/netip"
+	"os"
 	"time"
 
 	"github.com/kelindar/bitmap"
@@ -114,8 +115,13 @@ func New(sess *session.Session, m *metainfo.MetaInfo, info meta.Info, basePath s
 
 	d.peerList.d = d
 
+	trackerKey := random.URLSafeStr(16)
+	if seed := os.Getenv("NEPTUNE_TRACKER_KEY_SEED"); seed != "" {
+		trackerKey = random.DeriveKey(seed, info.Hash.AsString(), 16)
+	}
+
 	d.Trk = tracker.New(d.ctx, tracker.Config{
-		Key:             random.URLSafeStr(16),
+		Key:             trackerKey,
 		HTTP:            sess.HTTP,
 		InfoHash:        info.Hash.AsString(),
 		PeerID:          d.peerID.AsString(),

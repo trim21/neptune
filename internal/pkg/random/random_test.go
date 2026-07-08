@@ -46,3 +46,35 @@ func TestBias(t *testing.T) {
 		}
 	}
 }
+
+func TestDeriveKey(t *testing.T) {
+	t.Parallel()
+
+	// Same inputs produce same output
+	k1 := random.DeriveKey("my-seed", "abc123", 16)
+	k2 := random.DeriveKey("my-seed", "abc123", 16)
+	require.Equal(t, k1, k2)
+	require.Len(t, k1, 16)
+
+	// Different seed produces different output
+	k3 := random.DeriveKey("other-seed", "abc123", 16)
+	require.NotEqual(t, k1, k3)
+
+	// Different infoHash produces different output
+	k4 := random.DeriveKey("my-seed", "xyz789", 16)
+	require.NotEqual(t, k1, k4)
+
+	// Different length
+	k5 := random.DeriveKey("my-seed", "abc123", 32)
+	require.Len(t, k5, 32)
+}
+
+func TestDeriveKeyDeterminism(t *testing.T) {
+	t.Parallel()
+
+	// Make sure it's stable across calls
+	expected := random.DeriveKey("seed", "hash", 16)
+	for range 100 {
+		require.Equal(t, expected, random.DeriveKey("seed", "hash", 16))
+	}
+}

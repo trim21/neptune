@@ -5,7 +5,9 @@ package random
 
 import (
 	"bufio"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"fmt"
 	"io"
 
@@ -61,6 +63,21 @@ func PrintableBytes(size int) []byte {
 			}
 		}
 	}
+}
+
+// DeriveKey deterministically derives a URL-safe key string from a seed and infoHash
+// using HMAC-SHA256, producing a string of the given length.
+// The output uses the same alphabet as URLSafeStr (64 URL-safe characters).
+func DeriveKey(seed, infoHash string, size int) string {
+	mac := hmac.New(sha256.New, unsafe.Bytes(seed))
+	mac.Write(unsafe.Bytes(infoHash))
+	sum := mac.Sum(nil)
+
+	r := make([]byte, size)
+	for i := range r {
+		r[i] = base64UrlSafeChars[sum[i%len(sum)]%64]
+	}
+	return unsafe.Str(r)
 }
 
 // Bytes generate a cryptographically secure random bytes.
