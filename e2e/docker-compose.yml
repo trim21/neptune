@@ -1,0 +1,38 @@
+# Neptune e2e test dependencies
+#
+# Start services:
+#   docker compose -f e2e/docker-compose.yml up -d
+#
+# Stop services:
+#   docker compose -f e2e/docker-compose.yml down
+#
+# Services:
+#   tracker       – opentracker on :6969 (UDP+HTTP on :6969)
+#   qbittorrent   – qBittorrent on :8090 (WebUI: admin/adminadmin)
+
+services:
+  tracker:
+    image: crate/opentracker:latest
+    container_name: neptune-e2e-tracker
+    restart: unless-stopped
+    ports:
+      - "6969:6969"
+      - "6969:6969/udp"
+
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:latest
+    container_name: neptune-e2e-qb
+    restart: unless-stopped
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Etc/UTC
+      - WEBUI_PORT=8090
+    ports:
+      - "8090:8090"
+      # P2P port – bind to host
+      - "56881:56881"
+      - "56881:56881/udp"
+    volumes:
+      - ./testdata/qb-config:/config
+      - ./testdata/qb-downloads:/downloads

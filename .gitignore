@@ -11,3 +11,9 @@ coverage.txt
 internal/web/docs/swagger/
 config.toml
 etc/example/data/
+
+# e2e test artifacts
+e2e/testdata/fixtures/
+e2e/testdata/neptune
+e2e/testdata/qb-config/
+e2e/testdata/qb-downloads/
