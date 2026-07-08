@@ -126,6 +126,7 @@ func newPeer(
 		p.dhtEnabled = h.DhtEnabled
 		p.subExtensions = h.ExchangeExtensions
 		p.fastExtension = h.FastExtension
+		p.peerID.Store(&h.PeerID)
 	}
 
 	go p.start(skipReadHandshake)
