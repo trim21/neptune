@@ -1,11 +1,8 @@
 # Neptune e2e test dependencies
-#
-# Start services:
-#   docker compose -f e2e/docker-compose.yml up -d
 
 services:
   tracker:
-    image: wiltonsr/opentracker-docker:latest
+    image: wiltonsr/opentracker:open
     ports:
       - "6969:6969"
       - "6969:6969/udp"
