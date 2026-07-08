@@ -4,6 +4,8 @@
 package download
 
 import (
+	"math"
+
 	"neptune/internal/pkg/as"
 )
 
@@ -108,7 +110,7 @@ func (d *Download) Files() []FileInfo {
 		}
 		var progress float64
 		if endIndex > startIndex {
-			progress = float64(pieceDoneCount) / float64(endIndex-startIndex)
+			progress = math.Round(float64(pieceDoneCount)/float64(endIndex-startIndex)*1e4) / 1e4
 		}
 		results[i] = FileInfo{
 			Path:     file.RawPath,
@@ -138,7 +140,7 @@ func (d *Download) PeerInfos() []PeerInfo {
 		results = append(results, PeerInfo{
 			Address:      p.Addr().String(),
 			Client:       p.UserAgent(),
-			Progress:     float64(p.PieceCount()) / float64(d.info.NumPieces),
+			Progress:     math.Round(float64(p.PieceCount())/float64(d.info.NumPieces)*1e4) / 1e4,
 			DownloadRate: p.DownloadRate(),
 			UploadRate:   p.UploadRate(),
 			IsIncoming:   p.Incoming(),
