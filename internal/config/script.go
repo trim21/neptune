@@ -250,6 +250,17 @@ var configFields = map[string]configField{
 		},
 		getter: func(a *Application) lua.LValue { return lua.LNumber(a.MaxRequestBodySize) },
 	},
+	"application.piece-pick-strategy": {
+		setter: func(a *Application, v lua.LValue) error {
+			s := lua.LVAsString(v)
+			if s != "rarest-first" && s != "sequential" {
+				return fmt.Errorf("must be 'rarest-first' or 'sequential', got %q", s)
+			}
+			a.PiecePickStrategy = s
+			return nil
+		},
+		getter: func(a *Application) lua.LValue { return lua.LString(a.PiecePickStrategy) },
+	},
 }
 
 func registerNeptune(L *lua.LState, app *Application) {
