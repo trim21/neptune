@@ -68,8 +68,7 @@ type debugFailingPiece struct {
 
 type debugDownloadingPiece struct {
 	Blocks     int
-	Finished   int
-	Writing    int
+	Responded  int
 	Requested  int
 	Free       int
 	Index      uint32
@@ -243,15 +242,15 @@ func BuildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 
 	// Picker stats
 	st := d.picker.Load().DebugStats(d.info)
-	totalBlocks := st.FreeBlocks + st.RequestedBlocks + st.WritingBlocks + st.FinishedBlocks
+	totalBlocks := st.FreeBlocks + st.RequestedBlocks + st.RespondedBlocks
 	data.PickerText = fmt.Sprintf(
 		"picker: %d open pieces, %d downloading pieces\n"+
-			"blocks: %d free, %d requested, %d writing, %d finished (total %d)\n"+
+			"blocks: %d free, %d requested, %d responded (total %d)\n"+
 			"downloadQueue: %d\n"+
 			"rate: dl=%s/s peer_sum=%s/s (ratio %.2f)\n"+
 			"total: dl=%s peer_sum=%s",
 		st.OpenPieces, st.Downloading,
-		st.FreeBlocks, st.RequestedBlocks, st.WritingBlocks, st.FinishedBlocks, totalBlocks,
+		st.FreeBlocks, st.RequestedBlocks, st.RespondedBlocks, totalBlocks,
 		st.DownloadQueue,
 		humanize.IBytes(uint64(dlRate)), humanize.IBytes(uint64(peerTotalCurRate)),
 		float64(peerTotalCurRate)/float64(max(dlRate, 1)),

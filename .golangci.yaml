@@ -50,6 +50,7 @@ linters:
     - wsl_v5
     - zerologlint
     - embeddedstructfieldcheck
+    - goconst
   settings:
     depguard:
       rules:

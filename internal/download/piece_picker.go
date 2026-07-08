@@ -20,8 +20,7 @@ type blockState uint8
 const (
 	blockStateNone      blockState = iota // block is free, not yet requested
 	blockStateRequested                   // block is currently requested from a peer
-	blockStateWriting                     // block data is being written to disk
-	blockStateFinished                    // block has been written to disk
+	blockStateResponded                   // block data received from peer
 )
 
 // blockStates stores per-block state using 2 bits per block packed into bytes.
@@ -52,8 +51,7 @@ type downloadingPiece struct {
 	infoIdx         int
 	index           uint32
 	blocksInPiece   uint16
-	finished        uint16
-	writing         uint16
+	responded       uint16 // blocks received from peer
 	requested       uint16
 	passedHashCheck bool
 	locked          bool
@@ -181,15 +179,15 @@ func (pp *piecePicker) weHave(pieceIndex uint32, info meta.Info) {
 		if pp.blockInfos.get(idx+i) == blockStateRequested {
 			pp.downloadQueueSize--
 		}
-		pp.blockInfos.set(idx+i, blockStateFinished)
+		pp.blockInfos.set(idx+i, blockStateResponded)
 	}
-	pp.removeDownloadingPieceLocked(pieceIndex)
+	pp.removeDownloadingPieceUnsafe(pieceIndex)
 	pp.numCompletedPieces++
 	pp.dirty = true
 }
 
-// markAsWriting marks a block as being written to disk.
-func (pp *piecePicker) markAsWriting(pieceIndex uint32, blockIndex int) {
+// markAsResponded marks a block as received from peer.
+func (pp *piecePicker) markAsResponded(pieceIndex uint32, blockIndex int) {
 	if pp == nil {
 		return
 	}
@@ -201,35 +199,14 @@ func (pp *piecePicker) markAsWriting(pieceIndex uint32, blockIndex int) {
 	if oldState == blockStateRequested {
 		pp.downloadQueueSize--
 	}
-	pp.blockInfos.set(idx, blockStateWriting)
+	pp.blockInfos.set(idx, blockStateResponded)
 
 	// Update downloadingPiece counters
 	if dp := pp.findDownloadingPiece(pieceIndex); dp != nil {
 		if oldState == blockStateRequested {
 			dp.requested--
 		}
-		dp.writing++
-	}
-}
-
-// markAsFinished marks a block as having been written to disk.
-func (pp *piecePicker) markAsFinished(pieceIndex uint32, blockIndex int) {
-	if pp == nil {
-		return
-	}
-	pp.mu.Lock()
-	defer pp.mu.Unlock()
-
-	idx := pp.blockInfoIdx(pieceIndex) + blockIndex
-	oldState := pp.blockInfos.get(idx)
-	pp.blockInfos.set(idx, blockStateFinished)
-
-	// Update downloadingPiece counters
-	if dp := pp.findDownloadingPiece(pieceIndex); dp != nil {
-		if oldState == blockStateWriting {
-			dp.writing--
-		}
-		dp.finished++
+		dp.responded++
 	}
 }
 
@@ -278,14 +255,14 @@ func (pp *piecePicker) isFinished(pieceIndex uint32, blockIndex int) bool {
 	defer pp.mu.Unlock()
 
 	idx := pp.blockInfoIdx(pieceIndex) + blockIndex
-	return pp.blockInfos.get(idx) == blockStateFinished
+	return pp.blockInfos.get(idx) == blockStateResponded
 }
 
 // rebuildPriorities re-sorts the piece priority array.
 // Only fully-completed pieces (all blocks finished) are excluded.
 // Partially downloaded pieces stay in the array — pickPieces handles them
 // via the partial-pieces phase first, then falls back to the priority list.
-func (pp *piecePicker) rebuildPriorities() {
+func (pp *piecePicker) rebuildPriorities(info meta.Info) {
 	if pp == nil {
 		return
 	}
@@ -293,10 +270,17 @@ func (pp *piecePicker) rebuildPriorities() {
 		return
 	}
 
-	available := pp.wantedBm.WithAndNot(pp.completedBm).ToArray()
+	available := pp.wantedBm.WithAndNot(pp.completedBm)
+	// Filter out pieces where all blocks are already finished (pending hash check).
+	for pi := range pp.numPieces {
+		if available.Contains(pi) && pp.allBlocksResponded(pi, info) {
+			available.Unset(pi)
+		}
+	}
+	pieces := available.ToArray()
 
 	// sort by priority descending, then by piece index
-	slices.SortFunc(available, func(a, b uint32) int {
+	slices.SortFunc(pieces, func(a, b uint32) int {
 		pa := pp.piecePriorities[a]
 		pb := pp.piecePriorities[b]
 		if pa != pb {
@@ -311,20 +295,20 @@ func (pp *piecePicker) rebuildPriorities() {
 		return 1
 	})
 
-	pp.pieces = available
-	pp.numWantLeft = len(available)
+	pp.pieces = pieces
+	pp.numWantLeft = len(pieces)
 	pp.dirty = false
 }
 
 // allBlocksFinished returns true if every block of the given piece is finished.
-func (pp *piecePicker) allBlocksFinished(pieceIndex uint32, info meta.Info) bool {
+func (pp *piecePicker) allBlocksResponded(pieceIndex uint32, info meta.Info) bool {
 	if pp == nil {
 		return true
 	}
 	idx := pp.blockInfoIdx(pieceIndex)
 	nb := pp.numBlocksInPiece(info, pieceIndex)
 	for i := range int(nb) {
-		if pp.blockInfos.get(idx+i) != blockStateFinished {
+		if pp.blockInfos.get(idx+i) != blockStateResponded {
 			return false
 		}
 	}
@@ -369,6 +353,8 @@ type pickResult struct {
 //   - info: torrent metadata for block counts
 //
 // It first prioritizes partial pieces (highest progress first), then uses rarest-first.
+//
+//nolint:unparam
 func (pp *piecePicker) pickPieces(
 	bitfield *bm.Bitmap,
 	choked bool,
@@ -386,7 +372,7 @@ func (pp *piecePicker) pickPieces(
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
 
-	pp.rebuildPriorities()
+	pp.rebuildPriorities(info)
 
 	// Reuse slices from previous call.
 	result.freeBlocks = result.freeBlocks[:0]
@@ -436,8 +422,8 @@ func (pp *piecePicker) pickPieces(
 
 		// Primary: completion ratio (descending).
 		if dpA != nil && dpB != nil {
-			rA := float64(dpA.finished) / float64(dpA.blocksInPiece)
-			rB := float64(dpB.finished) / float64(dpB.blocksInPiece)
+			rA := float64(dpA.responded) / float64(dpA.blocksInPiece)
+			rB := float64(dpB.responded) / float64(dpB.blocksInPiece)
 			if rA != rB {
 				if rA > rB {
 					return -1
@@ -504,7 +490,7 @@ func (pp *piecePicker) pickPieces(
 		bestPriority := uint32(0)
 
 		for _, pi := range pp.pieces {
-			if pp.completedBm.Contains(pi) || pp.allBlocksFinished(pi, info) {
+			if pp.completedBm.Contains(pi) || pp.allBlocksResponded(pi, info) {
 				continue
 			}
 			if !bitfield.Contains(pi) {
@@ -556,7 +542,7 @@ func (pp *piecePicker) pickStartupBlock(
 		if choked && !allowedFast.Contains(pi) {
 			continue
 		}
-		if pp.allBlocksFinished(pi, info) {
+		if pp.allBlocksResponded(pi, info) {
 			continue
 		}
 		candidates = append(candidates, pi)
@@ -715,16 +701,14 @@ type PickerStats struct {
 	OpenPieces      int
 	Downloading     int
 	RequestedBlocks int
-	WritingBlocks   int
-	FinishedBlocks  int
+	RespondedBlocks int
 	FreeBlocks      int
 	DownloadQueue   int
 }
 
 type DownloadingPieceInfo struct {
 	Blocks     int
-	Finished   int
-	Writing    int
+	Responded  int
 	Requested  int
 	Free       int
 	Index      uint32
@@ -756,10 +740,8 @@ func (pp *piecePicker) DebugDownloadingPieces(info meta.Info) []DownloadingPiece
 				di.Free++
 			case blockStateRequested:
 				di.Requested++
-			case blockStateWriting:
-				di.Writing++
-			case blockStateFinished:
-				di.Finished++
+			case blockStateResponded:
+				di.Responded++
 			}
 		}
 		result = append(result, di)
@@ -790,10 +772,8 @@ func (pp *piecePicker) DebugStats(info meta.Info) PickerStats {
 				st.FreeBlocks++
 			case blockStateRequested:
 				st.RequestedBlocks++
-			case blockStateWriting:
-				st.WritingBlocks++
-			case blockStateFinished:
-				st.FinishedBlocks++
+			case blockStateResponded:
+				st.RespondedBlocks++
 			}
 		}
 	}
@@ -816,7 +796,23 @@ func (pp *piecePicker) resetPiece(pieceIndex uint32, info meta.Info) {
 		}
 		pp.blockInfos.set(idx+i, blockStateNone)
 	}
-	pp.removeDownloadingPieceLocked(pieceIndex)
+	// Reset downloadingPiece counters instead of removing it.
+	// Keeping the piece in downloadingPieces prevents pickPieces from
+	// entering startup mode (numCompletedPieces==0 && len(downloadingPieces)==0),
+	// which would randomly pick a piece instead of prioritizing the failed one.
+	if dp := pp.findDownloadingPiece(pieceIndex); dp != nil {
+		dp.responded = 0
+		dp.requested = 0
+	}
+
+	// Re-add piece to candidates if it was removed by rebuildPriorities.
+	// Without this, hash-failed pieces are lost from the candidate list
+	// and never re-downloaded.
+	found := slices.Contains(pp.pieces, pieceIndex)
+	if !found {
+		pp.pieces = append(pp.pieces, pieceIndex)
+	}
+
 	pp.dirty = true
 }
 
@@ -836,7 +832,7 @@ func (pp *piecePicker) resetAll() {
 	pp.dirty = true
 }
 
-func (pp *piecePicker) removeDownloadingPieceLocked(pieceIndex uint32) {
+func (pp *piecePicker) removeDownloadingPieceUnsafe(pieceIndex uint32) {
 	for i := range pp.downloadingPieces {
 		if pp.downloadingPieces[i].index == pieceIndex {
 			pp.downloadingPieces = slices.Delete(pp.downloadingPieces, i, i+1)

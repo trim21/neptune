@@ -153,7 +153,7 @@ func (d *Download) handleRes(res *proto.ChunkResponse) {
 
 	// Mark block as writing in the picker
 	blockIndex := int(res.Begin / uint32(defaultBlockSize))
-	d.picker.Load().markAsWriting(res.PieceIndex, blockIndex)
+	d.picker.Load().markAsResponded(res.PieceIndex, blockIndex)
 
 	c := responseChunk{
 		res:    res,
@@ -248,8 +248,6 @@ func (d *Download) flushContiguousFromHeap() {
 	var completedPieces []uint32
 	for pi := headPi; pi <= tailPi; pi++ {
 		pieceIdx := pi / d.normalChunkLen
-		blockIdx := int(pi % d.normalChunkLen)
-		d.picker.Load().markAsFinished(pieceIdx, blockIdx)
 
 		if d.checkPieceBitmapDone(pieceIdx) {
 			// avoid duplicates
@@ -374,11 +372,6 @@ func (d *Download) handlePieceFromHeap(index uint32) {
 			d.chunk.mu.Unlock()
 			proto.PiecePool.Put(chunk.res)
 		}
-	}
-
-	// Mark all blocks as finished in the picker
-	for bi := range d.info.PieceBlockCount(index) {
-		d.picker.Load().markAsFinished(index, bi)
 	}
 
 	tasks.Submit(func() {

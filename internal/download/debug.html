@@ -128,14 +128,13 @@ async function reannounce(e) {
 {{if .DownloadingPieces}}
 <h3>Downloading Pieces (top {{len .DownloadingPieces}})</h3>
 <table>
-<tr><th class="num">Piece</th><th class="num">Blocks</th><th class="num">Free</th><th class="num">Req</th><th class="num">Writing</th><th class="num">Done</th><th>Hash</th><th>Locked</th></tr>
+<tr><th class="num">Piece</th><th class="num">Blocks</th><th class="num">Free</th><th class="num">Req</th><th class="num">Responded</th><th>Hash</th><th>Locked</th></tr>
 {{range .DownloadingPieces}}<tr>
   <td class="num">{{.Index}}</td>
   <td class="num">{{.Blocks}}</td>
   <td class="num">{{.Free}}</td>
   <td class="num">{{.Requested}}</td>
-  <td class="num">{{.Writing}}</td>
-  <td class="num">{{.Finished}}</td>
+  <td class="num">{{.Responded}}</td>
   <td>{{.HashPassed}}</td>
   <td>{{.Locked}}</td>
 </tr>
