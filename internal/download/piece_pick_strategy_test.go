@@ -24,7 +24,7 @@ func TestPiecePickStrategy_Sequential(t *testing.T) {
 	wantedBm := bm.New(10)
 	wantedBm.Fill()
 
-	pp := NewPiecePicker(info, completedBm, wantedBm)
+	pp := NewPiecePicker(info, completedBm, wantedBm, nil, nil, false)
 
 	peerBitfield := bm.New(10)
 	peerBitfield.Fill() // peer has everything

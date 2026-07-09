@@ -33,7 +33,7 @@ func asyncHelper(d *Download) func() {
 			case <-ticker.C:
 				d.peers.Range(func(_ uint64, p Peer) bool {
 					if !p.Closed() {
-						d.requestABlock(p)
+						p.(*mockPeer).requestABlock()
 					}
 					return true
 				})

@@ -211,9 +211,9 @@ func BuildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 			Address:      p.Addr().String(),
 			DownRate:     humanize.IBytes(uint64(p.DownloadRate())) + "/s",
 			UpRate:       humanize.IBytes(uint64(p.UploadRate())) + "/s",
-			OurReq:       p.OutstandingRequests(),
-			ReqQ:         p.QueueLen(),
-			DesiredQ:     p.DesiredQueueSize(),
+			OurReq:       schedulingDebugInt(p, func(pp *peerImpl) int { return pp.OutstandingRequests() }),
+			ReqQ:         schedulingDebugInt(p, func(pp *peerImpl) int { return pp.QueueLen() }),
+			DesiredQ:     schedulingDebugInt(p, func(pp *peerImpl) int { return pp.DesiredQueueSize() }),
 			Client:       p.UserAgent(),
 			Progress:     fmt.Sprintf("%.1f%%", float64(p.PieceCount())/float64(d.info.NumPieces)*100),
 			Snubbed:      p.IsSnubbed(),
@@ -224,7 +224,7 @@ func BuildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 			Fast:         fmt.Sprint(p.FastBitmap().ToArray()),
 			PeerReq:      p.PeerRequestCount(),
 			PeerID:       url.QueryEscape(p.PeerIDString()),
-			LastPick:     p.LastPickDebug(),
+			LastPick:     schedulingDebugStr(p, func(pp *peerImpl) string { return pp.LastPickDebug() }),
 			Direction:    dir,
 			Encryption:   enc,
 		})
@@ -383,6 +383,19 @@ func (s *sortableTrackers) sort() {
 }
 
 // sortablePeers wraps peer data for sorting by address.
+func schedulingDebugInt(p Peer, fn func(*peerImpl) int) int {
+	if pp, ok := any(p).(*peerImpl); ok {
+		return fn(pp)
+	}
+	return 0
+}
+func schedulingDebugStr(p Peer, fn func(*peerImpl) string) string {
+	if pp, ok := any(p).(*peerImpl); ok {
+		return fn(pp)
+	}
+	return "-"
+}
+
 type sortablePeers struct {
 	items []debugPeer
 	mu    sync.Mutex

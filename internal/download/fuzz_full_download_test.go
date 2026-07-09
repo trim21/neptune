@@ -51,7 +51,7 @@ func FuzzFullDownload(f *testing.F) {
 				d.peers.Range(func(_ uint64, p Peer) bool {
 					if !p.Closed() {
 						anyAlive = true
-						d.requestABlock(p)
+						p.(*mockPeer).requestABlock()
 					}
 					return true
 				})

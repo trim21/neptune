@@ -43,7 +43,7 @@ func TestResetPieceIntoCandidates(t *testing.T) {
 	completedBm := bm.New(numPieces)
 	wantedBm := bm.New(numPieces)
 	wantedBm.Fill()
-	pp := NewPiecePicker(info, completedBm, wantedBm)
+	pp := NewPiecePicker(info, completedBm, wantedBm, nil, nil, false)
 
 	// First complete piece 1 (so numCompletedPieces > 0, avoiding startup mode).
 	for bi := range blocksPerPiece {

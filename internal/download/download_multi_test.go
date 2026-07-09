@@ -143,7 +143,7 @@ func FuzzDownloadMultiPeer_Async(f *testing.F) {
 					if p.Closed() {
 						return true
 					}
-					d.requestABlock(p)
+					p.(*mockPeer).requestABlock()
 					return true
 				})
 

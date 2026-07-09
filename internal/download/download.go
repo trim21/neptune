@@ -4,7 +4,6 @@
 package download
 
 import (
-	"fmt"
 	"slices"
 	"time"
 
@@ -26,9 +25,16 @@ const minRequestQueue = 2
 // maxRequestQueue is the maximum number of outstanding requests per peer.
 const maxRequestQueue = 2000
 
+// scheduler is a private interface satisfied by *peerImpl.
+// It allows notifyPeersToRequest to trigger re-request without
+// exposing scheduling methods on PeerInterface.
+type scheduler interface {
+	requestABlock()
+}
+
 func (d *Download) notifyPeersToRequest() {
 	if !d.notifyScheduled.CompareAndSwap(false, true) {
-		return // already pending, will be handled by the in-flight scan
+		return
 	}
 	if !d.HasState(Downloading) {
 		d.notifyScheduled.Store(false)
@@ -38,7 +44,9 @@ func (d *Download) notifyPeersToRequest() {
 		if p.Closed() {
 			return true
 		}
-		d.requestABlock(p)
+		if s, ok := any(p).(scheduler); ok {
+			s.requestABlock()
+		}
 		return true
 	})
 	d.notifyScheduled.Store(false)
@@ -563,177 +571,6 @@ func (d *Download) runHashCheck(onSeeding func()) {
 		}
 		d.stateCond.Broadcast()
 	}()
-}
-
-// requestABlock picks blocks for a single peer using the global piece picker.
-// Mirrors libtorrent's request_a_block().
-//
-// It determines the desired queue size dynamically (rate-based or snubbed=1),
-// calls the piece picker to find blocks, filters out already-queued blocks,
-// and pushes free blocks into the peer's request channel. In endgame mode,
-// it may also pick busy blocks (already requested by other peers).
-func (d *Download) requestABlock(p Peer) {
-	if d.completedBm.Count() == d.info.NumPieces {
-		return
-	}
-	if p.Closed() {
-		return
-	}
-	if !d.HasState(Downloading) {
-		return
-	}
-
-	desiredQueueSize := p.DesiredQueueSize()
-	myReq := p.OutstandingRequests()
-	reqQ := p.QueueLen()
-
-	numRequests := desiredQueueSize - myReq - reqQ
-	if numRequests <= 0 {
-		if d.session.Debug {
-			s := fmt.Sprintf("skip: numReq=0 (desired=%d, myReq=%d, reqQ=%d)", desiredQueueSize, myReq, reqQ)
-			p.SetLastPickDebug(s)
-		}
-		return
-	}
-
-	choked := p.IsChoking()
-	peerBitmap := p.PeerBitmap()
-	allowFastBm := p.FastBitmap()
-	lastPick := p.LastPickResult()
-
-	pickResult := d.picker.Load().PickPieces(
-		peerBitmap,
-		choked,
-		allowFastBm,
-		numRequests,
-		0,
-		nil,
-		d.info,
-		d.GetPiecePickStrategy(),
-		lastPick,
-	)
-
-	p.SetLastPickResult(pickResult)
-
-	// If the peer is choked and no fast pieces are allowed, the picker returns
-	// zero blocks — don't mistake this for "no blocks left" and trigger endgame.
-	if len(pickResult.FreeBlocks) == 0 && choked && allowFastBm.Count() == 0 {
-		if d.session.Debug {
-			s := fmt.Sprintf("choked no fast: numReq=%d, desired=%d", numRequests, desiredQueueSize)
-			p.SetLastPickDebug(s)
-		}
-		return
-	}
-
-	// add_request: push picked blocks directly to requestQueue.
-	freeBlocksPicked := 0
-	skippedInQueue := 0
-	skippedFinished := 0
-	skippedCompleted := 0
-	skippedDone := 0
-	for _, fb := range pickResult.FreeBlocks {
-		if numRequests <= 0 {
-			break
-		}
-
-		chunk := pieceChunk(d.info, fb.PieceIndex, fb.BlockIndex)
-		if p.IsInQueue(chunk) {
-			skippedInQueue++
-			continue
-		}
-
-		if d.picker.Load().IsFinished(fb.PieceIndex, fb.BlockIndex) {
-			skippedFinished++
-			continue
-		}
-
-		if d.completedBm.Contains(fb.PieceIndex) {
-			skippedCompleted++
-			continue
-		}
-
-		chunkPi := fb.PieceIndex*d.normalChunkLen + uint32(fb.BlockIndex)
-		d.chunk.mu.RLock()
-		done := d.chunk.done.Contains(chunkPi)
-		d.chunk.mu.RUnlock()
-		if done {
-			skippedDone++
-			continue
-		}
-
-		p.EnqueueBlock(fb.PieceIndex, fb.BlockIndex)
-		enqueueBlockDelay()
-		// Re-check: Close() may have called abortDownload for this block
-		// between EnqueueBlock and now. Don't re-mark as requesting.
-		if p.Closed() {
-			numRequests--
-			continue
-		}
-		d.picker.Load().MarkAsRequesting(fb.PieceIndex, fb.BlockIndex)
-		d.picker.Load().AddDownloadingPiece(fb.PieceIndex, d.info)
-
-		numRequests--
-		freeBlocksPicked++
-	}
-
-	if d.session.Debug {
-		skipTotal := skippedInQueue + skippedFinished + skippedCompleted + skippedDone
-		if skipTotal > 0 {
-			s := fmt.Sprintf("picked=%d/%d free, skip: inQ=%d fin=%d done=%d compl=%d",
-				freeBlocksPicked, len(pickResult.FreeBlocks),
-				skippedInQueue, skippedFinished, skippedDone, skippedCompleted)
-			p.SetLastPickDebug(s)
-		} else {
-			s := fmt.Sprintf("picked=%d/%d free, %d busy", freeBlocksPicked, len(pickResult.FreeBlocks), len(pickResult.BusyBlocks))
-			p.SetLastPickDebug(s)
-		}
-	}
-
-	// send_block_requests: drain requestQueue immediately.
-	p.SendBlockRequests()
-
-	if numRequests <= 0 {
-		return
-	}
-
-	if len(pickResult.BusyBlocks) == 0 {
-		return
-	}
-
-	for _, bb := range pickResult.BusyBlocks {
-		chunk := pieceChunk(d.info, bb.PieceIndex, bb.BlockIndex)
-		if p.IsInQueue(chunk) {
-			continue
-		}
-
-		if d.picker.Load().IsFinished(bb.PieceIndex, bb.BlockIndex) {
-			continue
-		}
-
-		if d.completedBm.Contains(bb.PieceIndex) {
-			continue
-		}
-
-		chunkPi := bb.PieceIndex*d.normalChunkLen + uint32(bb.BlockIndex)
-		d.chunk.mu.RLock()
-		done := d.chunk.done.Contains(chunkPi)
-		d.chunk.mu.RUnlock()
-		if done {
-			continue
-		}
-
-		p.EnqueueBlock(bb.PieceIndex, bb.BlockIndex)
-		enqueueBlockDelay()
-		if p.Closed() {
-			continue
-		}
-		d.picker.Load().MarkAsRequesting(bb.PieceIndex, bb.BlockIndex)
-		d.picker.Load().AddDownloadingPiece(bb.PieceIndex, d.info)
-
-		// Drain after adding a busy block too.
-		p.SendBlockRequests()
-		return
-	}
 }
 
 func pieceChunk(info meta.Info, index uint32, chunkIndex int) proto.ChunkRequest {

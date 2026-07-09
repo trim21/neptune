@@ -242,6 +242,43 @@ func (m *mockPeer) SetLastPickResult(r PickResult) {
 func (m *mockPeer) LastPickDebug() string     { return m.lastPickDebug }
 func (m *mockPeer) SetLastPickDebug(s string) { m.lastPickDebug = s }
 
+// requestABlock implements the scheduling logic for mock peers in tests.
+func (m *mockPeer) requestABlock() {
+	d := m.dl
+	if d == nil || m.closed.Load() || !d.HasState(Downloading) {
+		return
+	}
+
+	pickResult := d.picker.Load().RequestABlock(
+		m.LastPickResult(),
+		m.DesiredQueueSize(),
+		m.OutstandingRequests(),
+		m.QueueLen(),
+		m.IsChoking(),
+		m.PeerBitmap(),
+		m.FastBitmap(),
+	)
+	m.SetLastPickResult(pickResult)
+	free := pickResult.FreeBlocks
+
+	if len(free) == 0 {
+		return
+	}
+
+	for _, fb := range free {
+		if m.IsInQueue(pieceChunk(d.info, fb.PieceIndex, fb.BlockIndex)) {
+			continue
+		}
+		m.EnqueueBlock(fb.PieceIndex, fb.BlockIndex)
+		if m.closed.Load() {
+			continue
+		}
+		d.picker.Load().MarkAsRequesting(fb.PieceIndex, fb.BlockIndex)
+		d.picker.Load().AddDownloadingPiece(fb.PieceIndex, d.info)
+	}
+	m.SendBlockRequests()
+}
+
 // ── Peer requests (upload side) ─────────────────────────────────────
 
 func (m *mockPeer) PeerRequestCount() int { return len(m.peerRequests) }

@@ -33,7 +33,7 @@ func TestStallCompletedBmRace(t *testing.T) {
 	wantedBm := bm.New(numPieces)
 	wantedBm.Fill()
 
-	pp := NewPiecePicker(info, completedBm, wantedBm)
+	pp := NewPiecePicker(info, completedBm, wantedBm, nil, nil, false)
 	peerBitfield := bm.New(numPieces)
 	peerBitfield.Fill()
 
@@ -140,7 +140,7 @@ func TestStall_NewPickerDoesntInheritDownloadingPieces(t *testing.T) {
 	wantedBm := bm.New(numPieces)
 	wantedBm.Fill()
 
-	oldPicker := NewPiecePicker(info, completedBm, wantedBm)
+	oldPicker := NewPiecePicker(info, completedBm, wantedBm, nil, nil, false)
 
 	// Add piece 0 to OLD picker's downloadingPieces.
 	for bi := range int(blocksPerPiece) {
@@ -153,7 +153,7 @@ func TestStall_NewPickerDoesntInheritDownloadingPieces(t *testing.T) {
 	completedBm.SetX(0)
 
 	// Create NEW picker (strategy change race).
-	newPicker := NewPiecePicker(info, completedBm, wantedBm)
+	newPicker := NewPiecePicker(info, completedBm, wantedBm, nil, nil, false)
 	newPicker.MarkAsRequesting(1, 0)
 	newPicker.MarkAsResponded(1, 0)
 	completedBm.Set(1)
@@ -199,7 +199,7 @@ func TestStallEndgamePicksFreeZeroPieces(t *testing.T) {
 	wantedBm := bm.New(numPieces)
 	wantedBm.Fill()
 
-	pp := NewPiecePicker(info, completedBm, wantedBm)
+	pp := NewPiecePicker(info, completedBm, wantedBm, nil, nil, false)
 	peerBitfield := bm.New(numPieces)
 	peerBitfield.Fill()
 

@@ -121,7 +121,7 @@ func New(sess *session.Session, m *metainfo.MetaInfo, info meta.Info, basePath s
 
 	strategy := defaultStrategy(sess.Config.App.PiecePickStrategy)
 	d.piecePickStrategy.Store(uint32(strategy))
-	d.picker.Store(NewPiecePicker(info, completedBm, d.wantedBm))
+	d.picker.Store(NewPiecePicker(info, completedBm, d.wantedBm, nil, &d.piecePickStrategy, d.session.Debug))
 
 	d.peerList.d = d
 

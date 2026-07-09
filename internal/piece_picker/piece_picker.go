@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 
+	"go.uber.org/atomic"
+
 	"neptune/internal/meta"
 	"neptune/internal/pkg/bm"
 )
@@ -104,11 +106,14 @@ const priorityFactor = 3
 type PiecePicker struct {
 	completedBm        *bm.Bitmap
 	wantedBm           *bm.Bitmap
-	availability       []uint16
-	pieces             []uint32
+	strategy           *atomic.Uint32
+	chunkDoneBm        *bm.Bitmap
 	piecePriorities    []uint32
 	downloadingPieces  []downloadingPiece
 	blockInfos         blockStates
+	pieces             []uint32
+	availability       []uint16
+	info               meta.Info
 	blockSize          int64
 	downloadQueueSize  int
 	numWantLeft        int
@@ -116,6 +121,7 @@ type PiecePicker struct {
 	numCompletedPieces uint32
 	numPieces          uint32
 	blocksPerPiece     uint32
+	debug              bool
 	dirty              bool
 }
 
@@ -123,11 +129,12 @@ type PiecePicker struct {
 // completedBm is the Download's completed bitmap — the picker reads it directly
 // instead of maintaining its own copy.
 // wantedBm is the Download's wanted bitmap — tracks which pieces are selected.
-func NewPiecePicker(info meta.Info, completedBm *bm.Bitmap, wantedBm *bm.Bitmap) *PiecePicker {
+func NewPiecePicker(info meta.Info, completedBm *bm.Bitmap, wantedBm *bm.Bitmap, chunkDoneBm *bm.Bitmap, strategy *atomic.Uint32, debug bool) *PiecePicker {
 	numPieces := info.NumPieces
 	blocksPerPiece := uint32((info.PieceLength + meta.DefaultBlockSize - 1) / meta.DefaultBlockSize)
 
 	pp := &PiecePicker{
+		info:            info,
 		numPieces:       numPieces,
 		blocksPerPiece:  blocksPerPiece,
 		blockSize:       meta.DefaultBlockSize,
@@ -135,6 +142,9 @@ func NewPiecePicker(info meta.Info, completedBm *bm.Bitmap, wantedBm *bm.Bitmap)
 		piecePriorities: make([]uint32, numPieces),
 		pieces:          make([]uint32, numPieces),
 		completedBm:     completedBm,
+		chunkDoneBm:     chunkDoneBm,
+		strategy:        strategy,
+		debug:           debug,
 		wantedBm:        wantedBm,
 		dirty:           true,
 		blockInfos:      newBlockStates(int(numPieces) * int(blocksPerPiece)),

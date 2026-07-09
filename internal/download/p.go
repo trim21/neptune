@@ -83,6 +83,7 @@ func newPeer(
 		log:               l.Logger(),
 		Conn:              conn,
 		d:                 d,
+		peerCtx:           d.newPeerContext(),
 		Bitmap:            bm.New(d.info.NumPieces),
 		pieceUploadRate:   flowrate.New(time.Second, 5*time.Second),
 		pieceDownloadRate: flowrate.New(time.Second, 5*time.Second),
@@ -144,6 +145,7 @@ type peerImpl struct {
 	snubbedAt         atomic.Time
 	lastUnchokeAt     atomic.Time
 	d                 *Download
+	peerCtx           *PeerContext
 	cancel            context.CancelFunc
 	Bitmap            *bm.Bitmap
 	myRequests        *xsync.Map[proto.ChunkRequest, time.Time]
@@ -239,20 +241,20 @@ func (p *peerImpl) Close() {
 		// These operate on p's own data; always safe.
 		p.Bitmap.Range(func(u uint32) {
 			if !p.d.HasState(Seeding) {
-				p.d.picker.Load().DecRefcount(u)
+				p.peerCtx.Picker().DecRefcount(u)
 			}
 		})
 		// Abort blocks that were requested from the picker (sent to peer).
 		p.myRequests.Range(func(req proto.ChunkRequest, _ time.Time) bool {
 			bi := int(req.Begin / uint32(defaultBlockSize))
-			p.d.picker.Load().AbortDownload(req.PieceIndex, bi)
+			p.peerCtx.Picker().AbortDownload(req.PieceIndex, bi)
 			return true
 		})
 
 		// Also abort blocks that were picked but not yet sent.
 		p.rqMu.Lock()
 		for _, b := range p.requestQueue {
-			p.d.picker.Load().AbortDownload(b.PieceIndex, b.BlockIndex)
+			p.peerCtx.Picker().AbortDownload(b.PieceIndex, b.BlockIndex)
 		}
 		p.rqMu.Unlock()
 
@@ -310,7 +312,7 @@ func (p *peerImpl) sendBlockRequests() {
 
 		// Skip if peer is choking us (unless allowed fast)
 		if p.peerChoking.Load() && !p.allowFast.Contains(block.PieceIndex) {
-			p.d.picker.Load().AbortDownload(block.PieceIndex, block.BlockIndex)
+			p.peerCtx.Picker().AbortDownload(block.PieceIndex, block.BlockIndex)
 			continue
 		}
 
@@ -333,7 +335,74 @@ func (p *peerImpl) requestBlocks() {
 	if p.peerChoking.Load() && p.allowFast.Count() == 0 {
 		return
 	}
-	p.d.requestABlock(p)
+
+	p.requestABlock()
+}
+
+// requestABlock picks blocks using the global piece picker.
+func (p *peerImpl) requestABlock() {
+	ctx := p.peerCtx
+	if p.closed.Load() || !ctx.IsDownloading() {
+		return
+	}
+
+	desired := p.DesiredQueueSize()
+	outstanding := p.OutstandingRequests()
+	queued := p.QueueLen()
+
+	pickResult := ctx.Picker().RequestABlock(
+		p.LastPickResult(),
+		desired,
+		outstanding,
+		queued,
+		p.IsChoking(),
+		p.PeerBitmap(),
+		p.FastBitmap(),
+	)
+	p.SetLastPickResult(pickResult)
+	free := pickResult.FreeBlocks
+	busy := pickResult.BusyBlocks
+
+	if len(free) == 0 && len(busy) == 0 {
+		if ctx.IsDebug() {
+			s := fmt.Sprintf("skip: numReq=%d (desired=%d, myReq=%d, reqQ=%d), free=%d busy=%d",
+				desired-outstanding-queued, desired, outstanding, queued, len(free), len(busy))
+			p.SetLastPickDebug(s)
+		}
+		return
+	}
+
+	// Free blocks: enqueue and confirm.
+	for _, fb := range free {
+		if p.IsInQueue(pieceChunk(ctx.Info(), fb.PieceIndex, fb.BlockIndex)) {
+			continue
+		}
+		p.EnqueueBlock(fb.PieceIndex, fb.BlockIndex)
+		enqueueBlockDelay()
+		if p.closed.Load() {
+			continue
+		}
+		ctx.Picker().MarkAsRequesting(fb.PieceIndex, fb.BlockIndex)
+		ctx.Picker().AddDownloadingPiece(fb.PieceIndex, ctx.Info())
+	}
+
+	p.SendBlockRequests()
+
+	// Busy blocks (endgame): at most one to avoid burst.
+	for _, bb := range busy {
+		if p.IsInQueue(pieceChunk(ctx.Info(), bb.PieceIndex, bb.BlockIndex)) {
+			continue
+		}
+		p.EnqueueBlock(bb.PieceIndex, bb.BlockIndex)
+		enqueueBlockDelay()
+		if p.closed.Load() {
+			continue
+		}
+		ctx.Picker().MarkAsRequesting(bb.PieceIndex, bb.BlockIndex)
+		ctx.Picker().AddDownloadingPiece(bb.PieceIndex, ctx.Info())
+		p.SendBlockRequests()
+		return
+	}
 }
 
 // updateDesiredQueueSize computes the desired number of outstanding requests
@@ -438,7 +507,7 @@ func (p *peerImpl) checkRequestTimeouts() {
 				// Abort each timed-out block individually so other peers can pick them up.
 				for _, req := range timedOutReqs {
 					bi := int(req.Begin / uint32(defaultBlockSize))
-					p.d.picker.Load().AbortDownload(req.PieceIndex, bi)
+					p.peerCtx.Picker().AbortDownload(req.PieceIndex, bi)
 					p.myRequests.Delete(req)
 				}
 
@@ -453,7 +522,7 @@ func (p *peerImpl) checkRequestTimeouts() {
 					// Clear all remaining in-flight requests on snub.
 					p.myRequests.Range(func(req proto.ChunkRequest, _ time.Time) bool {
 						bi := int(req.Begin / uint32(defaultBlockSize))
-						p.d.picker.Load().AbortDownload(req.PieceIndex, bi)
+						p.peerCtx.Picker().AbortDownload(req.PieceIndex, bi)
 						p.myRequests.Delete(req)
 						return true
 					})
@@ -603,7 +672,7 @@ func (p *peerImpl) start(skipHandshake bool) {
 			// Update picker: increment refcount for each piece the peer has
 			event.Bitmap.Range(func(u uint32) {
 				if !p.d.HasState(Seeding) {
-					p.d.picker.Load().IncRefcount(u)
+					p.peerCtx.Picker().IncRefcount(u)
 				}
 			})
 			if !p.isSeed.Load() && p.Bitmap.Count() == p.d.info.NumPieces {
@@ -619,7 +688,7 @@ func (p *peerImpl) start(skipHandshake bool) {
 
 			p.Bitmap.Set(event.Index)
 			if !p.d.HasState(Seeding) {
-				p.d.picker.Load().IncRefcount(event.Index)
+				p.peerCtx.Picker().IncRefcount(event.Index)
 			}
 			if !p.isSeed.Load() && p.Bitmap.Count() == p.d.info.NumPieces {
 				p.isSeed.Store(true)
@@ -722,7 +791,7 @@ func (p *peerImpl) start(skipHandshake bool) {
 			if event.ExtensionID == p.extDontHaveID.Load() {
 				p.Bitmap.Unset(event.Index)
 				if !p.d.HasState(Seeding) {
-					p.d.picker.Load().DecRefcount(event.Index)
+					p.peerCtx.Picker().DecRefcount(event.Index)
 				}
 				continue
 			}
@@ -732,13 +801,13 @@ func (p *peerImpl) start(skipHandshake bool) {
 			// Decrement old pieces before replacing bitmap with full set
 			p.Bitmap.Range(func(u uint32) {
 				if !p.d.HasState(Seeding) {
-					p.d.picker.Load().DecRefcount(u)
+					p.peerCtx.Picker().DecRefcount(u)
 				}
 			})
 			p.Bitmap.Fill()
 			if !p.d.HasState(Seeding) {
 				for i := range p.d.info.NumPieces {
-					p.d.picker.Load().IncRefcount(i)
+					p.peerCtx.Picker().IncRefcount(i)
 				}
 			}
 			p.isSeed.Store(true)
@@ -747,7 +816,7 @@ func (p *peerImpl) start(skipHandshake bool) {
 			// Decrement old pieces before clearing
 			p.Bitmap.Range(func(u uint32) {
 				if !p.d.HasState(Seeding) {
-					p.d.picker.Load().DecRefcount(u)
+					p.peerCtx.Picker().DecRefcount(u)
 				}
 			})
 			p.Bitmap.Clear()
@@ -760,7 +829,7 @@ func (p *peerImpl) start(skipHandshake bool) {
 
 			// Abort in the picker so other peers can request this block.
 			bi := int(event.Req.Begin / uint32(defaultBlockSize))
-			p.d.picker.Load().AbortDownload(event.Req.PieceIndex, bi)
+			p.peerCtx.Picker().AbortDownload(event.Req.PieceIndex, bi)
 
 			// Remove matching entry from requestQueue if present.
 			p.rqMu.Lock()
@@ -774,7 +843,7 @@ func (p *peerImpl) start(skipHandshake bool) {
 			p.rqMu.Unlock()
 
 			// Libtorrent: request_a_block if queue is empty, then send_block_requests.
-			p.d.requestABlock(p)
+			p.requestABlock()
 		case proto.AllowedFast:
 			if event.Index >= p.d.info.NumPieces {
 				p.log.Debug().Uint32("index", event.Index).Msg("peer send 'AllowedFast' message with invalid index")

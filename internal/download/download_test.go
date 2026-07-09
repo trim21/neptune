@@ -25,6 +25,7 @@ func newRequestABlockFixture(t *testing.T, numPieces uint32) (*Download, *mockPe
 
 	// Create a mock peer whose bitmap covers all pieces.
 	p := newMockPeer()
+	p.dl = d
 	p.setNumPieces(numPieces)
 	p.info = d.info
 	p.bitmap.Fill()     // peer has all pieces
@@ -40,20 +41,20 @@ func newRequestABlockFixture(t *testing.T, numPieces uint32) (*Download, *mockPe
 }
 
 func TestRequestABlock_ClosedPeer(t *testing.T) {
-	d, p := newRequestABlockFixture(t, 5)
+	_, p := newRequestABlockFixture(t, 5)
 	p.setClosed(true)
 
-	d.requestABlock(p)
+	p.requestABlock()
 
 	require.Empty(t, p.enqueuedBlocks, "closed peer should not enqueue blocks")
 	require.Equal(t, 0, p.sendBlockCalled, "closed peer should not call sendBlockRequests")
 }
 
 func TestRequestABlock_ChokedNoFastPieces(t *testing.T) {
-	d, p := newRequestABlockFixture(t, 5)
+	_, p := newRequestABlockFixture(t, 5)
 	p.setChoking(true) // peer is choking us, no fast pieces
 
-	d.requestABlock(p)
+	p.requestABlock()
 
 	// The picker may return zero free blocks because the peer is choking
 	// and has no fast pieces. requestABlock should return without error.
@@ -61,28 +62,28 @@ func TestRequestABlock_ChokedNoFastPieces(t *testing.T) {
 }
 
 func TestRequestABlock_UnchokedPeerEnqueuesBlocks(t *testing.T) {
-	d, p := newRequestABlockFixture(t, 5)
+	_, p := newRequestABlockFixture(t, 5)
 	// p is unchoked, has all 5 pieces, wants 8 requests
 
-	d.requestABlock(p)
+	p.requestABlock()
 	require.NotEmpty(t, p.enqueuedBlocks, "unchoked peer should enqueue blocks")
 	require.Equal(t, 1, p.sendBlockCalled, "should call SendBlockRequests once")
 }
 
 func TestRequestABlock_QueueFull(t *testing.T) {
-	d, p := newRequestABlockFixture(t, 5)
+	_, p := newRequestABlockFixture(t, 5)
 	// desiredSize=8, already has 8 outstanding + 0 queued → numRequests=0
 	p.setDesiredSize(8)
 	p.setOutstanding(8)
 
-	d.requestABlock(p)
+	p.requestABlock()
 
 	require.Empty(t, p.enqueuedBlocks, "full queue should not enqueue more")
 	require.Equal(t, 0, p.sendBlockCalled)
 }
 
 func TestRequestABlock_QueueFullWithQueued(t *testing.T) {
-	d, p := newRequestABlockFixture(t, 5)
+	_, p := newRequestABlockFixture(t, 5)
 	// desiredSize=8, outstanding=4, queued=4 → numRequests=0
 	p.setDesiredSize(8)
 	p.setOutstanding(4)
@@ -93,7 +94,7 @@ func TestRequestABlock_QueueFullWithQueued(t *testing.T) {
 		{PieceIndex: 0, BlockIndex: 3},
 	}
 
-	d.requestABlock(p)
+	p.requestABlock()
 
 	require.Empty(t, p.enqueuedBlocks, "full queue should not enqueue more")
 	require.Equal(t, 0, p.sendBlockCalled)
@@ -103,7 +104,7 @@ func TestRequestABlock_IsInQueueSkipsDuplicates(t *testing.T) {
 	d, p := newRequestABlockFixture(t, 5)
 	// First call: startup mode, picker returns 1 block.
 	// This enters the piece into downloadingPieces (via addDownloadingPiece).
-	d.requestABlock(p)
+	p.requestABlock()
 	require.NotEmpty(t, p.enqueuedBlocks, "first call should enqueue a startup block")
 
 	// Record what block was enqueued and add it to in-queue set.
@@ -117,7 +118,7 @@ func TestRequestABlock_IsInQueueSkipsDuplicates(t *testing.T) {
 	// (not yet sent, not marked in picker), all blocks are still blockStateNone.
 	// The picker will return them all as free, and IsInQueue skips block 0.
 	enqueuedBefore := len(p.enqueuedBlocks)
-	d.requestABlock(p)
+	p.requestABlock()
 
 	// Should have enqueued new blocks (skipping the one already in queue).
 	require.Greater(t, len(p.enqueuedBlocks), enqueuedBefore,
@@ -138,7 +139,7 @@ func TestRequestABlock_CompletedPieceSkipped(t *testing.T) {
 
 	// Only pieces 1, 2 are available in picker now.
 	// Peer bitmap has all pieces.
-	d.requestABlock(p)
+	p.requestABlock()
 
 	// Verify no blocks for piece 0 were enqueued
 	for _, b := range p.enqueuedBlocks {
@@ -150,7 +151,7 @@ func TestRequestABlock_EndgameBusyBlocks(t *testing.T) {
 	d, p := newRequestABlockFixture(t, 5)
 
 	// First call: startup mode — enters one piece into downloadingPieces.
-	d.requestABlock(p)
+	p.requestABlock()
 	firstPiece := p.enqueuedBlocks[0].PieceIndex
 
 	// Add a DIFFERENT piece (piece 0) to downloading, then mark blocks 1-3
@@ -172,7 +173,7 @@ func TestRequestABlock_EndgameBusyBlocks(t *testing.T) {
 	p.queued = p.queued[:0]
 	p.setDesiredSize(100)
 
-	d.requestABlock(p)
+	p.requestABlock()
 
 	// Piece with 1 free + 3 busy blocks should appear in partial pieces path.
 	require.NotEmpty(t, p.lastPickRes.BusyBlocks, "should have busy blocks from mixed piece")
@@ -184,7 +185,7 @@ func TestRequestABlock_AllPiecesCompleted(t *testing.T) {
 	d, p := newRequestABlockFixture(t, 3)
 	d.completedBm.Fill() // all pieces done
 
-	d.requestABlock(p)
+	p.requestABlock()
 
 	require.Empty(t, p.enqueuedBlocks, "no blocks when all pieces completed")
 	require.Equal(t, 0, p.sendBlockCalled)
@@ -193,19 +194,19 @@ func TestRequestABlock_AllPiecesCompleted(t *testing.T) {
 func TestRequestABlock_HasPartialCapacity(t *testing.T) {
 	// First call: startup mode returns 1 block (adds piece to downloadingPieces).
 	// Second call: partial pieces path returns all remaining free blocks.
-	d, p := newRequestABlockFixture(t, 5)
+	_, p := newRequestABlockFixture(t, 5)
 	p.setDesiredSize(8)
 	p.setOutstanding(3) // numRequests = 8 - 3 - 0 = 5
 
 	// First call — startup mode, 1 block
-	d.requestABlock(p)
+	p.requestABlock()
 	require.Len(t, p.enqueuedBlocks, 1, "startup mode returns exactly 1 block")
 
 	// Prepare for second call: simulate that the startup block was sent.
 	p.setOutstanding(3 + 1) // startup block now outstanding
 
 	// Second call — partial pieces path, fills remaining capacity
-	d.requestABlock(p)
+	p.requestABlock()
 	// Should have enqueued additional blocks up to capacity.
 	require.GreaterOrEqual(t, len(p.enqueuedBlocks), 2,
 		"should enqueue additional blocks on second call")

@@ -12,7 +12,12 @@ import (
 	"neptune/internal/proto"
 )
 
-// PeerInterface defines the full contract for a BitTorrent peer connection.
+// PeerInterface defines the management contract for a BitTorrent peer connection.
+// Download uses this to manage peers (close, have, upload, stats, debug).
+// Scheduling methods (requestABlock, sendBlockRequests, etc.) are NOT on this
+// interface — they live on *peerImpl and are accessed via the private scheduler
+// interface where needed.
+//
 // In dev builds (!release), Peer is this interface, enabling mock-based testing.
 // In release builds, Peer is *peerImpl — a concrete pointer with zero dispatch overhead.
 type PeerInterface interface {
@@ -56,21 +61,6 @@ type PeerInterface interface {
 	DownloadTotal() int64
 	UpdateDownloadRate(bytes int)
 	UpdateUploadRate(bytes int)
-
-	// ── Request queue (download side) ────────────────────────────────
-	OutstandingRequests() int
-	QueueLen() int
-	IsInQueue(chunk proto.ChunkRequest) bool
-	EnqueueBlock(pieceIndex uint32, blockIndex int)
-	SendBlockRequests()
-	Request(chunk proto.ChunkRequest)
-	DesiredQueueSize() int
-
-	// ── Picker integration ───────────────────────────────────────────
-	LastPickResult() PickResult
-	SetLastPickResult(r PickResult)
-	LastPickDebug() string
-	SetLastPickDebug(s string)
 
 	// ── Peer requests (upload side) ──────────────────────────────────
 	PeerRequestCount() int

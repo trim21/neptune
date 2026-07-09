@@ -91,7 +91,7 @@ func FuzzStaleRequest(f *testing.F) {
 				}
 				d.peers.Range(func(_ uint64, p Peer) bool {
 					if !p.Closed() {
-						d.requestABlock(p)
+						p.(*mockPeer).requestABlock()
 					}
 					return true
 				})

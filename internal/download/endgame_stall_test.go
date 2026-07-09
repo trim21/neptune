@@ -88,5 +88,5 @@ func pickerEnv(numPieces uint32, blocksPerPiece uint32) (*PiecePicker, meta.Info
 	wantedBm := bm.New(info.NumPieces)
 	wantedBm.Fill()
 
-	return NewPiecePicker(info, completedBm, wantedBm), info
+	return NewPiecePicker(info, completedBm, wantedBm, nil, nil, false), info
 }

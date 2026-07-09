@@ -40,7 +40,7 @@ func TestStallZombiePiece(t *testing.T) {
 	wantedBm := bm.New(numPieces)
 	wantedBm.Fill()
 
-	pp := NewPiecePicker(info, completedBm, wantedBm)
+	pp := NewPiecePicker(info, completedBm, wantedBm, nil, nil, false)
 	peerBitfield := bm.New(numPieces)
 	peerBitfield.Fill()
 
@@ -126,7 +126,7 @@ func FuzzStallNearCompletion(f *testing.F) {
 		wantedBm := bm.New(numPieces)
 		wantedBm.Fill()
 
-		pp := NewPiecePicker(info, completedBm, wantedBm)
+		pp := NewPiecePicker(info, completedBm, wantedBm, nil, nil, false)
 		peerBitfield := bm.New(numPieces)
 		peerBitfield.Fill()
 
