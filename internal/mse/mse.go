@@ -18,6 +18,7 @@ type SecretKeyIter = mse.SecretKeyIter
 const (
 	CryptoMethodPlaintext = mse.CryptoMethodPlaintext
 	CryptoMethodRC4       = mse.CryptoMethodRC4
+	AllSupportedCrypto    = mse.AllSupportedCrypto
 )
 
 func DefaultCryptoSelector(provided CryptoMethod) CryptoMethod {
@@ -59,8 +60,8 @@ func NewAccept(conn net.Conn, keys []metainfo.Hash, selector mse.CryptoSelector)
 	return wrappedConn{rw: rw, Conn: conn}, method, err
 }
 
-func NewConnection(infoHash []byte, conn net.Conn) (net.Conn, CryptoMethod, error) {
-	ret, method, err := mse.InitiateHandshake(conn, infoHash, nil, mse.AllSupportedCrypto)
+func NewConnection(infoHash []byte, conn net.Conn, cryptoProvides CryptoMethod) (net.Conn, CryptoMethod, error) {
+	ret, method, err := mse.InitiateHandshake(conn, infoHash, nil, cryptoProvides)
 	if err != nil {
 		return nil, 0, err
 	}

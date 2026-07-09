@@ -44,7 +44,7 @@ func BenchmarkMSE(b *testing.B) {
 	var handleClient = func(conn net.Conn) {
 		defer conn.Close()
 
-		rw, _, err := mse.NewConnection(hash[:], conn)
+		rw, _, err := mse.NewConnection(hash[:], conn, mse.AllSupportedCrypto)
 		if err != nil {
 			panic(err)
 		}
@@ -107,7 +107,7 @@ func TestRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	defer conn.Close()
 
-	rw, method, err := mse.NewConnection(hash[:], conn)
+	rw, method, err := mse.NewConnection(hash[:], conn, mse.AllSupportedCrypto)
 	require.NoError(t, err)
 	assert.Equal(t, mse.CryptoMethodPlaintext, method)
 
@@ -158,7 +158,7 @@ func TestForceCrypto(t *testing.T) {
 	require.NoError(t, err)
 	defer conn.Close()
 
-	rw, method, err := mse.NewConnection(hash[:], conn)
+	rw, method, err := mse.NewConnection(hash[:], conn, mse.AllSupportedCrypto)
 	require.NoError(t, err)
 	assert.Equal(t, mse.CryptoMethodRC4, method)
 

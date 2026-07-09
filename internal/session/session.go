@@ -38,29 +38,30 @@ import (
 // limiters, file pool, DHT, and configuration constants that do not change
 // after startup.
 type Session struct {
-	Ctx               context.Context
-	UploadLimiter     *ratelimit.Limiter
-	IPv4              atomic.Pointer[netip.Addr]
-	DHT               *dht.DHT
-	FilePool          *filepool.FilePool
-	HTTP              *resty.Client
-	ConnSem           *semaphore.Weighted
-	IPv6              atomic.Pointer[netip.Addr]
-	UploadQ           chan func()
-	DownloadLimiter   *ratelimit.Limiter
-	Cancel            context.CancelFunc
-	MSESelector       mse.CryptoSelector
-	PieceUploadRate   *flowrate.Monitor
-	PieceDownloadRate *flowrate.Monitor
-	ResumePath        string
-	TorrentPath       string
-	randKey           []byte
-	Config            config.Config
-	RecheckOnComplete atomic.Bool
-	ConnCount         atomic.Uint32
-	MSEForce          bool
-	MSEEnabled        bool
-	Debug             bool
+	Ctx                context.Context
+	MSESelector        mse.CryptoSelector
+	DownloadLimiter    *ratelimit.Limiter
+	DHT                *dht.DHT
+	FilePool           *filepool.FilePool
+	HTTP               *resty.Client
+	ConnSem            *semaphore.Weighted
+	IPv6               atomic.Pointer[netip.Addr]
+	PieceUploadRate    *flowrate.Monitor
+	UploadLimiter      *ratelimit.Limiter
+	Cancel             context.CancelFunc
+	IPv4               atomic.Pointer[netip.Addr]
+	PieceDownloadRate  *flowrate.Monitor
+	UploadQ            chan func()
+	ResumePath         string
+	TorrentPath        string
+	randKey            []byte
+	Config             config.Config
+	RecheckOnComplete  atomic.Bool
+	ConnCount          atomic.Uint32
+	MSEPreferredCrypto mse.CryptoMethod
+	MSEForce           bool
+	MSEEnabled         bool
+	Debug              bool
 }
 
 // New creates a Session for a neptune process.
@@ -69,14 +70,21 @@ func New(cfg config.Config, sessionPath string, debug bool) *Session {
 
 	var outgoingMseDisabled bool
 	var mseSelector mse.CryptoSelector
+	var msePreferredCrypto mse.CryptoMethod
 	switch cfg.App.Crypto {
 	case "force":
 		mseSelector = mse.ForceCrypto
+		msePreferredCrypto = mse.AllSupportedCrypto
 	case "", "prefer":
 		mseSelector = mse.PreferCrypto
+		msePreferredCrypto = mse.AllSupportedCrypto
+	case "prefer-no-encryption":
+		mseSelector = mse.DefaultCryptoSelector
+		msePreferredCrypto = mse.CryptoMethodPlaintext
 	case "none":
 		outgoingMseDisabled = true
 		mseSelector = mse.DefaultCryptoSelector
+		msePreferredCrypto = mse.CryptoMethodPlaintext
 	default:
 		panic(fmt.Sprintf(
 			"invalid `application.crypto` config %q",
@@ -120,9 +128,10 @@ func New(cfg config.Config, sessionPath string, debug bool) *Session {
 		PieceDownloadRate: flowrate.New(time.Second, 5*time.Second),
 		PieceUploadRate:   flowrate.New(time.Second, 5*time.Second),
 
-		MSEEnabled:  !outgoingMseDisabled,
-		MSEForce:    cfg.App.Crypto == "force",
-		MSESelector: mseSelector,
+		MSEEnabled:         !outgoingMseDisabled,
+		MSEForce:           cfg.App.Crypto == "force",
+		MSESelector:        mseSelector,
+		MSEPreferredCrypto: msePreferredCrypto,
 
 		ResumePath:  filepath.Join(sessionPath, "resume"),
 		TorrentPath: filepath.Join(sessionPath, "torrents"),

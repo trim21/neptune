@@ -104,7 +104,7 @@ func (d *Download) tryDial(pp *persistentPeer) {
 	var encrypted bool
 	if d.session.MSEEnabled {
 		infoHash := d.info.Hash.AsString()
-		mseConn, method, mseErr := mse.NewConnection([]byte(infoHash), conn)
+		mseConn, method, mseErr := mse.NewConnection([]byte(infoHash), conn, d.session.MSEPreferredCrypto)
 		if mseErr != nil {
 			if d.session.MSEForce {
 				_ = conn.Close()
