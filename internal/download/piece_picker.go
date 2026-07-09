@@ -8,6 +8,7 @@ import (
 	"math/rand/v2"
 	"slices"
 	"sort"
+	"strings"
 	"sync"
 
 	"neptune/internal/meta"
@@ -196,6 +197,16 @@ func (pp *piecePicker) decRefcount(pieceIndex uint32) {
 	if pp.availability[pieceIndex] == 0 {
 		pp.dirty = true
 	}
+}
+
+// pieceIsAvailable returns true if pieceIndex has at least one peer with it.
+func (pp *piecePicker) pieceIsAvailable(pieceIndex uint32) bool {
+	if pp == nil {
+		return false
+	}
+	pp.mu.Lock()
+	defer pp.mu.Unlock()
+	return pp.availability[pieceIndex] > 0
 }
 
 // weHave marks a piece as completed (we now have it).
@@ -907,4 +918,74 @@ func (pp *piecePicker) removeDownloadingPieceUnsafe(pieceIndex uint32) {
 			return
 		}
 	}
+}
+
+// debugDump writes detailed picker state to string.
+func (pp *piecePicker) debugDump(info meta.Info) string {
+	pp.mu.Lock()
+	defer pp.mu.Unlock()
+	return pp.debugDumpUnsafe(info)
+}
+
+// debugDumpUnsafe writes detailed picker state to buf. Caller must hold pp.mu.
+func (pp *piecePicker) debugDumpUnsafe(info meta.Info) string {
+	var buf strings.Builder
+	fmt.Fprintf(&buf, "numPieces=%d numWantLeft=%d downloadQueueSize=%d\n",
+		pp.numPieces, pp.numWantLeft, pp.downloadQueueSize)
+	fmt.Fprintf(&buf, "pieces(available): %d, downloadingPieces: %d\n",
+		len(pp.pieces), len(pp.downloadingPieces))
+
+	fmt.Fprintf(&buf, "--- pieces ---\n")
+	for _, pi := range pp.pieces {
+		fmt.Fprintf(&buf, "  %d avail=%d\n", pi, pp.availability[pi])
+	}
+
+	fmt.Fprintf(&buf, "--- downloadingPieces ---\n")
+	for _, dp := range pp.downloadingPieces {
+		idx := pp.blockInfoIdx(dp.index)
+		nb := pp.numBlocksInPiece(info, dp.index)
+		var free, req, resp int
+		for i := range int(nb) {
+			switch pp.blockInfos.get(idx + i) {
+			case blockStateNone:
+				free++
+			case blockStateRequested:
+				req++
+			case blockStateResponded:
+				resp++
+			}
+		}
+		state := fmt.Sprintf("f=%d r=%d d=%d", free, req, resp)
+		if dp.passedHashCheck {
+			state += " hashOK"
+		}
+		fmt.Fprintf(&buf, "  %d: %s (in-piece req=%d resp=%d)\n",
+			dp.index, state, dp.requested, dp.responded)
+	}
+
+	fmt.Fprintf(&buf, "--- all pieces by block state ---\n")
+	for pi := range pp.numPieces {
+		if pp.completedBm.Contains(pi) {
+			fmt.Fprintf(&buf, "  %d COMPLETE\n", pi)
+			continue
+		}
+		idx := pp.blockInfoIdx(pi)
+		nb := pp.numBlocksInPiece(info, pi)
+		var free, req, resp int
+		for i := range int(nb) {
+			switch pp.blockInfos.get(idx + i) {
+			case blockStateNone:
+				free++
+			case blockStateRequested:
+				req++
+			case blockStateResponded:
+				resp++
+			}
+		}
+		inDl := pp.findDownloadingPiece(pi) != nil
+		fmt.Fprintf(&buf, "  %d f=%d r=%d d=%d inDl=%v avail=%d\n",
+			pi, free, req, resp, inDl, pp.availability[pi])
+	}
+
+	return buf.String()
 }

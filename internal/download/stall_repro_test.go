@@ -217,8 +217,8 @@ func FuzzStallNearCompletion(f *testing.F) {
 	f.Add(uint32(8), uint32(6), int64(9999))
 
 	f.Fuzz(func(t *testing.T, numPieces uint32, blocksPerPiece uint32, seed int64) {
-		numPieces = clamp(numPieces, 2, 20)
-		blocksPerPiece = clamp(blocksPerPiece, 2, 10)
+		numPieces = max(2, min(numPieces, 20))
+		blocksPerPiece = max(2, min(blocksPerPiece, 10))
 
 		info := meta.Info{
 			NumPieces:     numPieces,
@@ -372,16 +372,6 @@ func TestStall_NewPickerDoesntInheritDownloadingPieces(t *testing.T) {
 			t.Error("OLD picker leaked completed+zombie piece 0 as busy block")
 		}
 	}
-}
-
-func clamp(v, lo, hi uint32) uint32 {
-	if v < lo {
-		return lo
-	}
-	if v > hi {
-		return hi
-	}
-	return v
 }
 
 // TestStallEndgamePicksFreeZeroPieces verifies that in endgame mode

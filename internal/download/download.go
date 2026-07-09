@@ -309,7 +309,21 @@ func (d *Download) handlePieceFromHeap(index uint32) {
 	piecePiEnd := piecePiStart + uint32(d.info.PieceBlockCount(index))
 
 	var pendingChunks []*proto.ChunkResponse
+	// seen tracks which block pis we already have (from heap OR done bitmap).
+	// Pre-populate from done bitmap so endgame duplicates don't cause
+	// double-counting when a block is both done and pending.
 	seen := make([]bool, piecePiEnd-piecePiStart)
+	d.chunk.mu.RLock()
+	for i := piecePiStart; i < piecePiEnd; i++ {
+		seen[i-piecePiStart] = d.chunk.done.Contains(i)
+	}
+	doneCount := 0
+	for _, s := range seen {
+		if s {
+			doneCount++
+		}
+	}
+	d.chunk.mu.RUnlock()
 
 	for _, chunk := range d.chunk.heap.Data {
 		if chunk.res.PieceIndex == index {
@@ -320,16 +334,6 @@ func (d *Download) handlePieceFromHeap(index uint32) {
 			}
 		}
 	}
-
-	// Count already-done chunks for this piece.
-	d.chunk.mu.RLock()
-	doneCount := 0
-	for i := piecePiStart; i < piecePiEnd; i++ {
-		if d.chunk.done.Contains(i) {
-			doneCount++
-		}
-	}
-	d.chunk.mu.RUnlock()
 
 	totalNeeded := d.info.PieceBlockCount(index)
 	if len(pendingChunks)+doneCount != totalNeeded {

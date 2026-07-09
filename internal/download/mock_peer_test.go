@@ -130,6 +130,10 @@ func (m *mockPeer) Close() {
 			m.dl.picker.Load().abortDownload(b.pieceIndex, b.blockIndex)
 		}
 		m.mu.Unlock()
+		// Decrement picker refcount for all pieces this peer had.
+		m.bitmap.Range(func(u uint32) {
+			m.dl.picker.Load().decRefcount(u)
+		})
 	}
 	m.closedCalled = true
 }
