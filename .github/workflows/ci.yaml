@@ -88,35 +88,36 @@ jobs:
     steps:
       - run: echo success
 
-  fuzz:
+  fuzz-download-1:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.0
-
       - uses: trim21/actions/setup-go@master
         with:
           cache-namespace: fuzz
+      - run: go test -race -fuzz=FuzzDownloadMultiPeer_Async -fuzztime=30s ./internal/download/
+      - run: go test -race -fuzz=FuzzHandleRes -fuzztime=30s ./internal/download/
+      - run: go test -race -fuzz=FuzzHandleResDuplicates -fuzztime=30s ./internal/download/
 
-      - name: Fuzz download multi-peer async
-        run: go test -fuzz=FuzzDownloadMultiPeer_Async -fuzztime=30s ./internal/download/
+  fuzz-download-2:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - uses: trim21/actions/setup-go@master
+        with:
+          cache-namespace: fuzz
+      - run: go test -race -fuzz=FuzzPickerDownloadIntegration -fuzztime=30s ./internal/download/
+      - run: go test -race -fuzz=FuzzStaleRequest -fuzztime=30s ./internal/download/
+      - run: go test -race -fuzz=FuzzFullDownload -fuzztime=30s ./internal/download/
 
-      - name: Fuzz handleRes
-        run: go test -fuzz=FuzzHandleRes -fuzztime=30s ./internal/download/
-
-      - name: Fuzz handleRes duplicates
-        run: go test -fuzz=FuzzHandleResDuplicates -fuzztime=30s ./internal/download/
-
-      - name: Fuzz picker download integration
-        run: go test -fuzz=FuzzPickerDownloadIntegration -fuzztime=30s ./internal/download/
-
-      - name: Fuzz stale request
-        run: go test -fuzz=FuzzStaleRequest -fuzztime=30s ./internal/download/
-
-      - name: Fuzz full download
-        run: go test -fuzz=FuzzFullDownload -fuzztime=30s ./internal/download/
-
-      - name: Fuzz piece picker
-        run: go test -fuzz=FuzzPiecePicker -fuzztime=30s ./internal/piece_picker/
+  fuzz-piece-picker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - uses: trim21/actions/setup-go@master
+        with:
+          cache-namespace: fuzz
+      - run: go test -race -fuzz=. -fuzztime=30s ./internal/piece_picker/
 
   license:
     runs-on: ubuntu-latest
