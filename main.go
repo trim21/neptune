@@ -81,7 +81,7 @@ func main() {
 	var lc net.ListenConfig
 	listener, err := lc.Listen(context.Background(), "tcp", address)
 	if err != nil {
-		_, _ = fmt.Fprintln(os.Stderr, "failed to start heep server")
+		_, _ = fmt.Fprintf(os.Stderr, "failed to start http server: %v\n", err)
 		os.Exit(1)
 	}
 
