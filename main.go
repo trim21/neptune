@@ -78,10 +78,21 @@ func main() {
 
 	initResourceLimit()
 
+	var network string
+	if strings.HasPrefix(address, "/") {
+		network = "unix"
+	} else {
+		network = "tcp"
+	}
+
+	if network == "unix" {
+		_ = os.Remove(address) // clean up stale socket file, ignore error
+	}
+
 	var lc net.ListenConfig
-	listener, err := lc.Listen(context.Background(), "tcp", address)
+	listener, err := lc.Listen(context.Background(), network, address)
 	if err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "failed to start http server: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "failed to start http server on %s: %v\n", address, err)
 		os.Exit(1)
 	}
 
@@ -95,7 +106,11 @@ func main() {
 
 	go func() {
 		server := web.New(app, webToken, debug)
-		fmt.Println("start", "http://"+address)
+		if network == "unix" {
+			fmt.Println("start", "unix://"+address)
+		} else {
+			fmt.Println("start", "http://"+address)
+		}
 
 		listener = conntrack.NewListener(listener, conntrack.TrackWithTracing(), conntrack.TrackWithName("rpc"))
 
