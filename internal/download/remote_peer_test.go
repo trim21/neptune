@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"net"
 	"net/netip"
 	"time"
@@ -21,13 +22,13 @@ type remotePeer struct {
 	r            io.Reader
 	w            io.Writer
 	bm           *bm.Bitmap
-	rng          *seededRand
+	rng          *rand.Rand
 	bufferedReqs []proto.ChunkRequest
 	peerID       proto.PeerID
 	readBuf      [20]byte
 }
 
-func newRemotePeer(rw io.ReadWriter, pieces *bm.Bitmap, peerID proto.PeerID, rng *seededRand) *remotePeer {
+func newRemotePeer(rw io.ReadWriter, pieces *bm.Bitmap, peerID proto.PeerID, rng *rand.Rand) *remotePeer {
 	return &remotePeer{r: rw, w: rw, bm: pieces, peerID: peerID, rng: rng}
 }
 
@@ -60,7 +61,7 @@ func (rp *remotePeer) randomSleep(maxValue time.Duration) {
 	if maxValue <= 0 {
 		return
 	}
-	d := time.Duration(rp.rng.next() % uint64(maxValue))
+	d := time.Duration(rp.rng.Uint64() % uint64(maxValue))
 	if d > 0 {
 		time.Sleep(d)
 	}
@@ -193,7 +194,7 @@ func parseRequest(payload []byte) proto.ChunkRequest {
 	}
 }
 
-func pipePeer(d *Download, addr netip.AddrPort, pieces *bm.Bitmap, peerID proto.PeerID, rng *seededRand) (*remotePeer, Peer) {
+func pipePeer(d *Download, addr netip.AddrPort, pieces *bm.Bitmap, peerID proto.PeerID, rng *rand.Rand) (*remotePeer, Peer) {
 	_ = d.session.ConnSem.Acquire(d.ctx, 1)
 	d.session.ConnCount.Add(1)
 	local, remote := net.Pipe()

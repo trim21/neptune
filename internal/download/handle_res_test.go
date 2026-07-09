@@ -9,6 +9,7 @@ import (
 	"context"
 	"crypto/sha1"
 	"fmt"
+	"math/rand/v2"
 	"net/netip"
 	"slices"
 	"strings"
@@ -338,7 +339,6 @@ func TestHandleResLargePiece(t *testing.T) {
 // FuzzHandleRes uses Go's fuzzing engine to randomize chunk arrival order
 // and verify the synchronous state machine invariants hold for any order.
 func FuzzHandleRes(f *testing.F) {
-	// Seed corpus with a few known-good seeds.
 	f.Add(int64(42))
 	f.Add(int64(12345))
 	f.Add(int64(1))
@@ -348,6 +348,7 @@ func FuzzHandleRes(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, seed int64) {
 		d := newTestDownload(t, numPieces, blocksPerPiece, piece_store.NewMemStore)
+		d.state.Store(uint32(Downloading))
 
 		var all []chunkDesc
 		for pi := range uint32(numPieces) {
@@ -361,39 +362,97 @@ func FuzzHandleRes(f *testing.F) {
 			}
 		}
 
-		// Fisher-Yates shuffle with deterministic seed.
-		rng := &seededRand{seed: uint64(seed)}
-		for i := len(all) - 1; i > 0; i-- {
-			j := rng.next() % uint64(i+1)
+		rng := rand.New(rand.NewPCG(uint64(seed), uint64(seed)>>32))
+		rng.Shuffle(len(all), func(i, j int) {
 			all[i], all[j] = all[j], all[i]
-		}
+		})
+
+		d.resChan = make(chan *proto.ChunkResponse, len(all))
+		go d.backgroundResHandler()
 
 		for _, c := range all {
-			d.handleRes(&proto.ChunkResponse{
+			d.resChan <- &proto.ChunkResponse{
 				PieceIndex: c.pieceIndex, Begin: c.begin,
 				Data: make([]byte, c.length),
-			})
+			}
 		}
 
-		// Cancel context to signal async checkPiece goroutines to stop, then
-		// wait briefly for them to drain before checking invariants.
-		d.cancel()
-		time.Sleep(10 * time.Millisecond)
-
-		if h := d.chunk.heap.Len(); h != 0 || !allDone(d) {
-			t.Errorf("seed=%d heap=%d\n%s", seed, h, dumpState(d))
-		}
+		waitDownloadDone(t, d, numPieces, seed)
 	})
 }
 
-// seededRand is a minimal xorshift64* RNG, sufficient for deterministic shuffles.
-type seededRand struct {
-	seed uint64
+// FuzzHandleResDuplicates sends 2-4 copies of every chunk in random order,
+// stressing endgame duplicate handling.
+func FuzzHandleResDuplicates(f *testing.F) {
+	f.Add(int64(42))
+	f.Add(int64(12345))
+
+	const numPieces = 5
+	const blocksPerPiece = 4
+
+	f.Fuzz(func(t *testing.T, seed int64) {
+		d := newTestDownload(t, numPieces, blocksPerPiece, piece_store.NewMemStore)
+		d.state.Store(uint32(Downloading))
+
+		totalChunks := 0
+		for pi := range uint32(numPieces) {
+			nb := d.info.PieceBlockCount(pi)
+			totalChunks += nb
+		}
+
+		rng := rand.New(rand.NewPCG(uint64(seed), uint64(seed)>>32))
+		copies := int(2 + uint64(rng.IntN(3)))
+		all := make([]chunkDesc, 0, totalChunks*copies)
+
+		for range copies {
+			for pi := range uint32(numPieces) {
+				nb := d.info.PieceBlockCount(pi)
+				for bi := range nb {
+					ch := pieceChunk(d.info, pi, bi)
+					all = append(all, chunkDesc{
+						pieceIndex: pi, begin: ch.Begin, length: ch.Length,
+						pi: pi*d.normalChunkLen + uint32(bi),
+					})
+				}
+			}
+		}
+
+		rng.Shuffle(len(all), func(i, j int) {
+			all[i], all[j] = all[j], all[i]
+		})
+
+		d.resChan = make(chan *proto.ChunkResponse, len(all))
+		go d.backgroundResHandler()
+
+		for _, c := range all {
+			d.resChan <- &proto.ChunkResponse{
+				PieceIndex: c.pieceIndex, Begin: c.begin,
+				Data: make([]byte, c.length),
+			}
+		}
+
+		waitDownloadDone(t, d, numPieces, seed)
+	})
 }
 
-func (r *seededRand) next() uint64 {
-	r.seed ^= r.seed >> 12
-	r.seed ^= r.seed << 25
-	r.seed ^= r.seed >> 27
-	return r.seed * 0x2545F4914F6CDD1D
+func waitDownloadDone(t *testing.T, d *Download, numPieces uint32, seed int64) {
+	t.Helper()
+	deadline := time.After(5 * time.Second)
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-deadline:
+			d.cancel()
+			time.Sleep(10 * time.Millisecond)
+			t.Errorf("seed=%d timeout\n%s", seed, dumpState(d))
+			return
+		case <-ticker.C:
+			if d.completedBm.Count() == numPieces {
+				d.cancel()
+				time.Sleep(10 * time.Millisecond)
+				return
+			}
+		}
+	}
 }

@@ -7,6 +7,7 @@ package download
 
 import (
 	"context"
+	"math/rand/v2"
 	"testing"
 	"time"
 
@@ -26,7 +27,7 @@ func FuzzFullDownload(f *testing.F) {
 	f.Fuzz(func(t *testing.T, numPieces uint32, blocksPerPiece uint32, seed int64) {
 		numPieces = max(2, min(numPieces, 20))
 		blocksPerPiece = max(2, min(blocksPerPiece, 10))
-		rng := &seededRand{seed: uint64(seed)}
+		rng := rand.New(rand.NewPCG(uint64(seed), uint64(seed)>>32))
 
 		d := newTestDownload(t, numPieces, blocksPerPiece, piece_store.NewMemStore)
 		d.resChan = make(chan *proto.ChunkResponse, 100)
@@ -61,7 +62,7 @@ func FuzzFullDownload(f *testing.F) {
 			}
 		}()
 
-		numPeers := int(rng.next()%6) + 1
+		numPeers := int(rng.Uint64()%6) + 1
 		type pd struct {
 			p          *mockPeer
 			disconnect time.Duration
@@ -77,14 +78,14 @@ func FuzzFullDownload(f *testing.F) {
 			p.setNumPieces(numPieces)
 
 			for pi := range numPieces {
-				if rng.next()%10 < 7 {
+				if rng.Uint64()%10 < 7 {
 					p.bitmap.Set(pi)
 				}
 			}
 			if p.bitmap.Count() == 0 {
-				p.bitmap.Set(uint32(rng.next() % uint64(numPieces)))
+				p.bitmap.Set(uint32(rng.Uint64() % uint64(numPieces)))
 			}
-			p.setDesiredSize(int(rng.next()%8) + 2)
+			p.setDesiredSize(int(rng.Uint64()%8) + 2)
 
 			d.peers.Store(p.ID(), p)
 			for pi := range numPieces {
@@ -94,8 +95,8 @@ func FuzzFullDownload(f *testing.F) {
 			}
 
 			var dc time.Duration
-			if rng.next()%3 == 0 {
-				dc = time.Duration(rng.next()%500+100) * time.Millisecond
+			if rng.Uint64()%3 == 0 {
+				dc = time.Duration(rng.Uint64()%500+100) * time.Millisecond
 			}
 			peers = append(peers, pd{p: p, disconnect: dc})
 		}
@@ -110,7 +111,7 @@ func FuzzFullDownload(f *testing.F) {
 				}
 			}
 			if !covered {
-				idx := int(rng.next() % uint64(len(peers)))
+				idx := int(rng.Uint64() % uint64(len(peers)))
 				peers[idx].p.bitmap.Set(pi)
 				d.picker.Load().IncRefcount(pi)
 			}
