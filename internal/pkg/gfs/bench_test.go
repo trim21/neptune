@@ -12,26 +12,31 @@ import (
 	"testing"
 )
 
-const benchFileSize = 64 << 20 // 64 MiB
+const benchFileSize = 64 << 20 // 64 MiB.
+
+func newBenchFile(b *testing.B) *os.File {
+	b.Helper()
+	f, err := os.CreateTemp(b.TempDir(), "gfs_bench")
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.Cleanup(func() { os.Remove(f.Name()) })
+	return f
+}
 
 // ---------------------------------------------------------------------------
-// Read benchmarks
+// Read benchmarks.
 // ---------------------------------------------------------------------------
 
 func benchReadUring(b *testing.B, bufSize int64) {
 	b.Helper()
 	b.StopTimer()
 
-	f, err := os.CreateTemp("", "gfs_bench")
-	if err != nil {
-		b.Fatal(err)
-	}
-	defer os.Remove(f.Name())
-	defer f.Close()
-
+	f := newBenchFile(b)
 	if err := f.Truncate(benchFileSize); err != nil {
 		b.Fatal(err)
 	}
+	defer f.Close()
 
 	ioc := NewIOContext()
 	defer ioc.Close()
@@ -57,16 +62,11 @@ func benchReadPlain(b *testing.B, bufSize int64) {
 	b.Helper()
 	b.StopTimer()
 
-	f, err := os.CreateTemp("", "gfs_bench")
-	if err != nil {
-		b.Fatal(err)
-	}
-	defer os.Remove(f.Name())
-	defer f.Close()
-
+	f := newBenchFile(b)
 	if err := f.Truncate(benchFileSize); err != nil {
 		b.Fatal(err)
 	}
+	defer f.Close()
 
 	b.SetBytes(bufSize)
 	b.ResetTimer()
@@ -94,23 +94,18 @@ func BenchmarkReadUring256K(b *testing.B) { benchReadUring(b, 256*1024) }
 func BenchmarkReadPlain256K(b *testing.B) { benchReadPlain(b, 256*1024) }
 
 // ---------------------------------------------------------------------------
-// Write benchmarks
+// Write benchmarks.
 // ---------------------------------------------------------------------------
 
 func benchWriteUring(b *testing.B, bufSize int64) {
 	b.Helper()
 	b.StopTimer()
 
-	f, err := os.CreateTemp("", "gfs_bench")
-	if err != nil {
-		b.Fatal(err)
-	}
-	defer os.Remove(f.Name())
-	defer f.Close()
-
+	f := newBenchFile(b)
 	if err := f.Truncate(benchFileSize); err != nil {
 		b.Fatal(err)
 	}
+	defer f.Close()
 
 	ioc := NewIOContext()
 	defer ioc.Close()
@@ -138,16 +133,11 @@ func benchWritePlain(b *testing.B, bufSize int64) {
 	b.Helper()
 	b.StopTimer()
 
-	f, err := os.CreateTemp("", "gfs_bench")
-	if err != nil {
-		b.Fatal(err)
-	}
-	defer os.Remove(f.Name())
-	defer f.Close()
-
+	f := newBenchFile(b)
 	if err := f.Truncate(benchFileSize); err != nil {
 		b.Fatal(err)
 	}
+	defer f.Close()
 
 	fill := make([]byte, bufSize)
 
@@ -178,15 +168,14 @@ func BenchmarkWriteUring256K(b *testing.B) { benchWriteUring(b, 256*1024) }
 func BenchmarkWritePlain256K(b *testing.B) { benchWritePlain(b, 256*1024) }
 
 // ---------------------------------------------------------------------------
-// Concurrency stress
+// Concurrency stress.
 // ---------------------------------------------------------------------------
 
 func TestIOContextConcurrency(t *testing.T) {
-	f, err := os.CreateTemp("", "gfs_concurrency")
+	f, err := os.CreateTemp(t.TempDir(), "gfs_concurrency")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.Remove(f.Name())
 	defer f.Close()
 
 	const fileSize = 1 << 20
@@ -201,12 +190,12 @@ func TestIOContextConcurrency(t *testing.T) {
 	var wg sync.WaitGroup
 	const workers, opsPerWorker, bufSize = 64, 100, 4096
 
-	for w := 0; w < workers; w++ {
+	for w := range workers {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
 			buf := make([]byte, bufSize)
-			for i := 0; i < opsPerWorker; i++ {
+			for i := range opsPerWorker {
 				off := int64((id*opsPerWorker + i) * bufSize % fileSize)
 				if _, err := ReadAtCtx(ctx, ioc, f, buf, off); err != nil {
 					t.Errorf("worker %d: %v", id, err)

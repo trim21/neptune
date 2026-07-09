@@ -24,17 +24,16 @@ const minKernelMajor, minKernelMinor = 6, 12
 // All file I/O for one download session shares this ring.
 // SQE user_data carries the completion channel pointer — no pending map needed.
 type IOContext struct {
-	ring  *uring.Ring
-	start sync.Once
-	stop  chan struct{}
-
-	submitMu sync.Mutex // serializes QueueSQE + Submit
 	chPool   sync.Pool
+	start    sync.Once
+	ring     *uring.Ring
+	stop     chan struct{}
+	submitMu sync.Mutex
 }
 
 type ioResult struct {
-	n   int32
 	err error
+	n   int32
 }
 
 // NewIOContext creates an IOContext backed by a shared io_uring ring.

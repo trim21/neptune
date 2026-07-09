@@ -109,8 +109,8 @@ func New(cfg config.Config, sessionPath string, debug bool) *Session {
 
 		Config: cfg,
 
-		DHT:      nil, // disabled for now
-		FilePool: filepool.New(),
+		DHT:       nil, // disabled for now
+		FilePool:  filepool.New(),
 		IOContext: gfs.NewIOContext(),
 		HTTP: resty.NewWithClient(&http.Client{
 			Transport: &http.Transport{

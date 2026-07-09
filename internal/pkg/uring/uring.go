@@ -15,7 +15,7 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// Syscall numbers and constants
+// Syscall numbers and constants.
 // ---------------------------------------------------------------------------
 
 const (
@@ -24,12 +24,12 @@ const (
 
 	enterGetEvents = 1 << 0 // IORING_ENTER_GETEVENTS
 
-	// mmap offsets
+	// mmap offsets.
 	cqRingOffset = 0x8000000
 	sqesOffset   = 0x10000000
 )
 
-// SQE flags
+// SQE flags.
 const (
 	sqeFixedFileFlag  = 1 << 0 // IOSQE_FIXED_FILE
 	sqeIODrainFlag    = 1 << 1 // IOSQE_IO_DRAIN
@@ -39,7 +39,7 @@ const (
 )
 
 // ---------------------------------------------------------------------------
-// SQEntry — matches struct io_uring_sqe (64 bytes)
+// SQEntry — matches struct io_uring_sqe (64 bytes).
 // ---------------------------------------------------------------------------
 
 type SQEntry struct {
@@ -68,7 +68,7 @@ func (sqe *SQEntry) fill(op uint8, fd int32, addr uintptr, length uint32, offset
 	sqe.Len = length
 }
 
-// CQEvent — matches struct io_uring_cqe (16 bytes)
+// CQEvent — matches struct io_uring_cqe (16 bytes).
 type CQEvent struct {
 	UserData uint64
 	Res      int32
@@ -83,7 +83,7 @@ func (cqe *CQEvent) Error() error {
 }
 
 // ---------------------------------------------------------------------------
-// Ring parameters (kernel-facing)
+// Ring parameters (kernel-facing).
 // ---------------------------------------------------------------------------
 
 type sqRingParams struct {
@@ -124,34 +124,42 @@ type ringParams struct {
 }
 
 // ---------------------------------------------------------------------------
-// SQ / CQ ring metadata
+// SQ / CQ ring metadata.
 // ---------------------------------------------------------------------------
 
 type sqRing struct {
-	buff    []byte
-	sqeBuff []byte
-	// kernel pointers into sqRing.buff
-	kHead, kTail, kRingMask, kRingEntries *uint32
-	kFlags, kDropped, kArray              *uint32
-	sqeTail, sqeHead                      uint32
+	buff         []byte
+	sqeBuff      []byte
+	kHead        *uint32
+	kTail        *uint32
+	kRingMask    *uint32
+	kRingEntries *uint32
+	kFlags       *uint32
+	kDropped     *uint32
+	kArray       *uint32
+	sqeTail      uint32
+	sqeHead      uint32
 }
 
 type cqRing struct {
-	buff      []byte
-	kHead, kTail, kRingMask, kRingEntries *uint32
-	kOverflow                             *uint32
-	cqeBuff                               *CQEvent
+	buff         []byte
+	cqeBuff      *CQEvent
+	kHead        *uint32
+	kTail        *uint32
+	kRingMask    *uint32
+	kRingEntries *uint32
+	kOverflow    *uint32
 }
 
 // ---------------------------------------------------------------------------
-// Ring
+// Ring.
 // ---------------------------------------------------------------------------
 
 type Ring struct {
-	fd    int
-	sq    sqRing
-	cq    cqRing
 	params ringParams
+	sq     sqRing
+	cq     cqRing
+	fd     int
 }
 
 // New creates an io_uring with the given number of SQ/CQ entries.
@@ -174,13 +182,14 @@ func (r *Ring) Close() error {
 	return r.free()
 }
 
+// Fd returns the ring's file descriptor.
 func (r *Ring) Fd() int { return r.fd }
 
 // allocRing mmap-s the SQ, CQ, and SQE regions.
 func (r *Ring) allocRing() error {
 	p := &r.params
 
-	r.sq.buff = nil // in case of early return from partial allocation
+	r.sq.buff = nil
 	r.cq.buff = nil
 
 	// SQ ring mmap.
@@ -191,14 +200,14 @@ func (r *Ring) allocRing() error {
 	}
 	r.sq.buff = data
 
-	ringStart := &data[0]
-	r.sq.kHead = (*uint32)(unsafe.Pointer(uintptr(unsafe.Pointer(ringStart)) + uintptr(p.sqOffset.head)))
-	r.sq.kTail = (*uint32)(unsafe.Pointer(uintptr(unsafe.Pointer(ringStart)) + uintptr(p.sqOffset.tail)))
-	r.sq.kRingMask = (*uint32)(unsafe.Pointer(uintptr(unsafe.Pointer(ringStart)) + uintptr(p.sqOffset.ringMask)))
-	r.sq.kRingEntries = (*uint32)(unsafe.Pointer(uintptr(unsafe.Pointer(ringStart)) + uintptr(p.sqOffset.ringEntries)))
-	r.sq.kFlags = (*uint32)(unsafe.Pointer(uintptr(unsafe.Pointer(ringStart)) + uintptr(p.sqOffset.flags)))
-	r.sq.kDropped = (*uint32)(unsafe.Pointer(uintptr(unsafe.Pointer(ringStart)) + uintptr(p.sqOffset.dropped)))
-	r.sq.kArray = (*uint32)(unsafe.Pointer(uintptr(unsafe.Pointer(ringStart)) + uintptr(p.sqOffset.array)))
+	ringStart := unsafe.Pointer(&data[0])
+	r.sq.kHead = (*uint32)(unsafe.Add(ringStart, p.sqOffset.head))
+	r.sq.kTail = (*uint32)(unsafe.Add(ringStart, p.sqOffset.tail))
+	r.sq.kRingMask = (*uint32)(unsafe.Add(ringStart, p.sqOffset.ringMask))
+	r.sq.kRingEntries = (*uint32)(unsafe.Add(ringStart, p.sqOffset.ringEntries))
+	r.sq.kFlags = (*uint32)(unsafe.Add(ringStart, p.sqOffset.flags))
+	r.sq.kDropped = (*uint32)(unsafe.Add(ringStart, p.sqOffset.dropped))
+	r.sq.kArray = (*uint32)(unsafe.Add(ringStart, p.sqOffset.array))
 
 	// CQ ring mmap.
 	cqRingSize := uint64(p.cqOffset.cqes) + uint64(p.cqEntries)*uint64(unsafe.Sizeof(CQEvent{}))
@@ -209,13 +218,13 @@ func (r *Ring) allocRing() error {
 	}
 	r.cq.buff = data
 
-	ringStart = &data[0]
-	r.cq.kHead = (*uint32)(unsafe.Pointer(uintptr(unsafe.Pointer(ringStart)) + uintptr(p.cqOffset.head)))
-	r.cq.kTail = (*uint32)(unsafe.Pointer(uintptr(unsafe.Pointer(ringStart)) + uintptr(p.cqOffset.tail)))
-	r.cq.kRingMask = (*uint32)(unsafe.Pointer(uintptr(unsafe.Pointer(ringStart)) + uintptr(p.cqOffset.ringMsk)))
-	r.cq.kRingEntries = (*uint32)(unsafe.Pointer(uintptr(unsafe.Pointer(ringStart)) + uintptr(p.cqOffset.ringEntries)))
-	r.cq.kOverflow = (*uint32)(unsafe.Pointer(uintptr(unsafe.Pointer(ringStart)) + uintptr(p.cqOffset.overflow)))
-	r.cq.cqeBuff = (*CQEvent)(unsafe.Pointer(uintptr(unsafe.Pointer(ringStart)) + uintptr(p.cqOffset.cqes)))
+	ringStart = unsafe.Pointer(&data[0])
+	r.cq.kHead = (*uint32)(unsafe.Add(ringStart, p.cqOffset.head))
+	r.cq.kTail = (*uint32)(unsafe.Add(ringStart, p.cqOffset.tail))
+	r.cq.kRingMask = (*uint32)(unsafe.Add(ringStart, p.cqOffset.ringMsk))
+	r.cq.kRingEntries = (*uint32)(unsafe.Add(ringStart, p.cqOffset.ringEntries))
+	r.cq.kOverflow = (*uint32)(unsafe.Add(ringStart, p.cqOffset.overflow))
+	r.cq.cqeBuff = (*CQEvent)(unsafe.Add(ringStart, p.cqOffset.cqes))
 
 	// SQE array mmap.
 	sqesSize := uintptr(p.sqEntries) * unsafe.Sizeof(SQEntry{})
@@ -245,7 +254,7 @@ func (r *Ring) free() error {
 }
 
 // ---------------------------------------------------------------------------
-// SQE submission
+// SQE submission.
 // ---------------------------------------------------------------------------
 
 // NextSQE returns a pointer to the next available SQE or an error if the SQ is full.
@@ -284,7 +293,7 @@ func (r *Ring) flushSQ() uint32 {
 		return tail - *r.sq.kHead
 	}
 
-	for i := subCnt; i > 0; i-- {
+	for range subCnt {
 		*(*uint32)(unsafe.Add(unsafe.Pointer(r.sq.kArray), tail&mask*uint32(unsafe.Sizeof(uint32(0))))) = r.sq.sqeHead & mask
 		tail++
 		r.sq.sqeHead++
@@ -297,7 +306,6 @@ func (r *Ring) flushSQ() uint32 {
 // Submit submits queued SQEs to the kernel.
 func (r *Ring) Submit() (uint, error) {
 	flushed := r.flushSQ()
-	// We always need enter (no SQPOLL support in the stripped version).
 	consumed, err := enter(r.fd, flushed, 0, enterGetEvents)
 	return consumed, err
 }
@@ -319,7 +327,7 @@ func (r *Ring) PeekCQE() (*CQEvent, error) {
 }
 
 // SeenCQE advances the CQ ring by 1.
-func (r *Ring) SeenCQE(cqe *CQEvent) { //nolint:revive
+func (r *Ring) SeenCQE(_ *CQEvent) {
 	r.AdvanceCQ(1)
 }
 
@@ -338,8 +346,7 @@ func (r *Ring) peekCQEvent() (*CQEvent, error) {
 		return nil, os.NewSyscallError("cq_ring", os.ErrNotExist)
 	}
 
-	cqe := (*CQEvent)(unsafe.Add(unsafe.Pointer(r.cq.cqeBuff), uintptr(head&mask)*unsafe.Sizeof(CQEvent{})))
-	return cqe, nil
+	return (*CQEvent)(unsafe.Add(unsafe.Pointer(r.cq.cqeBuff), uintptr(head&mask)*unsafe.Sizeof(CQEvent{}))), nil
 }
 
 // getCQEvent blocks until a CQE is available, optionally submitting SQEs first.
@@ -347,12 +354,11 @@ func (r *Ring) getCQEvent(toSubmit uint32) (*CQEvent, error) {
 	for {
 		cqe, err := r.peekCQEvent()
 		if err != nil {
-			// No CQE ready — enter the kernel.
 			_, err2 := enter(r.fd, toSubmit, 1, enterGetEvents)
 			if err2 != nil {
 				return nil, err2
 			}
-			toSubmit = 0 // already submitted
+			toSubmit = 0
 			continue
 		}
 		return cqe, nil
@@ -360,26 +366,26 @@ func (r *Ring) getCQEvent(toSubmit uint32) (*CQEvent, error) {
 }
 
 // ---------------------------------------------------------------------------
-// Read / Write operations
+// Read / Write operations.
 // ---------------------------------------------------------------------------
 
-// opcodes from io_uring.h
+// opcodes from io_uring.h.
 const (
-	opRead       uint8 = 22 // IORING_OP_READ
-	opWrite      uint8 = 23 // IORING_OP_WRITE
+	opRead        uint8 = 22 // IORING_OP_READ
+	opWrite       uint8 = 23 // IORING_OP_WRITE
 	opAsyncCancel uint8 = 14 // IORING_OP_ASYNC_CANCEL
 )
 
-// ReadWriteOp is implemented by ReadOp and WriteOp.
+// ReadWriteOp is implemented by ReadOp, WriteOp, and CancelOp.
 type ReadWriteOp interface {
 	PrepSQE(sqe *SQEntry)
 }
 
 // ReadOp is an io_uring IORING_OP_READ operation (equivalent to pread).
 type ReadOp struct {
-	fd   uintptr
 	buff []byte
 	off  uint64
+	fd   uintptr
 }
 
 // Read creates a ReadOp.
@@ -387,15 +393,16 @@ func Read(fd uintptr, buff []byte, offset uint64) *ReadOp {
 	return &ReadOp{fd: fd, buff: buff, off: offset}
 }
 
+// PrepSQE fills the SQE for a read.
 func (op *ReadOp) PrepSQE(sqe *SQEntry) {
 	sqe.fill(opRead, int32(op.fd), uintptr(unsafe.Pointer(&op.buff[0])), uint32(len(op.buff)), op.off)
 }
 
 // WriteOp is an io_uring IORING_OP_WRITE operation (equivalent to pwrite).
 type WriteOp struct {
-	fd   uintptr
 	buff []byte
 	off  uint64
+	fd   uintptr
 }
 
 // Write creates a WriteOp.
@@ -403,6 +410,7 @@ func Write(fd uintptr, buff []byte, offset uint64) *WriteOp {
 	return &WriteOp{fd: fd, buff: buff, off: offset}
 }
 
+// PrepSQE fills the SQE for a write.
 func (op *WriteOp) PrepSQE(sqe *SQEntry) {
 	sqe.fill(opWrite, int32(op.fd), uintptr(unsafe.Pointer(&op.buff[0])), uint32(len(op.buff)), op.off)
 }
@@ -419,7 +427,7 @@ func (op *CancelOp) PrepSQE(sqe *SQEntry) {
 }
 
 // ---------------------------------------------------------------------------
-// Syscall helpers
+// Syscall helpers.
 // ---------------------------------------------------------------------------
 
 func setup(entries uint32, p *ringParams) (int, error) {

@@ -27,7 +27,7 @@ func skipIfDisabled(t *testing.T) {
 
 func tmpFile(t *testing.T) *os.File {
 	t.Helper()
-	f, err := os.CreateTemp("", "uring_test")
+	f, err := os.CreateTemp(t.TempDir(), "uring_test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +36,7 @@ func tmpFile(t *testing.T) *os.File {
 }
 
 // ---------------------------------------------------------------------------
-// Ring lifecycle
+// Ring lifecycle.
 // ---------------------------------------------------------------------------
 
 func TestNew(t *testing.T) {
@@ -75,7 +75,7 @@ func TestNewLargeEntries(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Read operations
+// Read operations.
 // ---------------------------------------------------------------------------
 
 func TestRead(t *testing.T) {
@@ -95,8 +95,8 @@ func TestRead(t *testing.T) {
 
 	buf := make([]byte, len(content))
 	op := Read(f.Fd(), buf, 0)
-	if err := r.QueueSQE(op, 0, 1); err != nil {
-		t.Fatal(err)
+	if qerr := r.QueueSQE(op, 0, 1); qerr != nil {
+		t.Fatal(qerr)
 	}
 
 	cqe, err := r.SubmitAndWait()
@@ -133,8 +133,8 @@ func TestReadAtOffset(t *testing.T) {
 	defer r.Close()
 
 	buf := make([]byte, 6)
-	if err := r.QueueSQE(Read(f.Fd(), buf, 10), 0, 1); err != nil {
-		t.Fatal(err)
+	if qerr := r.QueueSQE(Read(f.Fd(), buf, 10), 0, 1); qerr != nil {
+		t.Fatal(qerr)
 	}
 
 	cqe, err := r.SubmitAndWait()
@@ -150,8 +150,37 @@ func TestReadAtOffset(t *testing.T) {
 	r.SeenCQE(cqe)
 }
 
+func TestReadPastEOF(t *testing.T) {
+	skipIfDisabled(t)
+
+	f := tmpFile(t)
+	if _, err := f.WriteString("hi"); err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := New(2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+
+	buf := make([]byte, 10)
+	if qerr := r.QueueSQE(Read(f.Fd(), buf, 5), 0, 1); qerr != nil {
+		t.Fatal(qerr)
+	}
+
+	cqe, err := r.SubmitAndWait()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cqe.Res != 0 {
+		t.Fatalf("expected 0 bytes past EOF, got %d", cqe.Res)
+	}
+	r.SeenCQE(cqe)
+}
+
 // ---------------------------------------------------------------------------
-// Write operations
+// Write operations.
 // ---------------------------------------------------------------------------
 
 func TestWrite(t *testing.T) {
@@ -165,8 +194,8 @@ func TestWrite(t *testing.T) {
 	defer r.Close()
 
 	data := []byte("uring write test data\n")
-	if err := r.QueueSQE(Write(f.Fd(), data, 0), 0, 1); err != nil {
-		t.Fatal(err)
+	if qerr := r.QueueSQE(Write(f.Fd(), data, 0), 0, 1); qerr != nil {
+		t.Fatal(qerr)
 	}
 
 	cqe, err := r.SubmitAndWait()
@@ -181,7 +210,6 @@ func TestWrite(t *testing.T) {
 	}
 	r.SeenCQE(cqe)
 
-	// Verify on-disk content.
 	readBack, err := os.ReadFile(f.Name())
 	if err != nil {
 		t.Fatal(err)
@@ -195,7 +223,6 @@ func TestWriteAtOffset(t *testing.T) {
 	skipIfDisabled(t)
 
 	f := tmpFile(t)
-	// Pre-fill with zeros, then write at offset.
 	if _, err := f.Write(make([]byte, 16)); err != nil {
 		t.Fatal(err)
 	}
@@ -207,8 +234,8 @@ func TestWriteAtOffset(t *testing.T) {
 	defer r.Close()
 
 	data := []byte("hello")
-	if err := r.QueueSQE(Write(f.Fd(), data, 5), 0, 1); err != nil {
-		t.Fatal(err)
+	if qerr := r.QueueSQE(Write(f.Fd(), data, 5), 0, 1); qerr != nil {
+		t.Fatal(qerr)
 	}
 
 	cqe, err := r.SubmitAndWait()
@@ -232,14 +259,14 @@ func TestWriteAtOffset(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Multiple operations
+// Multiple operations.
 // ---------------------------------------------------------------------------
 
 func TestMultipleSubmit(t *testing.T) {
 	skipIfDisabled(t)
 
 	f := tmpFile(t)
-	if _, err := f.Write([]byte("AAAAAAAAAAAAAAAAAAAA")); err != nil {
+	if _, err := f.WriteString("AAAAAAAAAAAAAAAAAAAA"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -249,8 +276,7 @@ func TestMultipleSubmit(t *testing.T) {
 	}
 	defer r.Close()
 
-	// Queue 3 reads at different offsets.
-	for i := byte(0); i < 3; i++ {
+	for i := range byte(3) {
 		buf := make([]byte, 1)
 		op := Read(f.Fd(), buf, uint64(i*5))
 		if err := r.QueueSQE(op, 0, uint64(i)); err != nil {
@@ -258,12 +284,11 @@ func TestMultipleSubmit(t *testing.T) {
 		}
 	}
 
-	// Submit all queued SQEs, then wait for each CQE.
 	if _, err := r.Submit(); err != nil {
 		t.Fatal(err)
 	}
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		cqe, err := r.WaitCQE()
 		if err != nil {
 			t.Fatal(err)
@@ -279,7 +304,7 @@ func TestMultipleSubmit(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Close
+// Close.
 // ---------------------------------------------------------------------------
 
 func TestDoubleClose(t *testing.T) {
@@ -292,13 +317,11 @@ func TestDoubleClose(t *testing.T) {
 	if err := r.Close(); err != nil {
 		t.Error(err)
 	}
-	// Second close is harmless (mmap'd regions already freed, fd already closed).
-	// Should not panic.
 	r.Close()
 }
 
 // ---------------------------------------------------------------------------
-// CancelOp
+// CancelOp.
 // ---------------------------------------------------------------------------
 
 func TestCancelOpPrepSQE(t *testing.T) {
@@ -318,7 +341,7 @@ func TestCancelOpPrepSQE(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// ReadWriteOp interface satisfaction
+// ReadWriteOp interface satisfaction.
 // ---------------------------------------------------------------------------
 
 func TestOpsSatisfyInterface(t *testing.T) {
@@ -328,11 +351,10 @@ func TestOpsSatisfyInterface(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// SQEntry size
+// SQEntry size (must match kernel ABI).
 // ---------------------------------------------------------------------------
 
 func TestSQEntrySize(t *testing.T) {
-	// SQEntry must be exactly 64 bytes to match the kernel ABI.
 	const expected = 64
 	if size := unsafe.Sizeof(SQEntry{}); size != expected {
 		t.Fatalf("SQEntry size = %d, expected %d", size, expected)
@@ -340,7 +362,7 @@ func TestSQEntrySize(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Integration: write then read via separate rings
+// Integration: write then read via separate rings.
 // ---------------------------------------------------------------------------
 
 func TestWriteThenRead(t *testing.T) {
@@ -353,8 +375,8 @@ func TestWriteThenRead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := wr.QueueSQE(Write(f.Fd(), data, 0), 0, 1); err != nil {
-		t.Fatal(err)
+	if qerr := wr.QueueSQE(Write(f.Fd(), data, 0), 0, 1); qerr != nil {
+		t.Fatal(qerr)
 	}
 	cqe, err := wr.SubmitAndWait()
 	if err != nil {
@@ -373,8 +395,8 @@ func TestWriteThenRead(t *testing.T) {
 	defer rr.Close()
 
 	buf := make([]byte, len(data))
-	if err := rr.QueueSQE(Read(f.Fd(), buf, 0), 0, 1); err != nil {
-		t.Fatal(err)
+	if qerr := rr.QueueSQE(Read(f.Fd(), buf, 0), 0, 1); qerr != nil {
+		t.Fatal(qerr)
 	}
 	cqe, err = rr.SubmitAndWait()
 	if err != nil {
