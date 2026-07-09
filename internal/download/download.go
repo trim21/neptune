@@ -245,7 +245,7 @@ func (d *Download) flushContiguousFromHeap() {
 		proto.PiecePool.Put(peak.res)
 	}
 
-	err := d.store.WriteChunk(headPiece, head.res.Begin, mergedChunk.B)
+	err := d.store.WriteChunk(d.ctx, headPiece, head.res.Begin, mergedChunk.B)
 	if err != nil {
 		d.setError(err)
 		return
@@ -381,7 +381,7 @@ func (d *Download) handlePieceFromHeap(index uint32) {
 			proto.PiecePool.Put(res)
 		}
 
-		err := d.store.WriteChunk(index, 0, buf.B)
+		err := d.store.WriteChunk(d.ctx, index, 0, buf.B)
 		if err != nil {
 			d.setError(err)
 			return
@@ -390,7 +390,7 @@ func (d *Download) handlePieceFromHeap(index uint32) {
 		// Mixed case: some chunks were already flushed by flushContiguousFromHeap.
 		// Write each pending chunk at its correct offset.
 		for _, res := range pendingChunks {
-			err := d.store.WriteChunk(index, res.Begin, res.Data)
+			err := d.store.WriteChunk(d.ctx, index, res.Begin, res.Data)
 			if err != nil {
 				d.setError(err)
 				return
@@ -432,7 +432,7 @@ func (d *Download) checkPieceBitmapDone(index uint32) bool {
 }
 
 func (d *Download) checkPiece(pieceIndex uint32) error {
-	ok, err := d.store.VerifyPiece(pieceIndex, d.info.Pieces[pieceIndex])
+	ok, err := d.store.VerifyPiece(d.ctx, pieceIndex, d.info.Pieces[pieceIndex])
 	if err != nil {
 		return errgo.Wrap(err, "failed to verify piece")
 	}

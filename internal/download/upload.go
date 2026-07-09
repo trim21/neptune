@@ -419,7 +419,7 @@ func (d *Download) dispatchCachedPiece(index uint32, reqs []uploadReq, responses
 	buf := mempool.GetWithCap(int(d.info.PieceLen(index)))
 	defer mempool.Put(buf)
 
-	if _, err := d.store.ReadChunk(index, 0, buf.B); err != nil {
+	if _, err := d.store.ReadChunk(d.ctx, index, 0, buf.B); err != nil {
 		return err
 	}
 
@@ -470,6 +470,6 @@ func (d *Download) readPieceRangeCtx(ctx context.Context, req proto.ChunkRequest
 		return errUploadPaused
 	}
 
-	_, err := d.store.ReadChunk(req.PieceIndex, req.Begin, dst)
+	_, err := d.store.ReadChunk(ctx, req.PieceIndex, req.Begin, dst)
 	return err
 }

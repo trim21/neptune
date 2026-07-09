@@ -52,7 +52,7 @@ func New(sess *session.Session, m *metainfo.MetaInfo, info meta.Info, basePath s
 
 	completedBm := bm.New(info.NumPieces)
 
-	store := piece_store.NewFileStore(info, basePath, sess.FilePool)
+	store := piece_store.NewFileStore(info, basePath, sess.FilePool, sess.IOContext)
 
 	d := &Download{
 		ctx:    ctx,
