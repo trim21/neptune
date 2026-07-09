@@ -7,9 +7,13 @@ package gfs
 
 import (
 	"context"
+	"errors"
 	"os"
 	"sync"
+	"syscall"
 	"unsafe"
+
+	"go.uber.org/atomic"
 
 	"neptune/internal/pkg/sys"
 	"neptune/internal/pkg/uring"
@@ -27,7 +31,7 @@ type IOContext struct {
 	chPool   sync.Pool
 	start    sync.Once
 	ring     *uring.Ring
-	stop     chan struct{}
+	stop     atomic.Bool
 	submitMu sync.Mutex
 }
 
@@ -48,10 +52,7 @@ func NewIOContext() *IOContext {
 	if err != nil {
 		return &IOContext{}
 	}
-	ioc := &IOContext{
-		ring: r,
-		stop: make(chan struct{}),
-	}
+	ioc := &IOContext{ring: r}
 	ioc.chPool.New = func() any { return make(chan ioResult, 1) }
 	return ioc
 }
@@ -64,14 +65,15 @@ func (ioc *IOContext) startPoller() {
 
 func (ioc *IOContext) pollLoop() {
 	for {
-		select {
-		case <-ioc.stop:
+		if ioc.stop.Load() {
 			return
-		default:
 		}
 
 		cqe, err := ioc.ring.WaitCQE()
 		if err != nil {
+			if errors.Is(err, syscall.EINTR) {
+				continue
+			}
 			return
 		}
 
@@ -125,7 +127,7 @@ func (ioc *IOContext) submitAndWait(ctx context.Context, op uring.ReadWriteOp) (
 // Close shuts down the poll goroutine and closes the ring.
 func (ioc *IOContext) Close() {
 	if ioc.ring != nil {
-		close(ioc.stop)
+		ioc.stop.Store(true)
 		ioc.ring.Close()
 	}
 }
