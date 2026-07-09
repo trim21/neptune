@@ -247,6 +247,7 @@ func (d *Download) flushContiguousFromHeap() {
 
 	err := d.store.WriteChunk(headPiece, head.res.Begin, mergedChunk.B)
 	if err != nil {
+		d.setError(err)
 		return
 	}
 
@@ -382,6 +383,7 @@ func (d *Download) handlePieceFromHeap(index uint32) {
 
 		err := d.store.WriteChunk(index, 0, buf.B)
 		if err != nil {
+			d.setError(err)
 			return
 		}
 	} else {
@@ -390,6 +392,7 @@ func (d *Download) handlePieceFromHeap(index uint32) {
 		for _, res := range pendingChunks {
 			err := d.store.WriteChunk(index, res.Begin, res.Data)
 			if err != nil {
+				d.setError(err)
 				return
 			}
 			pi := res.Begin/defaultBlockSize + index*d.normalChunkLen
