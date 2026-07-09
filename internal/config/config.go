@@ -3,6 +3,34 @@
 
 package config
 
+import "fmt"
+
+// CryptoMode controls MSE encryption policy.
+type CryptoMode uint8
+
+const (
+	CryptoPrefer             CryptoMode = iota // prefer RC4, fallback to plain TCP (default)
+	CryptoForce                                // require RC4, drop connection on MSE failure
+	CryptoPreferNoEncryption                   // prefer plaintext, fallback to plain TCP
+	CryptoNone                                 // disable MSE entirely
+)
+
+// ParseCryptoMode converts a config string to CryptoMode.
+func ParseCryptoMode(s string) (CryptoMode, error) {
+	switch s {
+	case "", "prefer":
+		return CryptoPrefer, nil
+	case "force":
+		return CryptoForce, nil
+	case "prefer-no-encryption":
+		return CryptoPreferNoEncryption, nil
+	case "none":
+		return CryptoNone, nil
+	default:
+		return 0, fmt.Errorf("invalid crypto mode %q: must be 'force', 'prefer', 'prefer-no-encryption', or 'none'", s)
+	}
+}
+
 type Application struct {
 	Crypto                   string `toml:"crypto"`
 	DownloadDir              string `toml:"download-dir"`

@@ -264,13 +264,11 @@ var configFields = map[string]configField{
 	"application.crypto": {
 		setter: func(a *Application, v lua.LValue) error {
 			s := lua.LVAsString(v)
-			switch s {
-			case "force", "prefer", "prefer-no-encryption", "none", "":
-				a.Crypto = s
-				return nil
-			default:
-				return fmt.Errorf("must be 'force', 'prefer', 'prefer-no-encryption', or 'none', got %q", s)
+			if _, err := ParseCryptoMode(s); err != nil {
+				return err
 			}
+			a.Crypto = s
+			return nil
 		},
 		getter: func(a *Application) lua.LValue { return lua.LString(a.Crypto) },
 	},

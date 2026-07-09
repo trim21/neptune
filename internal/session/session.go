@@ -71,25 +71,26 @@ func New(cfg config.Config, sessionPath string, debug bool) *Session {
 	var outgoingMseDisabled bool
 	var mseSelector mse.CryptoSelector
 	var msePreferredCrypto mse.CryptoMethod
-	switch cfg.App.Crypto {
-	case "force":
+
+	cryptoMode, err := config.ParseCryptoMode(cfg.App.Crypto)
+	if err != nil {
+		panic(fmt.Sprintf("invalid `application.crypto` config: %v", err))
+	}
+
+	switch cryptoMode {
+	case config.CryptoForce:
 		mseSelector = mse.ForceCrypto
 		msePreferredCrypto = mse.AllSupportedCrypto
-	case "", "prefer":
+	case config.CryptoPrefer:
 		mseSelector = mse.PreferCrypto
 		msePreferredCrypto = mse.AllSupportedCrypto
-	case "prefer-no-encryption":
+	case config.CryptoPreferNoEncryption:
 		mseSelector = mse.DefaultCryptoSelector
 		msePreferredCrypto = mse.CryptoMethodPlaintext
-	case "none":
+	case config.CryptoNone:
 		outgoingMseDisabled = true
 		mseSelector = mse.DefaultCryptoSelector
 		msePreferredCrypto = mse.CryptoMethodPlaintext
-	default:
-		panic(fmt.Sprintf(
-			"invalid `application.crypto` config %q",
-			cfg.App.Crypto,
-		))
 	}
 
 	conn, err := (&net.ListenConfig{}).ListenPacket(ctx, "udp", fmt.Sprintf(":%d", cfg.App.P2PPort))
@@ -129,7 +130,7 @@ func New(cfg config.Config, sessionPath string, debug bool) *Session {
 		PieceUploadRate:   flowrate.New(time.Second, 5*time.Second),
 
 		MSEEnabled:         !outgoingMseDisabled,
-		MSEForce:           cfg.App.Crypto == "force",
+		MSEForce:           cryptoMode == config.CryptoForce,
 		MSESelector:        mseSelector,
 		MSEPreferredCrypto: msePreferredCrypto,
 
