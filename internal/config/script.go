@@ -261,6 +261,19 @@ var configFields = map[string]configField{
 		},
 		getter: func(a *Application) lua.LValue { return lua.LString(a.PiecePickStrategy) },
 	},
+	"application.crypto": {
+		setter: func(a *Application, v lua.LValue) error {
+			s := lua.LVAsString(v)
+			switch s {
+			case "force", "prefer", "prefer-no-encryption", "none", "":
+				a.Crypto = s
+				return nil
+			default:
+				return fmt.Errorf("must be 'force', 'prefer', 'prefer-no-encryption', or 'none', got %q", s)
+			}
+		},
+		getter: func(a *Application) lua.LValue { return lua.LString(a.Crypto) },
+	},
 }
 
 func registerNeptune(L *lua.LState, app *Application) {
