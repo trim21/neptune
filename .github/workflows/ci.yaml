@@ -103,6 +103,21 @@ jobs:
       - name: Fuzz handleRes
         run: go test -fuzz=FuzzHandleRes -fuzztime=30s ./internal/download/
 
+      - name: Fuzz handleRes duplicates
+        run: go test -fuzz=FuzzHandleResDuplicates -fuzztime=30s ./internal/download/
+
+      - name: Fuzz picker download integration
+        run: go test -fuzz=FuzzPickerDownloadIntegration -fuzztime=30s ./internal/download/
+
+      - name: Fuzz stale request
+        run: go test -fuzz=FuzzStaleRequest -fuzztime=30s ./internal/download/
+
+      - name: Fuzz full download
+        run: go test -fuzz=FuzzFullDownload -fuzztime=30s ./internal/download/
+
+      - name: Fuzz piece picker
+        run: go test -fuzz=FuzzPiecePicker -fuzztime=30s ./internal/piece_picker/
+
   license:
     runs-on: ubuntu-latest
     steps:
