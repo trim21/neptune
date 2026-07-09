@@ -1,8 +1,8 @@
-import type {NeptuneClientOptions} from './base-client.ts';
-import {BaseClient} from './base-client.ts';
+import type { NeptuneClientOptions } from './base-client.ts';
+import { BaseClient } from './base-client.ts';
 
-export * from './errors.ts';
 export type * from './base-client.ts';
+export * from './errors.ts';
 export type * from './types.ts';
 
 /**
@@ -26,7 +26,7 @@ export type * from './types.ts';
  */
 export class NeptuneClient extends BaseClient {
   constructor(options: NeptuneClientOptions) {
-    super({...options, fetch: options.fetch ?? createNodeFetch()});
+    super({ ...options, fetch: options.fetch ?? createNodeFetch() });
   }
 
   protected async request(body: string): Promise<Response> {
@@ -65,12 +65,12 @@ function createNodeFetch(): typeof fetch {
             res.on('data', (chunk: Buffer) => chunks.push(chunk));
             res.on('end', () => {
               const text = Buffer.concat(chunks).toString('utf-8');
-              resolve(new Response(text, {status: res.statusCode ?? 502, statusText: res.statusMessage ?? ''}));
+              resolve(new Response(text, { status: res.statusCode ?? 502, statusText: res.statusMessage ?? '' }));
             });
           },
         );
         req.on('error', reject);
-        if (init?.body) req.write(init.body as string);
+        if (init?.body) { req.write(init.body as string); }
         req.end();
       });
     }
