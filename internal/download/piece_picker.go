@@ -436,6 +436,9 @@ func (pp *piecePicker) pickPieces(
 	var partials []partialInfo
 
 	for _, dp := range pp.downloadingPieces {
+		if pp.completedBm.Contains(dp.index) {
+			continue
+		}
 		if !bitfield.Contains(dp.index) {
 			continue
 		}
@@ -506,6 +509,40 @@ func (pp *piecePicker) pickPieces(
 			case blockStateRequested:
 				// busy block — only used in endgame
 				result.busyBlocks = append(result.busyBlocks, pieceBlock{p.pieceIndex, i})
+			}
+		}
+	}
+
+	// Endgame fallback: when globally no free blocks remain (numWantLeft==0),
+	// collect busy blocks from stalled downloading pieces that have 0 free
+	// blocks (e.g. orphaned request blocks from disconnected peers).
+	// Pieces with free>0 were already handled in the partials loop above.
+	if numBlocks > 0 && pp.numWantLeft == 0 {
+		for _, dp := range pp.downloadingPieces {
+			if pp.completedBm.Contains(dp.index) {
+				continue
+			}
+			if !bitfield.Contains(dp.index) {
+				continue
+			}
+			if choked && !allowedFast.Contains(dp.index) {
+				continue
+			}
+			idx := pp.blockInfoIdx(dp.index)
+			hasFree := false
+			for i := range int(dp.blocksInPiece) {
+				if pp.blockInfos.get(idx+i) == blockStateNone {
+					hasFree = true
+					break
+				}
+			}
+			if hasFree {
+				continue // handled in partials loop
+			}
+			for i := range int(dp.blocksInPiece) {
+				if pp.blockInfos.get(idx+i) == blockStateRequested {
+					result.busyBlocks = append(result.busyBlocks, pieceBlock{dp.index, i})
+				}
 			}
 		}
 	}
