@@ -248,10 +248,12 @@ func (pp *piecePicker) markAsResponded(pieceIndex uint32, blockIndex int) {
 
 	// Update downloadingPiece counters
 	if dp := pp.findDownloadingPiece(pieceIndex); dp != nil {
+		if oldState != blockStateResponded {
+			dp.responded++
+		}
 		if oldState == blockStateRequested {
 			dp.requested--
 		}
-		dp.responded++
 	}
 }
 
@@ -264,14 +266,17 @@ func (pp *piecePicker) markAsRequesting(pieceIndex uint32, blockIndex int) {
 	defer pp.mu.Unlock()
 
 	idx := pp.blockInfoIdx(pieceIndex) + blockIndex
-	if pp.blockInfos.get(idx) == blockStateNone {
+	oldState := pp.blockInfos.get(idx)
+	if oldState == blockStateNone {
 		pp.downloadQueueSize++
 	}
 	pp.blockInfos.set(idx, blockStateRequested)
 
 	// Update downloadingPiece counters
 	if dp := pp.findDownloadingPiece(pieceIndex); dp != nil {
-		dp.requested++
+		if oldState == blockStateNone {
+			dp.requested++
+		}
 	}
 }
 
@@ -464,9 +469,7 @@ func (pp *piecePicker) pickPieces(
 				freeBlocks++
 			}
 		}
-		if freeBlocks > 0 {
-			partials = append(partials, partialInfo{dp.index, freeBlocks})
-		}
+		partials = append(partials, partialInfo{dp.index, freeBlocks})
 	}
 
 	// Sort partials: highest completion ratio first (finish started pieces),
