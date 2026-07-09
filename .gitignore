@@ -12,3 +12,4 @@ internal/web/docs/swagger/
 config.toml
 etc/example/data/
 neptune
+fuzz
