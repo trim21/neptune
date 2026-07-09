@@ -9,6 +9,11 @@
     "client"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/trim21/neptune.git",
+    "directory": "sdk/typescript"
+  },
   "type": "module",
   "exports": {
     ".": {
