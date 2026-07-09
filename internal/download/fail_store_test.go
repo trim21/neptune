@@ -6,6 +6,7 @@
 package download
 
 import (
+	"context"
 	"sync"
 
 	"neptune/internal/piece_store"
@@ -27,15 +28,15 @@ func NewFailOnceStore(inner piece_store.Store) *FailOnceStore {
 	}
 }
 
-func (s *FailOnceStore) WriteChunk(pieceIndex uint32, begin uint32, data []byte) error {
-	return s.inner.WriteChunk(pieceIndex, begin, data)
+func (s *FailOnceStore) WriteChunk(ctx context.Context, pieceIndex uint32, begin uint32, data []byte) error {
+	return s.inner.WriteChunk(ctx, pieceIndex, begin, data)
 }
 
-func (s *FailOnceStore) ReadChunk(pieceIndex uint32, begin uint32, data []byte) (int, error) {
-	return s.inner.ReadChunk(pieceIndex, begin, data)
+func (s *FailOnceStore) ReadChunk(ctx context.Context, pieceIndex uint32, begin uint32, data []byte) (int, error) {
+	return s.inner.ReadChunk(ctx, pieceIndex, begin, data)
 }
 
-func (s *FailOnceStore) VerifyPiece(pieceIndex uint32, expected [20]byte) (bool, error) {
+func (s *FailOnceStore) VerifyPiece(ctx context.Context, pieceIndex uint32, expected [20]byte) (bool, error) {
 	s.mu.Lock()
 	if !s.failed[pieceIndex] {
 		s.failed[pieceIndex] = true
@@ -43,7 +44,7 @@ func (s *FailOnceStore) VerifyPiece(pieceIndex uint32, expected [20]byte) (bool,
 		return false, nil // first time: fail
 	}
 	s.mu.Unlock()
-	return s.inner.VerifyPiece(pieceIndex, expected)
+	return s.inner.VerifyPiece(ctx, pieceIndex, expected)
 }
 
 // FailNPieceStore wraps a PieceStore and fails the first N pieces
@@ -67,15 +68,15 @@ func NewFailNPieceStore(inner piece_store.Store, failPieces []uint32) *FailNPiec
 	}
 }
 
-func (s *FailNPieceStore) WriteChunk(pieceIndex uint32, begin uint32, data []byte) error {
-	return s.inner.WriteChunk(pieceIndex, begin, data)
+func (s *FailNPieceStore) WriteChunk(ctx context.Context, pieceIndex uint32, begin uint32, data []byte) error {
+	return s.inner.WriteChunk(ctx, pieceIndex, begin, data)
 }
 
-func (s *FailNPieceStore) ReadChunk(pieceIndex uint32, begin uint32, data []byte) (int, error) {
-	return s.inner.ReadChunk(pieceIndex, begin, data)
+func (s *FailNPieceStore) ReadChunk(ctx context.Context, pieceIndex uint32, begin uint32, data []byte) (int, error) {
+	return s.inner.ReadChunk(ctx, pieceIndex, begin, data)
 }
 
-func (s *FailNPieceStore) VerifyPiece(pieceIndex uint32, expected [20]byte) (bool, error) {
+func (s *FailNPieceStore) VerifyPiece(ctx context.Context, pieceIndex uint32, expected [20]byte) (bool, error) {
 	s.mu.Lock()
 	if s.failSet[pieceIndex] && !s.failed[pieceIndex] {
 		s.failed[pieceIndex] = true
@@ -83,5 +84,5 @@ func (s *FailNPieceStore) VerifyPiece(pieceIndex uint32, expected [20]byte) (boo
 		return false, nil // first time for this piece: fail
 	}
 	s.mu.Unlock()
-	return s.inner.VerifyPiece(pieceIndex, expected)
+	return s.inner.VerifyPiece(ctx, pieceIndex, expected)
 }

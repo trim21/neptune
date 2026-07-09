@@ -27,6 +27,7 @@ import (
 	"neptune/internal/mse"
 	"neptune/internal/pkg/filepool"
 	"neptune/internal/pkg/flowrate"
+	"neptune/internal/pkg/gfs"
 	"neptune/internal/pkg/global"
 	"neptune/internal/pkg/random"
 	"neptune/internal/pkg/ratelimit"
@@ -43,6 +44,7 @@ type Session struct {
 	DownloadLimiter    *ratelimit.Limiter
 	DHT                *dht.DHT
 	FilePool           *filepool.FilePool
+	IOContext          *gfs.IOContext
 	HTTP               *resty.Client
 	ConnSem            *semaphore.Weighted
 	IPv6               atomic.Pointer[netip.Addr]
@@ -107,8 +109,9 @@ func New(cfg config.Config, sessionPath string, debug bool) *Session {
 
 		Config: cfg,
 
-		DHT:      nil, // disabled for now
-		FilePool: filepool.New(),
+		DHT:       nil, // disabled for now
+		FilePool:  filepool.New(),
+		IOContext: gfs.NewIOContext(),
 		HTTP: resty.NewWithClient(&http.Client{
 			Transport: &http.Transport{
 				DialContext:           conntrack.NewDialContextFunc(conntrack.DialWithName("announce"), conntrack.DialWithTracing()),

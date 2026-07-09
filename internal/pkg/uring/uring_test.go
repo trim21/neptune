@@ -1,0 +1,412 @@
+// Copyright 2024 trim21 <trim21.me@gmail.com>
+// SPDX-License-Identifier: GPL-3.0-only
+
+//go:build linux
+
+package uring
+
+import (
+	"os"
+	"testing"
+	"unsafe"
+
+	"neptune/internal/pkg/sys"
+)
+
+// skipIfDisabled skips the test if NEPTUNE_TEST_URING=0 or kernel < 6.12.
+func skipIfDisabled(t *testing.T) {
+	t.Helper()
+	if os.Getenv("NEPTUNE_TEST_URING") == "0" {
+		t.Skip("io_uring tests disabled (NEPTUNE_TEST_URING=0)")
+	}
+	major, minor := sys.KernelVersion()
+	if major < 6 || (major == 6 && minor < 12) {
+		t.Skipf("io_uring tests require kernel >= 6.12, got %d.%d", major, minor)
+	}
+}
+
+func tmpFile(t *testing.T) *os.File {
+	t.Helper()
+	f, err := os.CreateTemp(t.TempDir(), "uring_test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Remove(f.Name()) })
+	return f
+}
+
+// ---------------------------------------------------------------------------
+// Ring lifecycle.
+// ---------------------------------------------------------------------------
+
+func TestNew(t *testing.T) {
+	skipIfDisabled(t)
+
+	r, err := New(8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Fd() < 0 {
+		t.Error("expected valid fd")
+	}
+	if err := r.Close(); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestNewMinEntries(t *testing.T) {
+	skipIfDisabled(t)
+
+	r, err := New(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Close()
+}
+
+func TestNewLargeEntries(t *testing.T) {
+	skipIfDisabled(t)
+
+	r, err := New(256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Close()
+}
+
+// ---------------------------------------------------------------------------
+// Read operations.
+// ---------------------------------------------------------------------------
+
+func TestRead(t *testing.T) {
+	skipIfDisabled(t)
+
+	f := tmpFile(t)
+	content := []byte("hello io_uring read test\n")
+	if _, err := f.Write(content); err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := New(2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+
+	buf := make([]byte, len(content))
+	op := Read(f.Fd(), buf, 0)
+	if qerr := r.QueueSQE(op, 0, 1); qerr != nil {
+		t.Fatal(qerr)
+	}
+
+	cqe, err := r.SubmitAndWait()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cqe.Error() != nil {
+		t.Fatal(cqe.Error())
+	}
+	if cqe.Res != int32(len(content)) {
+		t.Fatalf("read %d bytes, expected %d", cqe.Res, len(content))
+	}
+
+	if string(buf) != string(content) {
+		t.Fatalf("read %q, expected %q", buf, content)
+	}
+
+	r.SeenCQE(cqe)
+}
+
+func TestReadAtOffset(t *testing.T) {
+	skipIfDisabled(t)
+
+	f := tmpFile(t)
+	content := []byte("0123456789ABCDEF")
+	if _, err := f.Write(content); err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := New(2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+
+	buf := make([]byte, 6)
+	if qerr := r.QueueSQE(Read(f.Fd(), buf, 10), 0, 1); qerr != nil {
+		t.Fatal(qerr)
+	}
+
+	cqe, err := r.SubmitAndWait()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cqe.Error() != nil {
+		t.Fatal(cqe.Error())
+	}
+	if string(buf) != "ABCDEF" {
+		t.Fatalf("read %q, expected ABCDEF", buf)
+	}
+	r.SeenCQE(cqe)
+}
+
+func TestReadPastEOF(t *testing.T) {
+	skipIfDisabled(t)
+
+	f := tmpFile(t)
+	if _, err := f.WriteString("hi"); err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := New(2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+
+	buf := make([]byte, 10)
+	if qerr := r.QueueSQE(Read(f.Fd(), buf, 5), 0, 1); qerr != nil {
+		t.Fatal(qerr)
+	}
+
+	cqe, err := r.SubmitAndWait()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cqe.Res != 0 {
+		t.Fatalf("expected 0 bytes past EOF, got %d", cqe.Res)
+	}
+	r.SeenCQE(cqe)
+}
+
+// ---------------------------------------------------------------------------
+// Write operations.
+// ---------------------------------------------------------------------------
+
+func TestWrite(t *testing.T) {
+	skipIfDisabled(t)
+
+	f := tmpFile(t)
+	r, err := New(2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+
+	data := []byte("uring write test data\n")
+	if qerr := r.QueueSQE(Write(f.Fd(), data, 0), 0, 1); qerr != nil {
+		t.Fatal(qerr)
+	}
+
+	cqe, err := r.SubmitAndWait()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cqe.Error() != nil {
+		t.Fatal(cqe.Error())
+	}
+	if cqe.Res != int32(len(data)) {
+		t.Fatalf("wrote %d bytes, expected %d", cqe.Res, len(data))
+	}
+	r.SeenCQE(cqe)
+
+	readBack, err := os.ReadFile(f.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(readBack) != string(data) {
+		t.Fatalf("on-disk: %q, expected %q", readBack, data)
+	}
+}
+
+func TestWriteAtOffset(t *testing.T) {
+	skipIfDisabled(t)
+
+	f := tmpFile(t)
+	if _, err := f.Write(make([]byte, 16)); err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := New(2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+
+	data := []byte("hello")
+	if qerr := r.QueueSQE(Write(f.Fd(), data, 5), 0, 1); qerr != nil {
+		t.Fatal(qerr)
+	}
+
+	cqe, err := r.SubmitAndWait()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cqe.Error() != nil {
+		t.Fatal(cqe.Error())
+	}
+	r.SeenCQE(cqe)
+
+	readBack, err := os.ReadFile(f.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := make([]byte, 16)
+	copy(expected[5:], data)
+	if string(readBack) != string(expected) {
+		t.Fatalf("on-disk: %q, expected %q", readBack, expected)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Multiple operations.
+// ---------------------------------------------------------------------------
+
+func TestMultipleSubmit(t *testing.T) {
+	skipIfDisabled(t)
+
+	f := tmpFile(t)
+	if _, err := f.WriteString("AAAAAAAAAAAAAAAAAAAA"); err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := New(8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+
+	for i := range byte(3) {
+		buf := make([]byte, 1)
+		op := Read(f.Fd(), buf, uint64(i*5))
+		if err := r.QueueSQE(op, 0, uint64(i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if _, err := r.Submit(); err != nil {
+		t.Fatal(err)
+	}
+
+	for i := range 3 {
+		cqe, err := r.WaitCQE()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cqe.Error() != nil {
+			t.Fatal(cqe.Error())
+		}
+		if cqe.Res != 1 {
+			t.Errorf("op %d: read %d bytes, expected 1", i, cqe.Res)
+		}
+		r.SeenCQE(cqe)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Close.
+// ---------------------------------------------------------------------------
+
+func TestDoubleClose(t *testing.T) {
+	skipIfDisabled(t)
+
+	r, err := New(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Close(); err != nil {
+		t.Error(err)
+	}
+	r.Close()
+}
+
+// ---------------------------------------------------------------------------
+// CancelOp.
+// ---------------------------------------------------------------------------
+
+func TestCancelOpPrepSQE(t *testing.T) {
+	op := &CancelOp{Target: 42}
+	var sqe SQEntry
+	op.PrepSQE(&sqe)
+
+	if sqe.OpCode != opAsyncCancel {
+		t.Errorf("OpCode = %d, expected %d", sqe.OpCode, opAsyncCancel)
+	}
+	if sqe.Fd != -1 {
+		t.Errorf("Fd = %d, expected -1", sqe.Fd)
+	}
+	if sqe.Addr != 42 {
+		t.Errorf("Addr = %d, expected 42", sqe.Addr)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ReadWriteOp interface satisfaction.
+// ---------------------------------------------------------------------------
+
+func TestOpsSatisfyInterface(t *testing.T) {
+	var _ ReadWriteOp = &ReadOp{}
+	var _ ReadWriteOp = &WriteOp{}
+	var _ ReadWriteOp = &CancelOp{}
+}
+
+// ---------------------------------------------------------------------------
+// SQEntry size (must match kernel ABI).
+// ---------------------------------------------------------------------------
+
+func TestSQEntrySize(t *testing.T) {
+	const expected = 64
+	if size := unsafe.Sizeof(SQEntry{}); size != expected {
+		t.Fatalf("SQEntry size = %d, expected %d", size, expected)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Integration: write then read via separate rings.
+// ---------------------------------------------------------------------------
+
+func TestWriteThenRead(t *testing.T) {
+	skipIfDisabled(t)
+
+	f := tmpFile(t)
+	data := []byte("integration test data\n")
+
+	wr, err := New(2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if qerr := wr.QueueSQE(Write(f.Fd(), data, 0), 0, 1); qerr != nil {
+		t.Fatal(qerr)
+	}
+	cqe, err := wr.SubmitAndWait()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cqe.Error() != nil {
+		t.Fatal(cqe.Error())
+	}
+	wr.SeenCQE(cqe)
+	wr.Close()
+
+	rr, err := New(2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rr.Close()
+
+	buf := make([]byte, len(data))
+	if qerr := rr.QueueSQE(Read(f.Fd(), buf, 0), 0, 1); qerr != nil {
+		t.Fatal(qerr)
+	}
+	cqe, err = rr.SubmitAndWait()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cqe.Error() != nil {
+		t.Fatal(cqe.Error())
+	}
+	if string(buf) != string(data) {
+		t.Fatalf("read %q, expected %q", buf, data)
+	}
+	rr.SeenCQE(cqe)
+}

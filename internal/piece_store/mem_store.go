@@ -7,6 +7,7 @@ package piece_store
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha1"
 	"slices"
 	"sync"
@@ -26,7 +27,7 @@ func NewMemStore(info meta.Info) Store {
 	return &MemStore{info: info, data: make(map[int64][]byte)}
 }
 
-func (s *MemStore) WriteChunk(pieceIndex uint32, begin uint32, data []byte) error {
+func (s *MemStore) WriteChunk(_ context.Context, pieceIndex uint32, begin uint32, data []byte) error {
 	offset := int64(pieceIndex)*s.info.PieceLength + int64(begin)
 	cp := make([]byte, len(data))
 	copy(cp, data)
@@ -36,7 +37,7 @@ func (s *MemStore) WriteChunk(pieceIndex uint32, begin uint32, data []byte) erro
 	return nil
 }
 
-func (s *MemStore) ReadChunk(pieceIndex uint32, begin uint32, data []byte) (int, error) {
+func (s *MemStore) ReadChunk(_ context.Context, pieceIndex uint32, begin uint32, data []byte) (int, error) {
 	offset := int64(pieceIndex)*s.info.PieceLength + int64(begin)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -48,7 +49,7 @@ func (s *MemStore) ReadChunk(pieceIndex uint32, begin uint32, data []byte) (int,
 }
 
 // VerifyPiece hashes stored data for the piece and compares.
-func (s *MemStore) VerifyPiece(pieceIndex uint32, expected [sha1.Size]byte) (bool, error) {
+func (s *MemStore) VerifyPiece(_ context.Context, pieceIndex uint32, expected [sha1.Size]byte) (bool, error) {
 	offset := int64(pieceIndex) * s.info.PieceLength
 	size := s.info.PieceLen(pieceIndex)
 

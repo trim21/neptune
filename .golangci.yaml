@@ -122,6 +122,14 @@ linters:
         path: internal/download/resume.go
         text: "fieldalignment"
       - linters:
+          - govet
+        path: internal/pkg/uring/
+        text: "fieldalignment"
+      - linters:
+          - govet
+        path: internal/pkg/gfs/
+        text: "fieldalignment"
+      - linters:
           - forbidigo
         path: main.go
     paths:

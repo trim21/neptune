@@ -4,32 +4,36 @@
 package piece_store
 
 import (
+	"context"
 	"crypto/sha1"
 
 	"neptune/internal/meta"
 	"neptune/internal/pkg/filepool"
+	"neptune/internal/pkg/gfs"
 )
 
 // Store is the interface for reading and writing torrent piece data.
 // All methods use pieceIndex as the primary key, matching the BT protocol.
 type Store interface {
-	WriteChunk(pieceIndex uint32, begin uint32, data []byte) error
-	ReadChunk(pieceIndex uint32, begin uint32, data []byte) (int, error)
-	VerifyPiece(pieceIndex uint32, expected [sha1.Size]byte) (bool, error)
+	WriteChunk(ctx context.Context, pieceIndex uint32, begin uint32, data []byte) error
+	ReadChunk(ctx context.Context, pieceIndex uint32, begin uint32, data []byte) (int, error)
+	VerifyPiece(ctx context.Context, pieceIndex uint32, expected [sha1.Size]byte) (bool, error)
 }
 
 // FileStore is the production implementation backed by real files via filepool.
 type FileStore struct {
 	fp       *filepool.FilePool
+	ioc      *gfs.IOContext
 	basePath string
 	info     meta.Info
 }
 
 // NewFileStore creates a FileStore for the given torrent info and base path.
-func NewFileStore(info meta.Info, basePath string, fp *filepool.FilePool) *FileStore {
+func NewFileStore(info meta.Info, basePath string, fp *filepool.FilePool, ioc *gfs.IOContext) *FileStore {
 	return &FileStore{
 		info:     info,
 		basePath: basePath,
 		fp:       fp,
+		ioc:      ioc,
 	}
 }

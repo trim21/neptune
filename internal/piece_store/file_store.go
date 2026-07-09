@@ -4,19 +4,21 @@
 package piece_store
 
 import (
+	"context"
 	"crypto/sha1"
 	"os"
 	"path/filepath"
 	"time"
 
 	"neptune/internal/pkg/fadvise"
+	"neptune/internal/pkg/gfs"
 )
 
 func (s *FileStore) filePath(fileIndex int) string {
 	return filepath.Join(s.basePath, s.info.Files[fileIndex].Path)
 }
 
-func (s *FileStore) WriteChunk(pieceIndex uint32, begin uint32, data []byte) error {
+func (s *FileStore) WriteChunk(ctx context.Context, pieceIndex uint32, begin uint32, data []byte) error {
 	offset := int64(pieceIndex)*s.info.PieceLength + int64(begin)
 	size := int64(len(data))
 	var off int64
@@ -31,7 +33,7 @@ func (s *FileStore) WriteChunk(pieceIndex uint32, begin uint32, data []byte) err
 		if fresh {
 			_ = fadvise.Random(f.File, 0, 0)
 		}
-		_, err = f.File.WriteAt(data[off:off+chunk.Length], chunk.OffsetOfFile)
+		_, err = gfs.WriteAtCtx(ctx, s.ioc, f.File, data[off:off+chunk.Length], chunk.OffsetOfFile)
 		if err != nil {
 			f.Close()
 			return err
@@ -42,7 +44,7 @@ func (s *FileStore) WriteChunk(pieceIndex uint32, begin uint32, data []byte) err
 	return nil
 }
 
-func (s *FileStore) ReadChunk(pieceIndex uint32, begin uint32, data []byte) (int, error) {
+func (s *FileStore) ReadChunk(ctx context.Context, pieceIndex uint32, begin uint32, data []byte) (int, error) {
 	offset := int64(pieceIndex)*s.info.PieceLength + int64(begin)
 	size := int64(len(data))
 	var n int
@@ -54,7 +56,7 @@ func (s *FileStore) ReadChunk(pieceIndex uint32, begin uint32, data []byte) (int
 		if fresh {
 			_ = fadvise.Random(f.File, 0, 0)
 		}
-		rn, err := f.File.ReadAt(data[n:n+int(chunk.Length)], chunk.OffsetOfFile)
+		rn, err := gfs.ReadAtCtx(ctx, s.ioc, f.File, data[n:n+int(chunk.Length)], chunk.OffsetOfFile)
 		n += rn
 		f.Release()
 		if err != nil || rn < int(chunk.Length) {
@@ -65,7 +67,7 @@ func (s *FileStore) ReadChunk(pieceIndex uint32, begin uint32, data []byte) (int
 }
 
 // VerifyPiece reads piece data from disk, computes SHA1, and compares.
-func (s *FileStore) VerifyPiece(pieceIndex uint32, expected [sha1.Size]byte) (bool, error) {
+func (s *FileStore) VerifyPiece(ctx context.Context, pieceIndex uint32, expected [sha1.Size]byte) (bool, error) {
 	hasher := sha1.New()
 	var buf [16 * 1024]byte
 
@@ -82,7 +84,7 @@ func (s *FileStore) VerifyPiece(pieceIndex uint32, expected [sha1.Size]byte) (bo
 		left := chunk.Length
 		for left > 0 {
 			toRead := min(left, int64(len(buf)))
-			n, err := f.File.ReadAt(buf[:toRead], fileOff)
+			n, err := gfs.ReadAtCtx(ctx, s.ioc, f.File, buf[:toRead], fileOff)
 			if n > 0 {
 				hasher.Write(buf[:n])
 				fileOff += int64(n)
