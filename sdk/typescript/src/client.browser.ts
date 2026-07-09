@@ -1,5 +1,9 @@
 import {BaseClient} from './base-client.ts';
 
+export * from './errors.ts';
+export type * from './base-client.ts';
+export type * from './types.ts';
+
 /**
  * Standard `fetch`-based Neptune JSON-RPC client.
  *
