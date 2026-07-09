@@ -8,30 +8,13 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"neptune/internal/meta"
 	"neptune/internal/pkg/bm"
 )
 
-func testInfo(numPieces uint32) meta.Info {
-	return meta.Info{
-		NumPieces:   numPieces,
-		PieceLength: 4 * 16384, // 4 blocks per piece
-	}
-}
-
-func newTestPicker(numPieces uint32) *PiecePicker {
-	info := testInfo(numPieces)
-	completedBm := bm.New(info.NumPieces)
-	wantedBm := bm.New(info.NumPieces)
-	return NewPiecePicker(info, completedBm, wantedBm, nil, nil)
-}
-
 func TestRequestABlock_AllCompleted(t *testing.T) {
-	info := testInfo(3)
-	completedBm := bm.New(info.NumPieces)
-	completedBm.Fill()
+	pp := newTestPicker(3, 4)
+	pp.completedBm.Fill()
 
-	pp := NewPiecePicker(info, completedBm, nil, nil, nil)
 	result := pp.RequestABlock(PickResult{}, 8, 0, 0, false, nil, nil)
 
 	require.Empty(t, result.FreeBlocks)
@@ -39,35 +22,25 @@ func TestRequestABlock_AllCompleted(t *testing.T) {
 }
 
 func TestRequestABlock_QueueFull(t *testing.T) {
-	pp := newTestPicker(5)
-
-	// desired=8, outstanding=8, queued=0 → numRequests=0
+	pp := newTestPicker(5, 4)
 	result := pp.RequestABlock(PickResult{}, 8, 8, 0, false, nil, nil)
 	require.Empty(t, result.FreeBlocks)
 	require.Empty(t, result.BusyBlocks)
 }
 
 func TestRequestABlock_QueueFullWithQueued(t *testing.T) {
-	pp := newTestPicker(5)
-
-	// desired=8, outstanding=4, queued=4 → numRequests=0
+	pp := newTestPicker(5, 4)
 	result := pp.RequestABlock(PickResult{}, 8, 4, 4, false, nil, nil)
 	require.Empty(t, result.FreeBlocks)
 	require.Empty(t, result.BusyBlocks)
 }
 
 func TestRequestABlock_ChokedNoFast(t *testing.T) {
-	numPieces := uint32(5)
-	info := testInfo(numPieces)
-	wantedBm := bm.New(info.NumPieces)
-	wantedBm.Fill()
+	pp := newTestPicker(5, 4)
 
-	peerBitfield := bm.New(info.NumPieces)
+	peerBitfield := bm.New(pp.info.NumPieces)
 	peerBitfield.Fill()
-
-	pp := NewPiecePicker(info, bm.New(info.NumPieces), wantedBm, nil, nil)
-
-	for i := range info.NumPieces {
+	for i := range pp.info.NumPieces {
 		pp.IncRefcount(i)
 	}
 
@@ -77,20 +50,15 @@ func TestRequestABlock_ChokedNoFast(t *testing.T) {
 }
 
 func TestRequestABlock_ChokedWithFast(t *testing.T) {
-	numPieces := uint32(5)
-	info := testInfo(numPieces)
-	wantedBm := bm.New(info.NumPieces)
-	wantedBm.Fill()
+	pp := newTestPicker(5, 4)
 
-	peerBitfield := bm.New(info.NumPieces)
+	peerBitfield := bm.New(pp.info.NumPieces)
 	peerBitfield.Fill()
 
-	fastBm := bm.New(info.NumPieces)
+	fastBm := bm.New(pp.info.NumPieces)
 	fastBm.Set(0)
 
-	pp := NewPiecePicker(info, bm.New(info.NumPieces), wantedBm, nil, nil)
-
-	for i := range info.NumPieces {
+	for i := range pp.info.NumPieces {
 		pp.IncRefcount(i)
 	}
 
@@ -102,17 +70,11 @@ func TestRequestABlock_ChokedWithFast(t *testing.T) {
 }
 
 func TestRequestABlock_UnchokedNormal(t *testing.T) {
-	numPieces := uint32(5)
-	info := testInfo(numPieces)
-	wantedBm := bm.New(info.NumPieces)
-	wantedBm.Fill()
+	pp := newTestPicker(5, 4)
 
-	peerBitfield := bm.New(info.NumPieces)
+	peerBitfield := bm.New(pp.info.NumPieces)
 	peerBitfield.Fill()
-
-	pp := NewPiecePicker(info, bm.New(info.NumPieces), wantedBm, nil, nil)
-
-	for i := range info.NumPieces {
+	for i := range pp.info.NumPieces {
 		pp.IncRefcount(i)
 	}
 
@@ -121,17 +83,11 @@ func TestRequestABlock_UnchokedNormal(t *testing.T) {
 }
 
 func TestRequestABlock_LastPickResultReuse(t *testing.T) {
-	numPieces := uint32(5)
-	info := testInfo(numPieces)
-	wantedBm := bm.New(info.NumPieces)
-	wantedBm.Fill()
+	pp := newTestPicker(5, 4)
 
-	peerBitfield := bm.New(info.NumPieces)
+	peerBitfield := bm.New(pp.info.NumPieces)
 	peerBitfield.Fill()
-
-	pp := NewPiecePicker(info, bm.New(info.NumPieces), wantedBm, nil, nil)
-
-	for i := range info.NumPieces {
+	for i := range pp.info.NumPieces {
 		pp.IncRefcount(i)
 	}
 

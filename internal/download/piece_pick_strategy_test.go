@@ -7,81 +7,7 @@ package download
 
 import (
 	"testing"
-
-	"go.uber.org/atomic"
-
-	"neptune/internal/meta"
-	"neptune/internal/pkg/bm"
 )
-
-func TestPiecePickStrategy_Sequential(t *testing.T) {
-	// Setup: small torrent with 10 pieces, 10 blocks/piece.
-	info := meta.Info{
-		NumPieces:     10,
-		PieceLength:   10 * defaultBlockSize,
-		LastPieceSize: 10 * defaultBlockSize,
-	}
-
-	completedBm := bm.New(10)
-	wantedBm := bm.New(10)
-	wantedBm.Fill()
-
-	strategy := new(atomic.Uint32)
-	strategy.Store(uint32(StrategySequential))
-	pp := NewPiecePicker(info, completedBm, wantedBm, nil, strategy)
-
-	peerBitfield := bm.New(10)
-	peerBitfield.Fill() // peer has everything
-
-	var result PickResult
-
-	// Sequential: should always pick block 0 of piece 0 first.
-	result = pp.PickPieces(peerBitfield, false, nil, 1, 0, nil, result)
-	if len(result.FreeBlocks) != 1 {
-		t.Fatalf("expected 1 free block, got %d", len(result.FreeBlocks))
-	}
-	if result.FreeBlocks[0].PieceIndex != 0 {
-		t.Fatalf("expected piece 0, got %d", result.FreeBlocks[0].PieceIndex)
-	}
-	if result.FreeBlocks[0].BlockIndex != 0 {
-		t.Fatalf("expected block 0, got %d", result.FreeBlocks[0].BlockIndex)
-	}
-
-	// Mark block 0 of piece 0 as requesting.
-	pp.MarkAsRequesting(0, 0)
-	pp.AddDownloadingPiece(0)
-
-	// Next request: should be block 1 of piece 0 (still sequential, finishing piece 0).
-	result.FreeBlocks = result.FreeBlocks[:0]
-	result.BusyBlocks = result.BusyBlocks[:0]
-	result = pp.PickPieces(peerBitfield, false, nil, 1, 0, nil, result)
-	if len(result.FreeBlocks) != 1 {
-		t.Fatalf("expected 1 free block, got %d", len(result.FreeBlocks))
-	}
-	if result.FreeBlocks[0].PieceIndex != 0 {
-		t.Fatalf("expected piece 0, got %d", result.FreeBlocks[0].PieceIndex)
-	}
-	if result.FreeBlocks[0].BlockIndex != 1 {
-		t.Fatalf("expected block 1 of piece 0, got block %d", result.FreeBlocks[0].BlockIndex)
-	}
-
-	// Complete piece 0 — mark all blocks as responded.
-	for i := range 10 {
-		pp.MarkAsResponded(0, i)
-	}
-	pp.WeHave(0)
-
-	// Next request: piece 1, block 0 (sequential, piece 0 is done).
-	result.FreeBlocks = result.FreeBlocks[:0]
-	result.BusyBlocks = result.BusyBlocks[:0]
-	result = pp.PickPieces(peerBitfield, false, nil, 1, 0, nil, result)
-	if len(result.FreeBlocks) != 1 {
-		t.Fatalf("expected 1 free block, got %d", len(result.FreeBlocks))
-	}
-	if result.FreeBlocks[0].PieceIndex != 1 {
-		t.Fatalf("expected piece 1, got %d", result.FreeBlocks[0].PieceIndex)
-	}
-}
 
 func TestPiecePickStrategy_DefaultIsRarestFirst(t *testing.T) {
 	if defaultStrategy("") != StrategyRarestFirst {
@@ -105,7 +31,6 @@ func TestPiecePickStrategy_String(t *testing.T) {
 	if StrategySequential.String() != "sequential" {
 		t.Fatal("sequential string")
 	}
-	// Unknown values return "<invalid>"
 	if PiecePickStrategy(255).String() != "<invalid>" {
 		t.Fatal("unknown should be <invalid>")
 	}

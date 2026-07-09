@@ -1,16 +1,11 @@
 // Copyright 2026 trim21 <trim21.me@gmail.com>
 // SPDX-License-Identifier: GPL-3.0-only
 
-//go:build !release
-
-package download
+package piece_picker
 
 import (
-	"crypto/sha1"
 	"testing"
 
-	"neptune/internal/meta"
-	"neptune/internal/metainfo"
 	"neptune/internal/pkg/bm"
 )
 
@@ -19,17 +14,18 @@ import (
 // (pending hash check), with zero free blocks. The endgame should return
 // busy blocks so the peer can re-request them.
 func TestEndgameNoFreeBlocks(t *testing.T) {
-	pp, info := pickerEnv(5, 4)
-	bitfield := bm.New(info.NumPieces)
+	pp := newTestPicker(5, 4)
+	bitfield := bm.New(pp.info.NumPieces)
 	bitfield.Fill()
 
 	// Complete pieces 0-2.
 	for pi := range uint32(3) {
 		pp.AddDownloadingPiece(pi)
-		for bi := range info.PieceBlockCount(pi) {
+		for bi := range pp.info.PieceBlockCount(pi) {
 			pp.MarkAsRequesting(pi, bi)
 			pp.MarkAsResponded(pi, bi)
 		}
+		pp.completedBm.Set(pi)
 		pp.WeHave(pi)
 	}
 
@@ -62,31 +58,4 @@ func TestEndgameNoFreeBlocks(t *testing.T) {
 			}
 		}
 	}
-}
-
-// pickerEnv creates a fresh PiecePicker for testing.
-func pickerEnv(numPieces uint32, blocksPerPiece uint32) (*PiecePicker, meta.Info) {
-	pieceLength := int64(blocksPerPiece) * defaultBlockSize
-	totalLength := int64(numPieces) * pieceLength
-
-	hashes := make([]metainfo.Hash, numPieces)
-	for i := range numPieces {
-		hashes[i] = sha1.Sum(make([]byte, pieceLength))
-	}
-
-	info := meta.Info{
-		Name:          "test",
-		NumPieces:     numPieces,
-		PieceLength:   pieceLength,
-		LastPieceSize: pieceLength,
-		TotalLength:   totalLength,
-		Pieces:        hashes,
-		Files:         []meta.File{{Path: "test", Length: totalLength}},
-	}
-
-	completedBm := bm.New(info.NumPieces)
-	wantedBm := bm.New(info.NumPieces)
-	wantedBm.Fill()
-
-	return NewPiecePicker(info, completedBm, wantedBm, nil, nil), info
 }
