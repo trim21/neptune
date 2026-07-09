@@ -66,7 +66,8 @@ func newTestDownload(t testing.TB, numPieces uint32, blocksPerPiece uint32, newS
 	stateCond := gsync.NewCond(&sync.RWMutex{})
 
 	d := &Download{
-		ctx: ctx,
+		ctx:          ctx,
+		bitfieldSize: (info.NumPieces + 7) / 8,
 		session: &session.Session{
 			ConnSem:           semaphore.NewWeighted(200),
 			DownloadLimiter:   ratelimit.New(0),
