@@ -23,7 +23,7 @@
     {
       "matchManagers": ["gomod"],
       "matchDatasources": ["golang-version"],
-      "matchCurrentVersion": "1.25",
+      "matchCurrentVersion": "1.26",
       "matchUpdateTypes": ["minor"],
       "enabled": false
     },

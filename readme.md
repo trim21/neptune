@@ -14,7 +14,7 @@ Pre-built static binaries have zero system library dependency and do not require
 
 - **Linux**: kernel >= 3.1
 - **Windows**: Windows 10 / Windows Server 2016 or higher
-- **macOS**: Catalina 10.15 or newer
+- **macOS**: macOS 12 Monterey or newer
 
 ### Docker
 
