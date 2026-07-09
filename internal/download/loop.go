@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"neptune/internal/client/tracker"
-	"neptune/internal/pkg/empty"
 )
 
 func (d *Download) Start() error {
@@ -86,7 +85,6 @@ func (d *Download) startBackground() {
 	d.log.Trace().Msg("start goroutine")
 
 	d.goBackground(d.backgroundResHandler)
-	d.goBackground(d.backgroundReqScheduler)
 	d.goBackground(d.backgroundReqHandler)
 
 	// Connection + peer intake loop: handles incoming peers from all sources
@@ -171,11 +169,6 @@ func (d *Download) optimisticUnchoke() {
 	idx := int(time.Now().UnixNano()) % len(peers)
 	p := peers[idx]
 	d.log.Debug().Stringer("addr", p.Addr()).Msg("optimistic unchoke")
-
-	select {
-	case d.scheduleRequestSignal <- empty.Empty{}:
-	default:
-	}
 }
 
 type Priority struct {

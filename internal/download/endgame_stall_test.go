@@ -26,7 +26,7 @@ func TestEndgameNoFreeBlocks(t *testing.T) {
 	// Complete pieces 0-2.
 	for pi := range uint32(3) {
 		pp.AddDownloadingPiece(pi, info)
-		for bi := range int(info.PieceBlockCount(pi)) {
+		for bi := range info.PieceBlockCount(pi) {
 			pp.MarkAsRequesting(pi, bi)
 			pp.MarkAsResponded(pi, bi)
 		}

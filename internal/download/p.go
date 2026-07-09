@@ -280,10 +280,7 @@ func (p *peerImpl) Close() {
 
 		// Signal scheduler: blocks freed by abortDownload are now available
 		// for other peers to pick up immediately.
-		select {
-		case p.d.scheduleRequestSignal <- empty.Empty{}:
-		default:
-		}
+		p.d.notifyPeersToRequest()
 	}
 }
 
@@ -468,10 +465,7 @@ func (p *peerImpl) checkRequestTimeouts() {
 				}
 
 				// Trigger reschedule so other peers can take over the freed blocks.
-				select {
-				case p.d.scheduleRequestSignal <- empty.Empty{}:
-				default:
-				}
+				p.d.notifyPeersToRequest()
 			} else {
 				// No timeouts this tick — auto un-snub if we were previously snubbed.
 				if consecutiveTimeouts < snubThreshold {
@@ -748,10 +742,7 @@ func (p *peerImpl) start(skipHandshake bool) {
 				}
 			}
 			p.isSeed.Store(true)
-			select {
-			case p.d.scheduleRequestSignal <- empty.Empty{}:
-			default:
-			}
+			p.requestBlocks()
 		case proto.HaveNone:
 			// Decrement old pieces before clearing
 			p.Bitmap.Range(func(u uint32) {

@@ -23,7 +23,6 @@ import (
 	"neptune/internal/metainfo"
 	"neptune/internal/piece_store"
 	"neptune/internal/pkg/bm"
-	"neptune/internal/pkg/empty"
 	"neptune/internal/pkg/flowrate"
 	"neptune/internal/pkg/gsync"
 	"neptune/internal/pkg/ratelimit"
@@ -92,19 +91,18 @@ func newTestEnv(t *testing.T, numPieces, blocksPerPiece uint32, failPieces []uin
 			done: make(bitmap.Bitmap, (int64(info.NumPieces)*(normalChunkLen)+63)/64),
 			mu:   sync.RWMutex{},
 		},
-		pieceDownloadRate:     flowrate.New(time.Second, 5*time.Second),
-		ioDownloadRate:        flowrate.New(time.Second, 5*time.Second),
-		pieceUploadRate:       flowrate.New(time.Second, 5*time.Second),
-		uploadLimiter:         ratelimit.New(0),
-		downloadLimiter:       ratelimit.New(0),
-		normalChunkLen:        uint32(normalChunkLen),
-		peers:                 xsync.NewMap[uint64, Peer](),
-		connectedAddrs:        xsync.NewMap[netip.AddrPort, Peer](),
-		stateCond:             stateCond,
-		private:               false,
-		corruptedPieces:       make(map[uint32]int),
-		scheduleRequestSignal: make(chan empty.Empty, 1),
-		Trk:                   tracker.New(ctx, tracker.Config{}),
+		pieceDownloadRate: flowrate.New(time.Second, 5*time.Second),
+		ioDownloadRate:    flowrate.New(time.Second, 5*time.Second),
+		pieceUploadRate:   flowrate.New(time.Second, 5*time.Second),
+		uploadLimiter:     ratelimit.New(0),
+		downloadLimiter:   ratelimit.New(0),
+		normalChunkLen:    uint32(normalChunkLen),
+		peers:             xsync.NewMap[uint64, Peer](),
+		connectedAddrs:    xsync.NewMap[netip.AddrPort, Peer](),
+		stateCond:         stateCond,
+		private:           false,
+		corruptedPieces:   make(map[uint32]int),
+		Trk:               tracker.New(ctx, tracker.Config{}),
 	}
 	d.session.DownloadLimiter = ratelimit.New(0)
 	d.session.UploadLimiter = ratelimit.New(0)

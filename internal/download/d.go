@@ -124,7 +124,6 @@ type Download struct {
 	picker                 atomic.Pointer[PiecePicker]
 	err                    atomic.Pointer[error]
 	cancel                 context.CancelFunc
-	scheduleRequestSignal  chan empty.Empty
 	scheduleResponseSignal chan empty.Empty
 	pendingPeersSignal     chan empty.Empty
 	Trk                    *tracker.Trackers
@@ -134,6 +133,7 @@ type Download struct {
 	chunk                  chunkState
 	info                   meta.Info
 	backgroundWg           sync.WaitGroup
+	uploadAtStart          int64
 	piecePickStrategy      atomic.Uint32
 	completed              atomic.Int64
 	CompletedAt            atomic.Int64
@@ -142,7 +142,7 @@ type Download struct {
 	corrupted              atomic.Int64
 	uploaded               atomic.Int64
 	peerIDCounter          atomic.Uint64
-	uploadAtStart          int64
+	notifyScheduled        atomic.Bool
 	unchokeSlotIdx         int
 	AddAt                  int64
 	peerLeechers           atomic.Int64

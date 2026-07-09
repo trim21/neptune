@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"neptune/internal/pkg/empty"
 	"neptune/internal/pkg/fallocate"
 )
 
@@ -114,10 +113,7 @@ func (d *Download) SetFilePriority(fileIDs []int, priority int) error {
 
 	d.saveResume()
 
-	select {
-	case d.scheduleRequestSignal <- empty.Empty{}:
-	default:
-	}
+	d.notifyPeersToRequest()
 
 	return nil
 }

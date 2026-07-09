@@ -83,7 +83,7 @@ func testDomain1_WriteAndVerifyFullPiece(t *testing.T, storeType string) {
 		begin := uint32(blockIdx * blockSize)
 		end := min(begin+blockSize, uint32(pieceLen))
 		chunk := data[begin:end]
-		if err := store.WriteChunk(ctx, 1, begin, chunk); err != nil {
+		if err = store.WriteChunk(ctx, 1, begin, chunk); err != nil {
 			t.Fatalf("WriteChunk failed: %v", err)
 		}
 	}

@@ -26,7 +26,6 @@ import (
 	"neptune/internal/metainfo"
 	"neptune/internal/piece_store"
 	"neptune/internal/pkg/bm"
-	"neptune/internal/pkg/empty"
 	"neptune/internal/pkg/flowrate"
 	"neptune/internal/pkg/gsync"
 	"neptune/internal/pkg/heap"
@@ -84,18 +83,17 @@ func newTestDownload(t testing.TB, numPieces uint32, blocksPerPiece uint32, newS
 			mu:   sync.RWMutex{},
 		},
 
-		pieceDownloadRate:     flowrate.New(time.Second, 5*time.Second),
-		ioDownloadRate:        flowrate.New(time.Second, 5*time.Second),
-		pieceUploadRate:       flowrate.New(time.Second, 5*time.Second),
-		uploadLimiter:         ratelimit.New(0),
-		downloadLimiter:       ratelimit.New(0),
-		peers:                 xsync.NewMap[uint64, Peer](),
-		connectedAddrs:        xsync.NewMap[netip.AddrPort, Peer](),
-		stateCond:             stateCond,
-		private:               false,
-		corruptedPieces:       make(map[uint32]int),
-		scheduleRequestSignal: make(chan empty.Empty, 1),
-		Trk:                   tracker.New(ctx, tracker.Config{}),
+		pieceDownloadRate: flowrate.New(time.Second, 5*time.Second),
+		ioDownloadRate:    flowrate.New(time.Second, 5*time.Second),
+		pieceUploadRate:   flowrate.New(time.Second, 5*time.Second),
+		uploadLimiter:     ratelimit.New(0),
+		downloadLimiter:   ratelimit.New(0),
+		peers:             xsync.NewMap[uint64, Peer](),
+		connectedAddrs:    xsync.NewMap[netip.AddrPort, Peer](),
+		stateCond:         stateCond,
+		private:           false,
+		corruptedPieces:   make(map[uint32]int),
+		Trk:               tracker.New(ctx, tracker.Config{}),
 	}
 	wantedBm := bm.New(info.NumPieces)
 	wantedBm.Fill()

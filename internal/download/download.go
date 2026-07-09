@@ -13,7 +13,6 @@ import (
 	"neptune/internal/client/tracker"
 	"neptune/internal/meta"
 	"neptune/internal/pkg/as"
-	"neptune/internal/pkg/empty"
 	"neptune/internal/pkg/global/tasks"
 	"neptune/internal/pkg/gsync"
 	"neptune/internal/pkg/heap"
@@ -27,33 +26,22 @@ const minRequestQueue = 2
 // maxRequestQueue is the maximum number of outstanding requests per peer.
 const maxRequestQueue = 2000
 
-func (d *Download) backgroundReqScheduler() {
-	defer d.log.Info().Msg("backgroundReqScheduler: exiting")
-	for {
-		select {
-		case <-d.ctx.Done():
-			d.log.Info().Msg("backgroundReqScheduler: exiting (ctx canceled)")
-			return
-		case <-d.scheduleRequestSignal:
-		}
-
-		if !d.wait(Downloading) {
-			continue
-		}
-
-		// Endgame is set inside requestABlock when remaining pieces are low
-		// or a peer runs out of free blocks.
-		// We do not reset it here — peer self-driven scheduling handles the
-		// normal case; this goroutine is a safety net for edge cases
-		// (new peers from tracker/PEX, timeout recovery).
-		d.peers.Range(func(_ uint64, p Peer) bool {
-			if p.Closed() {
-				return true
-			}
-			d.requestABlock(p)
-			return true
-		})
+func (d *Download) notifyPeersToRequest() {
+	if !d.notifyScheduled.CompareAndSwap(false, true) {
+		return // already pending, will be handled by the in-flight scan
 	}
+	if !d.HasState(Downloading) {
+		d.notifyScheduled.Store(false)
+		return
+	}
+	d.peers.Range(func(_ uint64, p Peer) bool {
+		if p.Closed() {
+			return true
+		}
+		d.requestABlock(p)
+		return true
+	})
+	d.notifyScheduled.Store(false)
 }
 
 func (d *Download) have(index uint32) {
@@ -454,10 +442,7 @@ func (d *Download) checkPiece(pieceIndex uint32) error {
 		}
 		d.chunk.mu.Unlock()
 		// Trigger reschedule for re-requesting this piece
-		select {
-		case d.scheduleRequestSignal <- empty.Empty{}:
-		default:
-		}
+		d.notifyPeersToRequest()
 		return nil
 	}
 
@@ -475,10 +460,6 @@ func (d *Download) checkPiece(pieceIndex uint32) error {
 		d.have(pieceIndex)
 
 		// Notify scheduler that piece completed so peers can request new blocks.
-		select {
-		case d.scheduleRequestSignal <- empty.Empty{}:
-		default:
-		}
 	}
 
 	return nil
