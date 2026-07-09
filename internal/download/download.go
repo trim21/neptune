@@ -501,6 +501,8 @@ func (d *Download) checkDone() {
 	d.CompletedAt.Store(time.Now().Unix())
 	d.pieceDownloadRate.Reset()
 
+	d.fireCompletedHook()
+
 	d.peers.Range(func(_ uint64, p Peer) bool {
 		if p.PeerBitmap().Count() == d.info.NumPieces {
 			p.Close()
@@ -530,6 +532,8 @@ func (d *Download) recheckAfterComplete() {
 
 	d.runHashCheck(func() {
 		d.CompletedAt.Store(time.Now().Unix())
+
+		d.fireCompletedHook()
 
 		d.peers.Range(func(_ uint64, p Peer) bool {
 			if p.PeerBitmap().Count() == d.info.NumPieces {

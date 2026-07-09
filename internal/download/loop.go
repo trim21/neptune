@@ -21,6 +21,7 @@ func (d *Download) Start() error {
 			d.log.Error().Err(err).Msg("failed to transition state in Start")
 			return err
 		}
+		d.fireStartedHook()
 	}
 
 	d.stateCond.Broadcast()

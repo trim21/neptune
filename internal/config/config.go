@@ -3,7 +3,10 @@
 
 package config
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 // CryptoMode controls MSE encryption policy.
 type CryptoMode uint8
@@ -31,20 +34,36 @@ func ParseCryptoMode(s string) (CryptoMode, error) {
 	}
 }
 
+// HookConfig holds shell commands to run on download events.
+// Commands run via /bin/sh -c with environment variables:
+//
+//	NEPTUNE_INFO_HASH  — hex-encoded info hash
+//	NEPTUNE_NAME       — torrent name
+//	NEPTUNE_SAVE_PATH  — download directory
+//	NEPTUNE_SIZE       — total size in bytes
+//
+// Empty strings mean no hook (no-op).
+type HookConfig struct {
+	OnDownloadStarted   string        `toml:"on-download-started"`
+	OnDownloadCompleted string        `toml:"on-download-completed"`
+	Timeout             time.Duration `toml:"timeout"`
+}
+
 type Application struct {
-	Crypto                   string `toml:"crypto"`
-	DownloadDir              string `toml:"download-dir"`
-	PiecePickStrategy        string `toml:"piece-pick-strategy"`
-	GlobalDownloadSpeedLimit int64  `toml:"global-download-speed-limit"`
-	MaxHTTPParallel          int    `toml:"max-http-parallel"`
-	MaxRequestBodySize       int64  `toml:"max-rpc-request-body-size"`
-	GlobalUploadSpeedLimit   int64  `toml:"global-upload-speed-limit"`
-	P2PPort                  uint16 `toml:"p2p-port"`
-	GlobalUploadSlots        uint16 `toml:"global-upload-slots"`
-	GlobalConnectionLimit    uint16 `toml:"global-connections-limit"`
-	NumWant                  uint16 `toml:"num-want"`
-	Fallocate                bool   `toml:"fallocate"`
-	RecheckOnComplete        bool   `toml:"recheck-on-complete"`
+	Crypto                   string     `toml:"crypto"`
+	DownloadDir              string     `toml:"download-dir"`
+	PiecePickStrategy        string     `toml:"piece-pick-strategy"`
+	Hook                     HookConfig `toml:"hook"`
+	GlobalUploadSpeedLimit   int64      `toml:"global-upload-speed-limit"`
+	MaxRequestBodySize       int64      `toml:"max-rpc-request-body-size"`
+	MaxHTTPParallel          int        `toml:"max-http-parallel"`
+	GlobalDownloadSpeedLimit int64      `toml:"global-download-speed-limit"`
+	P2PPort                  uint16     `toml:"p2p-port"`
+	GlobalUploadSlots        uint16     `toml:"global-upload-slots"`
+	GlobalConnectionLimit    uint16     `toml:"global-connections-limit"`
+	NumWant                  uint16     `toml:"num-want"`
+	Fallocate                bool       `toml:"fallocate"`
+	RecheckOnComplete        bool       `toml:"recheck-on-complete"`
 }
 
 type Config struct {

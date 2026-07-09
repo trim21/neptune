@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/pelletier/go-toml/v2"
@@ -271,6 +272,25 @@ var configFields = map[string]configField{
 			return nil
 		},
 		getter: func(a *Application) lua.LValue { return lua.LString(a.Crypto) },
+	},
+	"application.hook.on-download-started": {
+		setter: func(a *Application, v lua.LValue) error { a.Hook.OnDownloadStarted = lua.LVAsString(v); return nil },
+		getter: func(a *Application) lua.LValue { return lua.LString(a.Hook.OnDownloadStarted) },
+	},
+	"application.hook.on-download-completed": {
+		setter: func(a *Application, v lua.LValue) error { a.Hook.OnDownloadCompleted = lua.LVAsString(v); return nil },
+		getter: func(a *Application) lua.LValue { return lua.LString(a.Hook.OnDownloadCompleted) },
+	},
+	"application.hook.timeout": {
+		setter: func(a *Application, v lua.LValue) error {
+			d, err := time.ParseDuration(lua.LVAsString(v))
+			if err != nil {
+				return fmt.Errorf("invalid duration: %w", err)
+			}
+			a.Hook.Timeout = d
+			return nil
+		},
+		getter: func(a *Application) lua.LValue { return lua.LString(a.Hook.Timeout.String()) },
 	},
 }
 

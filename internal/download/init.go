@@ -237,6 +237,8 @@ func (d *Download) check(resumed bool, skipHashCheck bool) {
 		} else {
 			if err := d.transition(Downloading); err != nil {
 				d.log.Error().Err(err).Msg("failed to transition state after init check")
+			} else {
+				d.fireStartedHook()
 			}
 		}
 	}
