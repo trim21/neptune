@@ -19,6 +19,10 @@ func (c *Client) StartTorrent(h metainfo.Hash) error {
 		return fmt.Errorf("torrent %s not exists", h)
 	}
 
+	if d.HasState(download.Checking) {
+		return nil
+	}
+
 	if !d.HasState(download.Stopped) && !d.HasState(download.Downloading) && !d.HasState(download.Seeding) {
 		return fmt.Errorf("torrent %s is not in a startable state, current state: %s, err: %q", h, d.GetState().String(), d.ErrorMsg())
 	}
