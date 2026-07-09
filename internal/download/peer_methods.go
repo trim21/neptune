@@ -72,7 +72,7 @@ func (p *peerImpl) QueueLen() int            { return p.requestQueueLen() }
 
 func (p *peerImpl) EnqueueBlock(pieceIndex uint32, blockIndex int) {
 	p.rqMu.Lock()
-	p.requestQueue = append(p.requestQueue, pieceBlock{pieceIndex: pieceIndex, blockIndex: blockIndex})
+	p.requestQueue = append(p.requestQueue, PieceBlock{PieceIndex: pieceIndex, BlockIndex: blockIndex})
 	p.rqMu.Unlock()
 }
 
@@ -81,13 +81,13 @@ func (p *peerImpl) DesiredQueueSize() int { return p.updateDesiredQueueSize() }
 
 // ── Picker integration ───────────────────────────────────────────────────
 
-func (p *peerImpl) LastPickResult() pickResult {
+func (p *peerImpl) LastPickResult() PickResult {
 	p.lastPickResultMu.Lock()
 	defer p.lastPickResultMu.Unlock()
 	return p.lastPickResult
 }
 
-func (p *peerImpl) SetLastPickResult(r pickResult) {
+func (p *peerImpl) SetLastPickResult(r PickResult) {
 	p.lastPickResultMu.Lock()
 	defer p.lastPickResultMu.Unlock()
 	p.lastPickResult = r

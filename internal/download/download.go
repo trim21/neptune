@@ -160,7 +160,7 @@ func (d *Download) handleRes(res *proto.ChunkResponse) {
 
 	// Mark block as writing in the picker
 	blockIndex := int(res.Begin / uint32(defaultBlockSize))
-	d.picker.Load().markAsResponded(res.PieceIndex, blockIndex)
+	d.picker.Load().MarkAsResponded(res.PieceIndex, blockIndex)
 
 	c := responseChunk{
 		res:    res,
@@ -441,7 +441,7 @@ func (d *Download) checkPiece(pieceIndex uint32) error {
 
 	if !ok {
 		// Piece hash check failed — reset in picker so blocks can be re-requested
-		d.picker.Load().resetPiece(pieceIndex, d.info)
+		d.picker.Load().ResetPiece(pieceIndex, d.info)
 		d.corruptedPiecesMu.Lock()
 		d.corruptedPieces[pieceIndex]++
 		d.corruptedPiecesMu.Unlock()
@@ -464,7 +464,7 @@ func (d *Download) checkPiece(pieceIndex uint32) error {
 	notHave := d.completedBm.SetX(pieceIndex)
 
 	// Mark piece as fully owned in the picker
-	d.picker.Load().weHave(pieceIndex, d.info)
+	d.picker.Load().WeHave(pieceIndex, d.info)
 
 	if notHave {
 		d.completed.Add(pieceSize)
@@ -526,7 +526,7 @@ func (d *Download) recheckAfterComplete() {
 		return
 	}
 	d.completedBm.Clear()
-	d.picker.Load().resetAll()
+	d.picker.Load().ResetAll()
 	d.completed.Store(0)
 	d.stateCond.Broadcast()
 
@@ -620,7 +620,7 @@ func (d *Download) requestABlock(p Peer) {
 	allowFastBm := p.FastBitmap()
 	lastPick := p.LastPickResult()
 
-	pickResult := d.picker.Load().pickPieces(
+	pickResult := d.picker.Load().PickPieces(
 		peerBitmap,
 		choked,
 		allowFastBm,
@@ -636,7 +636,7 @@ func (d *Download) requestABlock(p Peer) {
 
 	// If the peer is choked and no fast pieces are allowed, the picker returns
 	// zero blocks — don't mistake this for "no blocks left" and trigger endgame.
-	if len(pickResult.freeBlocks) == 0 && choked && allowFastBm.Count() == 0 {
+	if len(pickResult.FreeBlocks) == 0 && choked && allowFastBm.Count() == 0 {
 		if d.session.Debug {
 			s := fmt.Sprintf("choked no fast: numReq=%d, desired=%d", numRequests, desiredQueueSize)
 			p.SetLastPickDebug(s)
@@ -650,28 +650,28 @@ func (d *Download) requestABlock(p Peer) {
 	skippedFinished := 0
 	skippedCompleted := 0
 	skippedDone := 0
-	for _, fb := range pickResult.freeBlocks {
+	for _, fb := range pickResult.FreeBlocks {
 		if numRequests <= 0 {
 			break
 		}
 
-		chunk := pieceChunk(d.info, fb.pieceIndex, fb.blockIndex)
+		chunk := pieceChunk(d.info, fb.PieceIndex, fb.BlockIndex)
 		if p.IsInQueue(chunk) {
 			skippedInQueue++
 			continue
 		}
 
-		if d.picker.Load().isFinished(fb.pieceIndex, fb.blockIndex) {
+		if d.picker.Load().IsFinished(fb.PieceIndex, fb.BlockIndex) {
 			skippedFinished++
 			continue
 		}
 
-		if d.completedBm.Contains(fb.pieceIndex) {
+		if d.completedBm.Contains(fb.PieceIndex) {
 			skippedCompleted++
 			continue
 		}
 
-		chunkPi := fb.pieceIndex*d.normalChunkLen + uint32(fb.blockIndex)
+		chunkPi := fb.PieceIndex*d.normalChunkLen + uint32(fb.BlockIndex)
 		d.chunk.mu.RLock()
 		done := d.chunk.done.Contains(chunkPi)
 		d.chunk.mu.RUnlock()
@@ -680,7 +680,7 @@ func (d *Download) requestABlock(p Peer) {
 			continue
 		}
 
-		p.EnqueueBlock(fb.pieceIndex, fb.blockIndex)
+		p.EnqueueBlock(fb.PieceIndex, fb.BlockIndex)
 		enqueueBlockDelay()
 		// Re-check: Close() may have called abortDownload for this block
 		// between EnqueueBlock and now. Don't re-mark as requesting.
@@ -688,8 +688,8 @@ func (d *Download) requestABlock(p Peer) {
 			numRequests--
 			continue
 		}
-		d.picker.Load().markAsRequesting(fb.pieceIndex, fb.blockIndex)
-		d.picker.Load().addDownloadingPiece(fb.pieceIndex, d.info)
+		d.picker.Load().MarkAsRequesting(fb.PieceIndex, fb.BlockIndex)
+		d.picker.Load().AddDownloadingPiece(fb.PieceIndex, d.info)
 
 		numRequests--
 		freeBlocksPicked++
@@ -699,11 +699,11 @@ func (d *Download) requestABlock(p Peer) {
 		skipTotal := skippedInQueue + skippedFinished + skippedCompleted + skippedDone
 		if skipTotal > 0 {
 			s := fmt.Sprintf("picked=%d/%d free, skip: inQ=%d fin=%d done=%d compl=%d",
-				freeBlocksPicked, len(pickResult.freeBlocks),
+				freeBlocksPicked, len(pickResult.FreeBlocks),
 				skippedInQueue, skippedFinished, skippedDone, skippedCompleted)
 			p.SetLastPickDebug(s)
 		} else {
-			s := fmt.Sprintf("picked=%d/%d free, %d busy", freeBlocksPicked, len(pickResult.freeBlocks), len(pickResult.busyBlocks))
+			s := fmt.Sprintf("picked=%d/%d free, %d busy", freeBlocksPicked, len(pickResult.FreeBlocks), len(pickResult.BusyBlocks))
 			p.SetLastPickDebug(s)
 		}
 	}
@@ -715,25 +715,25 @@ func (d *Download) requestABlock(p Peer) {
 		return
 	}
 
-	if len(pickResult.busyBlocks) == 0 {
+	if len(pickResult.BusyBlocks) == 0 {
 		return
 	}
 
-	for _, bb := range pickResult.busyBlocks {
-		chunk := pieceChunk(d.info, bb.pieceIndex, bb.blockIndex)
+	for _, bb := range pickResult.BusyBlocks {
+		chunk := pieceChunk(d.info, bb.PieceIndex, bb.BlockIndex)
 		if p.IsInQueue(chunk) {
 			continue
 		}
 
-		if d.picker.Load().isFinished(bb.pieceIndex, bb.blockIndex) {
+		if d.picker.Load().IsFinished(bb.PieceIndex, bb.BlockIndex) {
 			continue
 		}
 
-		if d.completedBm.Contains(bb.pieceIndex) {
+		if d.completedBm.Contains(bb.PieceIndex) {
 			continue
 		}
 
-		chunkPi := bb.pieceIndex*d.normalChunkLen + uint32(bb.blockIndex)
+		chunkPi := bb.PieceIndex*d.normalChunkLen + uint32(bb.BlockIndex)
 		d.chunk.mu.RLock()
 		done := d.chunk.done.Contains(chunkPi)
 		d.chunk.mu.RUnlock()
@@ -741,13 +741,13 @@ func (d *Download) requestABlock(p Peer) {
 			continue
 		}
 
-		p.EnqueueBlock(bb.pieceIndex, bb.blockIndex)
+		p.EnqueueBlock(bb.PieceIndex, bb.BlockIndex)
 		enqueueBlockDelay()
 		if p.Closed() {
 			continue
 		}
-		d.picker.Load().markAsRequesting(bb.pieceIndex, bb.blockIndex)
-		d.picker.Load().addDownloadingPiece(bb.pieceIndex, d.info)
+		d.picker.Load().MarkAsRequesting(bb.PieceIndex, bb.BlockIndex)
+		d.picker.Load().AddDownloadingPiece(bb.PieceIndex, d.info)
 
 		// Drain after adding a busy block too.
 		p.SendBlockRequests()

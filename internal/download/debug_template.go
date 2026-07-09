@@ -158,7 +158,7 @@ func BuildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 		}
 		top := make([]kv, 0, len(d.corruptedPieces))
 		for idx, count := range d.corruptedPieces {
-			blockedBy := d.picker.Load().countBusyBlocks(idx, d.info)
+			blockedBy := d.picker.Load().CountBusyBlocks(idx, d.info)
 			top = append(top, kv{idx, count, blockedBy})
 		}
 		slices.SortFunc(top, func(a, b kv) int { return b.count - a.count })

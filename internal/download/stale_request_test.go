@@ -41,7 +41,7 @@ func FuzzStaleRequest(f *testing.F) {
 			p := asyncPeer(d, numPieces, seed+uint64(i))
 			d.peers.Store(p.ID(), p)
 			p.bitmap.Range(func(pi uint32) {
-				d.picker.Load().incRefcount(pi)
+				d.picker.Load().IncRefcount(pi)
 				combined.Set(pi)
 			})
 		}
@@ -108,9 +108,7 @@ func FuzzStaleRequest(f *testing.F) {
 		if pp == nil {
 			return
 		}
-		pp.mu.Lock()
-		qs := pp.downloadQueueSize
-		pp.mu.Unlock()
+		qs := pp.DebugStats(d.info).DownloadQueue
 		if qs != 0 {
 			t.Errorf("stale request: downloadQueueSize=%d after all peers closed, seed=%d",
 				qs, seed)

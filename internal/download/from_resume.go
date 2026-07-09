@@ -66,7 +66,7 @@ func ResumeFromData(sess *session.Session, data []byte) (*Download, error) {
 	} else {
 		for i := range d.info.NumPieces {
 			if d.completedBm.Contains(i) {
-				d.picker.Load().weHave(i, d.info)
+				d.picker.Load().WeHave(i, d.info)
 			}
 		}
 	}

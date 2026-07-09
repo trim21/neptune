@@ -25,47 +25,47 @@ func TestEndgameNoFreeBlocks(t *testing.T) {
 
 	// Complete pieces 0-2.
 	for pi := range uint32(3) {
-		pp.addDownloadingPiece(pi, info)
+		pp.AddDownloadingPiece(pi, info)
 		for bi := range int(info.PieceBlockCount(pi)) {
-			pp.markAsRequesting(pi, bi)
-			pp.markAsResponded(pi, bi)
+			pp.MarkAsRequesting(pi, bi)
+			pp.MarkAsResponded(pi, bi)
 		}
-		pp.weHave(pi, info)
+		pp.WeHave(pi, info)
 	}
 
 	// Piece 3: all blocks responded (pending hash check).
-	pp.addDownloadingPiece(3, info)
+	pp.AddDownloadingPiece(3, info)
 	for bi := range 4 {
-		pp.markAsRequesting(3, bi)
-		pp.markAsResponded(3, bi)
+		pp.MarkAsRequesting(3, bi)
+		pp.MarkAsResponded(3, bi)
 	}
 
 	// Piece 4: 2 requested, 2 responded, 0 free.
-	pp.addDownloadingPiece(4, info)
-	pp.markAsRequesting(4, 0)
-	pp.markAsRequesting(4, 1)
-	pp.markAsResponded(4, 0)
-	pp.markAsResponded(4, 1)
-	pp.markAsRequesting(4, 2)
-	pp.markAsRequesting(4, 3)
+	pp.AddDownloadingPiece(4, info)
+	pp.MarkAsRequesting(4, 0)
+	pp.MarkAsRequesting(4, 1)
+	pp.MarkAsResponded(4, 0)
+	pp.MarkAsResponded(4, 1)
+	pp.MarkAsRequesting(4, 2)
+	pp.MarkAsRequesting(4, 3)
 
-	result := pp.pickPieces(bitfield, false, nil, 4, 0, nil, info, StrategyRarestFirst, pickResult{})
+	result := pp.PickPieces(bitfield, false, nil, 4, 0, nil, info, StrategyRarestFirst, PickResult{})
 
-	if len(result.freeBlocks) == 0 && len(result.busyBlocks) == 0 {
+	if len(result.FreeBlocks) == 0 && len(result.BusyBlocks) == 0 {
 		t.Error("BUG: pickPieces returned empty when busy blocks exist (99% stall)")
 	}
 
-	if len(result.busyBlocks) > 0 {
-		for _, bb := range result.busyBlocks {
-			if bb.pieceIndex < 4 {
+	if len(result.BusyBlocks) > 0 {
+		for _, bb := range result.BusyBlocks {
+			if bb.PieceIndex < 4 {
 				t.Error("busy block from non-target piece")
 			}
 		}
 	}
 }
 
-// pickerEnv creates a fresh piecePicker for testing.
-func pickerEnv(numPieces uint32, blocksPerPiece uint32) (*piecePicker, meta.Info) {
+// pickerEnv creates a fresh PiecePicker for testing.
+func pickerEnv(numPieces uint32, blocksPerPiece uint32) (*PiecePicker, meta.Info) {
 	pieceLength := int64(blocksPerPiece) * defaultBlockSize
 	totalLength := int64(numPieces) * pieceLength
 
@@ -88,5 +88,5 @@ func pickerEnv(numPieces uint32, blocksPerPiece uint32) (*piecePicker, meta.Info
 	wantedBm := bm.New(info.NumPieces)
 	wantedBm.Fill()
 
-	return newPiecePicker(info, completedBm, wantedBm), info
+	return NewPiecePicker(info, completedBm, wantedBm), info
 }

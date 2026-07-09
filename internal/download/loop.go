@@ -47,7 +47,7 @@ func (d *Download) AsyncCheck() error {
 	}
 
 	d.completedBm.Clear()
-	d.picker.Load().resetAll()
+	d.picker.Load().ResetAll()
 	d.completed.Store(0)
 	d.stateCond.Broadcast()
 

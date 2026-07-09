@@ -44,9 +44,9 @@ type mockPeer struct {
 	lastPickDebug   string
 	peerIDString    string
 	userAgent       string
-	lastPickRes     pickResult
-	queued          []pieceBlock
-	enqueuedBlocks  []pieceBlock
+	lastPickRes     PickResult
+	queued          []PieceBlock
+	enqueuedBlocks  []PieceBlock
 	requestsSent    []proto.ChunkRequest
 	info            meta.Info
 	uploadRate      flowrate.Monitor
@@ -88,7 +88,7 @@ func newMockPeer() *mockPeer {
 		desiredSize:    4,
 		queueLimit:     2000,
 		peerRequests:   make(map[proto.ChunkRequest]empty.Empty),
-		enqueuedBlocks: make([]pieceBlock, 0),
+		enqueuedBlocks: make([]PieceBlock, 0),
 		requestsSent:   make([]proto.ChunkRequest, 0),
 		inQueueMap:     make(map[proto.ChunkRequest]bool),
 	}
@@ -127,12 +127,12 @@ func (m *mockPeer) Close() {
 	if m.dl != nil {
 		m.mu.Lock()
 		for _, b := range m.queued {
-			m.dl.picker.Load().abortDownload(b.pieceIndex, b.blockIndex)
+			m.dl.picker.Load().AbortDownload(b.PieceIndex, b.BlockIndex)
 		}
 		m.mu.Unlock()
 		// Decrement picker refcount for all pieces this peer had.
 		m.bitmap.Range(func(u uint32) {
-			m.dl.picker.Load().decRefcount(u)
+			m.dl.picker.Load().DecRefcount(u)
 		})
 	}
 	m.closedCalled = true
@@ -197,11 +197,11 @@ func (m *mockPeer) IsInQueue(chunk proto.ChunkRequest) bool {
 }
 func (m *mockPeer) EnqueueBlock(pieceIndex uint32, blockIndex int) {
 	m.mu.Lock()
-	m.enqueuedBlocks = append(m.enqueuedBlocks, pieceBlock{pieceIndex: pieceIndex, blockIndex: blockIndex})
+	m.enqueuedBlocks = append(m.enqueuedBlocks, PieceBlock{PieceIndex: pieceIndex, BlockIndex: blockIndex})
 	// Don't enqueue if already closed — matches production where Close()
 	// destroys the request queue via conn.Close().
 	if !m.closed.Load() {
-		m.queued = append(m.queued, pieceBlock{pieceIndex: pieceIndex, blockIndex: blockIndex})
+		m.queued = append(m.queued, PieceBlock{PieceIndex: pieceIndex, BlockIndex: blockIndex})
 	}
 	m.mu.Unlock()
 }
@@ -212,7 +212,7 @@ func (m *mockPeer) SendBlockRequests() {
 	m.queued = m.queued[:0]
 	m.mu.Unlock()
 	for _, b := range queued {
-		m.Request(pieceChunk(m.info, b.pieceIndex, b.blockIndex))
+		m.Request(pieceChunk(m.info, b.PieceIndex, b.BlockIndex))
 	}
 }
 func (m *mockPeer) Request(chunk proto.ChunkRequest) {
@@ -233,10 +233,10 @@ func (m *mockPeer) DesiredQueueSize() int { return int(m.desiredSize) }
 
 // ── Picker integration ──────────────────────────────────────────────
 
-func (m *mockPeer) LastPickResult() pickResult {
+func (m *mockPeer) LastPickResult() PickResult {
 	return m.lastPickRes
 }
-func (m *mockPeer) SetLastPickResult(r pickResult) {
+func (m *mockPeer) SetLastPickResult(r PickResult) {
 	m.lastPickRes = r
 }
 func (m *mockPeer) LastPickDebug() string     { return m.lastPickDebug }

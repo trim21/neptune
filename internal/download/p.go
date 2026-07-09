@@ -160,8 +160,8 @@ type peerImpl struct {
 	r                 *bufio.Reader
 	pieceUploadRate   *flowrate.Monitor
 	Address           netip.AddrPort
-	lastPickResult    pickResult
-	requestQueue      []pieceBlock
+	lastPickResult    PickResult
+	requestQueue      []PieceBlock
 	rttAverage        sizedSlice[time.Duration]
 	id                uint64
 	disconnecting     atomic.Bool
@@ -239,20 +239,20 @@ func (p *peerImpl) Close() {
 		// These operate on p's own data; always safe.
 		p.Bitmap.Range(func(u uint32) {
 			if !p.d.HasState(Seeding) {
-				p.d.picker.Load().decRefcount(u)
+				p.d.picker.Load().DecRefcount(u)
 			}
 		})
 		// Abort blocks that were requested from the picker (sent to peer).
 		p.myRequests.Range(func(req proto.ChunkRequest, _ time.Time) bool {
 			bi := int(req.Begin / uint32(defaultBlockSize))
-			p.d.picker.Load().abortDownload(req.PieceIndex, bi)
+			p.d.picker.Load().AbortDownload(req.PieceIndex, bi)
 			return true
 		})
 
 		// Also abort blocks that were picked but not yet sent.
 		p.rqMu.Lock()
 		for _, b := range p.requestQueue {
-			p.d.picker.Load().abortDownload(b.pieceIndex, b.blockIndex)
+			p.d.picker.Load().AbortDownload(b.PieceIndex, b.BlockIndex)
 		}
 		p.rqMu.Unlock()
 
@@ -309,11 +309,11 @@ func (p *peerImpl) sendBlockRequests() {
 		p.requestQueue = p.requestQueue[1:]
 		p.rqMu.Unlock()
 
-		chunk := pieceChunk(p.d.info, block.pieceIndex, block.blockIndex)
+		chunk := pieceChunk(p.d.info, block.PieceIndex, block.BlockIndex)
 
 		// Skip if peer is choking us (unless allowed fast)
-		if p.peerChoking.Load() && !p.allowFast.Contains(block.pieceIndex) {
-			p.d.picker.Load().abortDownload(block.pieceIndex, block.blockIndex)
+		if p.peerChoking.Load() && !p.allowFast.Contains(block.PieceIndex) {
+			p.d.picker.Load().AbortDownload(block.PieceIndex, block.BlockIndex)
 			continue
 		}
 
@@ -391,7 +391,7 @@ func (p *peerImpl) IsInQueue(chunk proto.ChunkRequest) bool {
 	defer p.rqMu.Unlock()
 
 	for _, b := range p.requestQueue {
-		q := pieceChunk(p.d.info, b.pieceIndex, b.blockIndex)
+		q := pieceChunk(p.d.info, b.PieceIndex, b.BlockIndex)
 		if q == chunk {
 			return true
 		}
@@ -441,7 +441,7 @@ func (p *peerImpl) checkRequestTimeouts() {
 				// Abort each timed-out block individually so other peers can pick them up.
 				for _, req := range timedOutReqs {
 					bi := int(req.Begin / uint32(defaultBlockSize))
-					p.d.picker.Load().abortDownload(req.PieceIndex, bi)
+					p.d.picker.Load().AbortDownload(req.PieceIndex, bi)
 					p.myRequests.Delete(req)
 				}
 
@@ -456,7 +456,7 @@ func (p *peerImpl) checkRequestTimeouts() {
 					// Clear all remaining in-flight requests on snub.
 					p.myRequests.Range(func(req proto.ChunkRequest, _ time.Time) bool {
 						bi := int(req.Begin / uint32(defaultBlockSize))
-						p.d.picker.Load().abortDownload(req.PieceIndex, bi)
+						p.d.picker.Load().AbortDownload(req.PieceIndex, bi)
 						p.myRequests.Delete(req)
 						return true
 					})
@@ -609,7 +609,7 @@ func (p *peerImpl) start(skipHandshake bool) {
 			// Update picker: increment refcount for each piece the peer has
 			event.Bitmap.Range(func(u uint32) {
 				if !p.d.HasState(Seeding) {
-					p.d.picker.Load().incRefcount(u)
+					p.d.picker.Load().IncRefcount(u)
 				}
 			})
 			if !p.isSeed.Load() && p.Bitmap.Count() == p.d.info.NumPieces {
@@ -625,7 +625,7 @@ func (p *peerImpl) start(skipHandshake bool) {
 
 			p.Bitmap.Set(event.Index)
 			if !p.d.HasState(Seeding) {
-				p.d.picker.Load().incRefcount(event.Index)
+				p.d.picker.Load().IncRefcount(event.Index)
 			}
 			if !p.isSeed.Load() && p.Bitmap.Count() == p.d.info.NumPieces {
 				p.isSeed.Store(true)
@@ -728,7 +728,7 @@ func (p *peerImpl) start(skipHandshake bool) {
 			if event.ExtensionID == p.extDontHaveID.Load() {
 				p.Bitmap.Unset(event.Index)
 				if !p.d.HasState(Seeding) {
-					p.d.picker.Load().decRefcount(event.Index)
+					p.d.picker.Load().DecRefcount(event.Index)
 				}
 				continue
 			}
@@ -738,13 +738,13 @@ func (p *peerImpl) start(skipHandshake bool) {
 			// Decrement old pieces before replacing bitmap with full set
 			p.Bitmap.Range(func(u uint32) {
 				if !p.d.HasState(Seeding) {
-					p.d.picker.Load().decRefcount(u)
+					p.d.picker.Load().DecRefcount(u)
 				}
 			})
 			p.Bitmap.Fill()
 			if !p.d.HasState(Seeding) {
 				for i := range p.d.info.NumPieces {
-					p.d.picker.Load().incRefcount(i)
+					p.d.picker.Load().IncRefcount(i)
 				}
 			}
 			p.isSeed.Store(true)
@@ -756,7 +756,7 @@ func (p *peerImpl) start(skipHandshake bool) {
 			// Decrement old pieces before clearing
 			p.Bitmap.Range(func(u uint32) {
 				if !p.d.HasState(Seeding) {
-					p.d.picker.Load().decRefcount(u)
+					p.d.picker.Load().DecRefcount(u)
 				}
 			})
 			p.Bitmap.Clear()
@@ -769,13 +769,13 @@ func (p *peerImpl) start(skipHandshake bool) {
 
 			// Abort in the picker so other peers can request this block.
 			bi := int(event.Req.Begin / uint32(defaultBlockSize))
-			p.d.picker.Load().abortDownload(event.Req.PieceIndex, bi)
+			p.d.picker.Load().AbortDownload(event.Req.PieceIndex, bi)
 
 			// Remove matching entry from requestQueue if present.
 			p.rqMu.Lock()
 			for i, b := range p.requestQueue {
-				if b.pieceIndex == event.Req.PieceIndex &&
-					int(event.Req.Begin/uint32(defaultBlockSize)) == b.blockIndex {
+				if b.PieceIndex == event.Req.PieceIndex &&
+					int(event.Req.Begin/uint32(defaultBlockSize)) == b.BlockIndex {
 					p.requestQueue = append(p.requestQueue[:i], p.requestQueue[i+1:]...)
 					break
 				}

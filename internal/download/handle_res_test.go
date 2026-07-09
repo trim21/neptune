@@ -102,14 +102,14 @@ func newTestDownload(t testing.TB, numPieces uint32, blocksPerPiece uint32, newS
 	d.completedBm = completedBm
 	d.wantedBm = wantedBm
 	d.peerList = newPeerList(d)
-	d.picker.Store(newPiecePicker(info, completedBm, wantedBm))
+	d.picker.Store(NewPiecePicker(info, completedBm, wantedBm))
 	d.state.Store(uint32(Downloading))
 	return d
 }
 
 func resetDownload(d *Download) {
 	d.completedBm.Clear()
-	d.picker.Load().resetAll()
+	d.picker.Load().ResetAll()
 	d.completed.Store(0)
 	d.downloaded.Store(0)
 	d.chunk.heap = heap.Heap[responseChunk]{}

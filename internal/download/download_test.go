@@ -33,7 +33,7 @@ func newRequestABlockFixture(t *testing.T, numPieces uint32) (*Download, *mockPe
 
 	// Simulate Bitfield: tell the picker the peer has all pieces.
 	for i := range numPieces {
-		d.picker.Load().incRefcount(i)
+		d.picker.Load().IncRefcount(i)
 	}
 
 	return d, p
@@ -86,11 +86,11 @@ func TestRequestABlock_QueueFullWithQueued(t *testing.T) {
 	// desiredSize=8, outstanding=4, queued=4 → numRequests=0
 	p.setDesiredSize(8)
 	p.setOutstanding(4)
-	p.queued = []pieceBlock{
-		{pieceIndex: 0, blockIndex: 0},
-		{pieceIndex: 0, blockIndex: 1},
-		{pieceIndex: 0, blockIndex: 2},
-		{pieceIndex: 0, blockIndex: 3},
+	p.queued = []PieceBlock{
+		{PieceIndex: 0, BlockIndex: 0},
+		{PieceIndex: 0, BlockIndex: 1},
+		{PieceIndex: 0, BlockIndex: 2},
+		{PieceIndex: 0, BlockIndex: 3},
 	}
 
 	d.requestABlock(p)
@@ -108,7 +108,7 @@ func TestRequestABlock_IsInQueueSkipsDuplicates(t *testing.T) {
 
 	// Record what block was enqueued and add it to in-queue set.
 	firstBlock := p.enqueuedBlocks[0]
-	ch := pieceChunk(d.info, firstBlock.pieceIndex, firstBlock.blockIndex)
+	ch := pieceChunk(d.info, firstBlock.PieceIndex, firstBlock.BlockIndex)
 	p.addToQueue(ch)
 
 	// Now the piece is in downloadingPieces. Second call enters partial pieces
@@ -124,7 +124,7 @@ func TestRequestABlock_IsInQueueSkipsDuplicates(t *testing.T) {
 		"should enqueue additional blocks beyond the startup block")
 	// Block 0 should not appear again.
 	for _, b := range p.enqueuedBlocks[1:] {
-		if b.pieceIndex == firstBlock.pieceIndex && b.blockIndex == firstBlock.blockIndex {
+		if b.PieceIndex == firstBlock.PieceIndex && b.BlockIndex == firstBlock.BlockIndex {
 			t.Error("duplicate block enqueued, IsInQueue should have skipped it")
 		}
 	}
@@ -134,7 +134,7 @@ func TestRequestABlock_CompletedPieceSkipped(t *testing.T) {
 	// Mark piece 0 as complete — blocks for piece 0 should be skipped.
 	d, p := newRequestABlockFixture(t, 3)
 	d.completedBm.Set(0)
-	d.picker.Load().weHave(0, d.info)
+	d.picker.Load().WeHave(0, d.info)
 
 	// Only pieces 1, 2 are available in picker now.
 	// Peer bitmap has all pieces.
@@ -142,7 +142,7 @@ func TestRequestABlock_CompletedPieceSkipped(t *testing.T) {
 
 	// Verify no blocks for piece 0 were enqueued
 	for _, b := range p.enqueuedBlocks {
-		require.NotEqual(t, uint32(0), b.pieceIndex, "blocks for completed piece should be skipped")
+		require.NotEqual(t, uint32(0), b.PieceIndex, "blocks for completed piece should be skipped")
 	}
 }
 
@@ -151,7 +151,7 @@ func TestRequestABlock_EndgameBusyBlocks(t *testing.T) {
 
 	// First call: startup mode — enters one piece into downloadingPieces.
 	d.requestABlock(p)
-	firstPiece := p.enqueuedBlocks[0].pieceIndex
+	firstPiece := p.enqueuedBlocks[0].PieceIndex
 
 	// Add a DIFFERENT piece (piece 0) to downloading, then mark blocks 1-3
 	// as requested. Block 0 stays free → this piece has 1 free + 3 busy blocks.
@@ -161,10 +161,10 @@ func TestRequestABlock_EndgameBusyBlocks(t *testing.T) {
 		busyPiece = 4
 	}
 	picker := d.picker.Load()
-	picker.addDownloadingPiece(busyPiece, d.info)
+	picker.AddDownloadingPiece(busyPiece, d.info)
 	nb := d.info.PieceBlockCount(busyPiece)
 	for bi := 1; bi < nb; bi++ {
-		picker.markAsRequesting(busyPiece, bi)
+		picker.MarkAsRequesting(busyPiece, bi)
 	}
 
 	// Reset tracking
@@ -175,7 +175,7 @@ func TestRequestABlock_EndgameBusyBlocks(t *testing.T) {
 	d.requestABlock(p)
 
 	// Piece with 1 free + 3 busy blocks should appear in partial pieces path.
-	require.NotEmpty(t, p.lastPickRes.busyBlocks, "should have busy blocks from mixed piece")
+	require.NotEmpty(t, p.lastPickRes.BusyBlocks, "should have busy blocks from mixed piece")
 	// One busy block is enqueued per endgame call.
 	require.NotEmpty(t, p.enqueuedBlocks, "should enqueue at least 1 busy block in endgame")
 }

@@ -67,8 +67,8 @@ type PeerInterface interface {
 	DesiredQueueSize() int
 
 	// ── Picker integration ───────────────────────────────────────────
-	LastPickResult() pickResult
-	SetLastPickResult(r pickResult)
+	LastPickResult() PickResult
+	SetLastPickResult(r PickResult)
 	LastPickDebug() string
 	SetLastPickDebug(s string)
 

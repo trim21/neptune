@@ -86,7 +86,7 @@ func FuzzDownloadMultiPeer_Async(f *testing.F) {
 			d.peers.Store(p.ID(), p)
 			t.Cleanup(p.Close)
 			p.bitmap.Range(func(pi uint32) {
-				d.picker.Load().incRefcount(pi)
+				d.picker.Load().IncRefcount(pi)
 				combined.Set(pi)
 			})
 		}

@@ -9,7 +9,6 @@ import (
 	"context"
 	"crypto/sha1"
 	"net/netip"
-	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -114,7 +113,7 @@ func newTestEnv(t *testing.T, numPieces, blocksPerPiece uint32, failPieces []uin
 	d.completedBm = completedBm
 	d.wantedBm = wantedBm
 	d.peerList = newPeerList(d)
-	d.picker.Store(newPiecePicker(info, completedBm, wantedBm))
+	d.picker.Store(NewPiecePicker(info, completedBm, wantedBm))
 	d.state.Store(uint32(Downloading))
 
 	return &testEnv{t: t, d: d, env: memStore.(*piece_store.MemStore)}
@@ -169,16 +168,7 @@ func (env *testEnv) assertNotCompleted(pieces ...uint32) {
 
 // pickerHasPiece checks if the piece is in the picker's candidate list.
 func (env *testEnv) pickerHasPiece(pieceIndex uint32) bool {
-	pp := env.d.picker.Load()
-	pp.mu.Lock()
-	defer pp.mu.Unlock()
-	return pp.pickerHasPieceUnsafe(pieceIndex)
-}
-
-// pickerHasPieceUnsafe checks if the piece is in the picker's candidate list.
-// Caller must hold pp.mu.
-func (pp *piecePicker) pickerHasPieceUnsafe(pieceIndex uint32) bool {
-	return slices.Contains(pp.pieces, pieceIndex)
+	return env.d.picker.Load().IsPieceInCandidates(pieceIndex)
 }
 
 // TestCorruptPieceRecovery tests that when a piece fails hash check on first
@@ -254,118 +244,4 @@ func TestNoCorruption(t *testing.T) {
 	env.waitHashCheck()
 
 	env.assertCompleted()
-}
-
-// TestPickerResetsPieceIntoCandidates verifies that after a hash failure,
-// the piece is re-added to the picker's candidate list and can be picked again.
-// This is the core bug: without the fix, resetPiece doesn't add the piece back
-// to pp.pieces, so pickPieces never selects it for re-download.
-func TestPickerResetsPieceIntoCandidates(t *testing.T) {
-	const numPieces = 4
-	const blocksPerPiece = 4
-
-	pieceLength := int64(blocksPerPiece) * defaultBlockSize
-	totalLength := int64(numPieces) * pieceLength
-
-	zeroPiece := make([]byte, pieceLength)
-	hash := sha1.Sum(zeroPiece)
-	pieces := make([]metainfo.Hash, numPieces)
-	for i := range numPieces {
-		pieces[i] = hash
-	}
-
-	info := meta.Info{
-		Name:          "test",
-		NumPieces:     numPieces,
-		PieceLength:   pieceLength,
-		LastPieceSize: pieceLength,
-		TotalLength:   totalLength,
-		Pieces:        pieces,
-		Files:         []meta.File{{Path: "test", Length: totalLength}},
-	}
-
-	completedBm := bm.New(numPieces)
-	wantedBm := bm.New(numPieces)
-	wantedBm.Fill()
-	pp := newPiecePicker(info, completedBm, wantedBm)
-
-	// First complete piece 1 (so numCompletedPieces > 0, avoiding startup mode).
-	for bi := range blocksPerPiece {
-		pp.markAsRequesting(1, bi)
-	}
-	for bi := range blocksPerPiece {
-		pp.markAsResponded(1, bi)
-	}
-	completedBm.Set(1) // simulate hash check passed
-	pp.weHave(1, info) // increments numCompletedPieces to avoid startup mode
-
-	// Then simulate downloading piece 0: all blocks requested and responded.
-	for bi := range blocksPerPiece {
-		pp.markAsRequesting(0, bi)
-	}
-	for bi := range blocksPerPiece {
-		pp.markAsResponded(0, bi)
-	}
-
-	// At this point, piece 0 is allBlocksResponded → rebuildPriorities removes it.
-	pp.rebuildPriorities(info, StrategyRarestFirst)
-
-	// Verify piece 0 is NOT pickable (allBlocksResponded, waiting for hash).
-	bitfield := bm.New(numPieces)
-	bitfield.Fill()
-	result := pickResult{}
-	result = pp.pickPieces(bitfield, false, nil, 100, 0, nil, info, StrategyRarestFirst, result)
-	for _, fb := range result.freeBlocks {
-		if fb.pieceIndex == 0 {
-			t.Fatal("piece 0 should not be pickable before resetPiece")
-		}
-	}
-
-	// Simulate hash failure: resetPiece.
-	pp.resetPiece(0, info)
-
-	pp.mu.Lock()
-	t.Logf("After resetPiece: dirty=%v pieces=%v", pp.dirty, pp.pieces)
-	t.Logf("allBlocksResponded(0)=%v", pp.allBlocksResponded(0, info))
-	for bi := range blocksPerPiece {
-		idx := pp.blockInfoIdx(0) + bi
-		t.Logf("  block %d state: %d", bi, pp.blockInfos.get(idx))
-	}
-	pp.mu.Unlock()
-
-	// After resetPiece, piece 0 should be pickable again.
-	result.freeBlocks = result.freeBlocks[:0]
-
-	pp.mu.Lock()
-	t.Logf("Before pickPieces: dirty=%v pieces=%v", pp.dirty, pp.pieces)
-	t.Logf("allBlocksResponded(0)=%v", pp.allBlocksResponded(0, info))
-	pp.mu.Unlock()
-
-	result = pp.pickPieces(bitfield, false, nil, 100, 0, nil, info, StrategyRarestFirst, result)
-
-	pp.mu.Lock()
-	t.Logf("After pickPieces: pieces=%v", pp.pieces)
-	pp.mu.Unlock()
-
-	pp.mu.Lock()
-	t.Logf("Before pickPieces: dirty=%v pieces=%v", pp.dirty, pp.pieces)
-	t.Logf("allBlocksResponded(0)=%v", pp.allBlocksResponded(0, info))
-	pp.mu.Unlock()
-
-	result = pp.pickPieces(bitfield, false, nil, 100, 0, nil, info, StrategyRarestFirst, result)
-
-	pp.mu.Lock()
-	t.Logf("After pickPieces: pieces=%v", pp.pieces)
-	pp.mu.Unlock()
-
-	found := false
-	for _, fb := range result.freeBlocks {
-		if fb.pieceIndex == 0 {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatal("piece 0 should be pickable after resetPiece (bug: not re-added to candidates)")
-	}
 }

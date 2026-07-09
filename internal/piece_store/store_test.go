@@ -81,10 +81,7 @@ func testDomain1_WriteAndVerifyFullPiece(t *testing.T, storeType string) {
 	// Write all blocks for piece 1.
 	for blockIdx := range 4 {
 		begin := uint32(blockIdx * blockSize)
-		end := begin + blockSize
-		if end > uint32(pieceLen) {
-			end = uint32(pieceLen)
-		}
+		end := min(begin+blockSize, uint32(pieceLen))
 		chunk := data[begin:end]
 		if err := store.WriteChunk(ctx, 1, begin, chunk); err != nil {
 			t.Fatalf("WriteChunk failed: %v", err)
@@ -390,10 +387,7 @@ func testDomain1RandomStore(t *testing.T, storeType string, numPieces, blocksPer
 
 	for _, b := range blocks {
 		begin := uint32(b.idx) * uint32(blockSize)
-		end := begin + uint32(blockSize)
-		if end > uint32(pieceLen) {
-			end = uint32(pieceLen)
-		}
+		end := min(begin+uint32(blockSize), uint32(pieceLen))
 		chunk := pieceData[b.piece][begin:end]
 		if err := store.WriteChunk(ctx, b.piece, begin, chunk); err != nil {
 			t.Fatalf("[%s] WriteChunk(piece=%d, begin=%d): %v", storeType, b.piece, begin, err)

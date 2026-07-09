@@ -24,58 +24,58 @@ func TestPiecePickStrategy_Sequential(t *testing.T) {
 	wantedBm := bm.New(10)
 	wantedBm.Fill()
 
-	pp := newPiecePicker(info, completedBm, wantedBm)
+	pp := NewPiecePicker(info, completedBm, wantedBm)
 
 	peerBitfield := bm.New(10)
 	peerBitfield.Fill() // peer has everything
 
-	var result pickResult
+	var result PickResult
 
 	// Sequential: should always pick block 0 of piece 0 first.
-	result = pp.pickPieces(peerBitfield, false, nil, 1, 0, nil, info, StrategySequential, result)
-	if len(result.freeBlocks) != 1 {
-		t.Fatalf("expected 1 free block, got %d", len(result.freeBlocks))
+	result = pp.PickPieces(peerBitfield, false, nil, 1, 0, nil, info, StrategySequential, result)
+	if len(result.FreeBlocks) != 1 {
+		t.Fatalf("expected 1 free block, got %d", len(result.FreeBlocks))
 	}
-	if result.freeBlocks[0].pieceIndex != 0 {
-		t.Fatalf("expected piece 0, got %d", result.freeBlocks[0].pieceIndex)
+	if result.FreeBlocks[0].PieceIndex != 0 {
+		t.Fatalf("expected piece 0, got %d", result.FreeBlocks[0].PieceIndex)
 	}
-	if result.freeBlocks[0].blockIndex != 0 {
-		t.Fatalf("expected block 0, got %d", result.freeBlocks[0].blockIndex)
+	if result.FreeBlocks[0].BlockIndex != 0 {
+		t.Fatalf("expected block 0, got %d", result.FreeBlocks[0].BlockIndex)
 	}
 
 	// Mark block 0 of piece 0 as requesting.
-	pp.markAsRequesting(0, 0)
-	pp.addDownloadingPiece(0, info)
+	pp.MarkAsRequesting(0, 0)
+	pp.AddDownloadingPiece(0, info)
 
 	// Next request: should be block 1 of piece 0 (still sequential, finishing piece 0).
-	result.freeBlocks = result.freeBlocks[:0]
-	result.busyBlocks = result.busyBlocks[:0]
-	result = pp.pickPieces(peerBitfield, false, nil, 1, 0, nil, info, StrategySequential, result)
-	if len(result.freeBlocks) != 1 {
-		t.Fatalf("expected 1 free block, got %d", len(result.freeBlocks))
+	result.FreeBlocks = result.FreeBlocks[:0]
+	result.BusyBlocks = result.BusyBlocks[:0]
+	result = pp.PickPieces(peerBitfield, false, nil, 1, 0, nil, info, StrategySequential, result)
+	if len(result.FreeBlocks) != 1 {
+		t.Fatalf("expected 1 free block, got %d", len(result.FreeBlocks))
 	}
-	if result.freeBlocks[0].pieceIndex != 0 {
-		t.Fatalf("expected piece 0, got %d", result.freeBlocks[0].pieceIndex)
+	if result.FreeBlocks[0].PieceIndex != 0 {
+		t.Fatalf("expected piece 0, got %d", result.FreeBlocks[0].PieceIndex)
 	}
-	if result.freeBlocks[0].blockIndex != 1 {
-		t.Fatalf("expected block 1 of piece 0, got block %d", result.freeBlocks[0].blockIndex)
+	if result.FreeBlocks[0].BlockIndex != 1 {
+		t.Fatalf("expected block 1 of piece 0, got block %d", result.FreeBlocks[0].BlockIndex)
 	}
 
 	// Complete piece 0 — mark all blocks as responded.
 	for i := range 10 {
-		pp.markAsResponded(0, i)
+		pp.MarkAsResponded(0, i)
 	}
-	pp.weHave(0, info)
+	pp.WeHave(0, info)
 
 	// Next request: piece 1, block 0 (sequential, piece 0 is done).
-	result.freeBlocks = result.freeBlocks[:0]
-	result.busyBlocks = result.busyBlocks[:0]
-	result = pp.pickPieces(peerBitfield, false, nil, 1, 0, nil, info, StrategySequential, result)
-	if len(result.freeBlocks) != 1 {
-		t.Fatalf("expected 1 free block, got %d", len(result.freeBlocks))
+	result.FreeBlocks = result.FreeBlocks[:0]
+	result.BusyBlocks = result.BusyBlocks[:0]
+	result = pp.PickPieces(peerBitfield, false, nil, 1, 0, nil, info, StrategySequential, result)
+	if len(result.FreeBlocks) != 1 {
+		t.Fatalf("expected 1 free block, got %d", len(result.FreeBlocks))
 	}
-	if result.freeBlocks[0].pieceIndex != 1 {
-		t.Fatalf("expected piece 1, got %d", result.freeBlocks[0].pieceIndex)
+	if result.FreeBlocks[0].PieceIndex != 1 {
+		t.Fatalf("expected piece 1, got %d", result.FreeBlocks[0].PieceIndex)
 	}
 }
 

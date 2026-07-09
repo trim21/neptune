@@ -90,7 +90,7 @@ func TestAsyncDownload_FullPeer(t *testing.T) {
 				p := fullPeer(d, numPieces, uint64(i+1))
 				d.peers.Store(p.ID(), p)
 				for pi := range numPieces {
-					d.picker.Load().incRefcount(pi)
+					d.picker.Load().IncRefcount(pi)
 				}
 			}
 
@@ -130,7 +130,7 @@ func TestAsyncDownload_CorruptRecovery(t *testing.T) {
 				p := fullPeer(d, numPieces, uint64(i+1))
 				d.peers.Store(p.ID(), p)
 				for pi := range numPieces {
-					d.picker.Load().incRefcount(pi)
+					d.picker.Load().IncRefcount(pi)
 				}
 			}
 

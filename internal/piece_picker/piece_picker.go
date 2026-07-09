@@ -1,7 +1,7 @@
 // Copyright 2024 trim21 <trim21.me@gmail.com>
 // SPDX-License-Identifier: GPL-3.0-only
 
-package download
+package piece_picker
 
 import (
 	"fmt"
@@ -96,12 +96,12 @@ type downloadingPiece struct {
 // Higher score = more urgent. Mirrors libtorrent: (availability + 1) * priority_factor.
 const priorityFactor = 3
 
-// piecePicker is a global block-level piece picker, mirroring libtorrent's
+// PiecePicker is a global block-level piece picker, mirroring libtorrent's
 // piece_picker. It centralizes tracking of which blocks are requested/writing/
 // finished, and provides block-level selection for peers.
 //
 // All public methods are safe for concurrent use.
-type piecePicker struct {
+type PiecePicker struct {
 	completedBm        *bm.Bitmap
 	wantedBm           *bm.Bitmap
 	availability       []uint16
@@ -119,18 +119,18 @@ type piecePicker struct {
 	dirty              bool
 }
 
-// newPiecePicker creates a new piece picker for the given torrent info.
+// NewPiecePicker creates a new piece picker for the given torrent info.
 // completedBm is the Download's completed bitmap — the picker reads it directly
 // instead of maintaining its own copy.
 // wantedBm is the Download's wanted bitmap — tracks which pieces are selected.
-func newPiecePicker(info meta.Info, completedBm *bm.Bitmap, wantedBm *bm.Bitmap) *piecePicker {
+func NewPiecePicker(info meta.Info, completedBm *bm.Bitmap, wantedBm *bm.Bitmap) *PiecePicker {
 	numPieces := info.NumPieces
-	blocksPerPiece := uint32((info.PieceLength + defaultBlockSize - 1) / defaultBlockSize)
+	blocksPerPiece := uint32((info.PieceLength + meta.DefaultBlockSize - 1) / meta.DefaultBlockSize)
 
-	pp := &piecePicker{
+	pp := &PiecePicker{
 		numPieces:       numPieces,
 		blocksPerPiece:  blocksPerPiece,
-		blockSize:       defaultBlockSize,
+		blockSize:       meta.DefaultBlockSize,
 		availability:    make([]uint16, numPieces),
 		piecePriorities: make([]uint32, numPieces),
 		pieces:          make([]uint32, numPieces),
@@ -153,22 +153,22 @@ func newPiecePicker(info meta.Info, completedBm *bm.Bitmap, wantedBm *bm.Bitmap)
 }
 
 // numBlocksInPiece returns the number of blocks in the given piece.
-func (pp *piecePicker) numBlocksInPiece(info meta.Info, pieceIndex uint32) uint16 {
+func (pp *PiecePicker) numBlocksInPiece(info meta.Info, pieceIndex uint32) uint16 {
 	pieceSize := info.PieceLength
 	if pieceIndex == info.NumPieces-1 {
 		pieceSize = info.LastPieceSize
 	}
-	return uint16((pieceSize + defaultBlockSize - 1) / defaultBlockSize)
+	return uint16((pieceSize + meta.DefaultBlockSize - 1) / meta.DefaultBlockSize)
 }
 
 // blockInfoIdx returns the starting index in blockInfos for the given piece.
-func (pp *piecePicker) blockInfoIdx(pieceIndex uint32) int {
+func (pp *PiecePicker) blockInfoIdx(pieceIndex uint32) int {
 	return int(pieceIndex) * int(pp.blocksPerPiece)
 }
 
-// incRefcount increments the reference count for all blocks in the given piece.
+// IncRefcount increments the reference count for all blocks in the given piece.
 // Called when a peer acquires a piece (bitfield/have).
-func (pp *piecePicker) incRefcount(pieceIndex uint32) {
+func (pp *PiecePicker) IncRefcount(pieceIndex uint32) {
 	if pp == nil {
 		return
 	}
@@ -182,9 +182,9 @@ func (pp *piecePicker) incRefcount(pieceIndex uint32) {
 	}
 }
 
-// decRefcount decrements the reference count for all blocks in the given piece.
+// DecRefcount decrements the reference count for all blocks in the given piece.
 // Called when a peer loses a piece (disconnect, dont_have).
-func (pp *piecePicker) decRefcount(pieceIndex uint32) {
+func (pp *PiecePicker) DecRefcount(pieceIndex uint32) {
 	if pp == nil {
 		return
 	}
@@ -199,8 +199,8 @@ func (pp *piecePicker) decRefcount(pieceIndex uint32) {
 	}
 }
 
-// pieceIsAvailable returns true if pieceIndex has at least one peer with it.
-func (pp *piecePicker) pieceIsAvailable(pieceIndex uint32) bool {
+// PieceIsAvailable returns true if pieceIndex has at least one peer with it.
+func (pp *PiecePicker) PieceIsAvailable(pieceIndex uint32) bool {
 	if pp == nil {
 		return false
 	}
@@ -209,9 +209,19 @@ func (pp *piecePicker) pieceIsAvailable(pieceIndex uint32) bool {
 	return pp.availability[pieceIndex] > 0
 }
 
-// weHave marks a piece as completed (we now have it).
+// IsPieceInCandidates returns true if the piece is in the picker's candidate list.
+func (pp *PiecePicker) IsPieceInCandidates(pieceIndex uint32) bool {
+	if pp == nil {
+		return false
+	}
+	pp.mu.Lock()
+	defer pp.mu.Unlock()
+	return slices.Contains(pp.pieces, pieceIndex)
+}
+
+// WeHave marks a piece as completed (we now have it).
 // It clears all block states for that piece and increments the completed counter.
-func (pp *piecePicker) weHave(pieceIndex uint32, info meta.Info) {
+func (pp *PiecePicker) WeHave(pieceIndex uint32, info meta.Info) {
 	if pp == nil {
 		return
 	}
@@ -231,8 +241,8 @@ func (pp *piecePicker) weHave(pieceIndex uint32, info meta.Info) {
 	pp.dirty = true
 }
 
-// markAsResponded marks a block as received from peer.
-func (pp *piecePicker) markAsResponded(pieceIndex uint32, blockIndex int) {
+// MarkAsResponded marks a block as received from peer.
+func (pp *PiecePicker) MarkAsResponded(pieceIndex uint32, blockIndex int) {
 	if pp == nil {
 		return
 	}
@@ -257,8 +267,8 @@ func (pp *piecePicker) markAsResponded(pieceIndex uint32, blockIndex int) {
 	}
 }
 
-// markAsRequesting marks a block as requested from a peer.
-func (pp *piecePicker) markAsRequesting(pieceIndex uint32, blockIndex int) {
+// MarkAsRequesting marks a block as requested from a peer.
+func (pp *PiecePicker) MarkAsRequesting(pieceIndex uint32, blockIndex int) {
 	if pp == nil {
 		return
 	}
@@ -280,9 +290,9 @@ func (pp *piecePicker) markAsRequesting(pieceIndex uint32, blockIndex int) {
 	}
 }
 
-// abortDownload releases a block that was requested but not received.
+// AbortDownload releases a block that was requested but not received.
 // Called when a request is canceled or times out.
-func (pp *piecePicker) abortDownload(pieceIndex uint32, blockIndex int) {
+func (pp *PiecePicker) AbortDownload(pieceIndex uint32, blockIndex int) {
 	if pp == nil {
 		return
 	}
@@ -296,8 +306,8 @@ func (pp *piecePicker) abortDownload(pieceIndex uint32, blockIndex int) {
 	pp.blockInfos.set(idx, blockStateNone)
 }
 
-// isFinished returns true if the block is finished.
-func (pp *piecePicker) isFinished(pieceIndex uint32, blockIndex int) bool {
+// IsFinished returns true if the block is finished.
+func (pp *PiecePicker) IsFinished(pieceIndex uint32, blockIndex int) bool {
 	if pp == nil {
 		return true
 	}
@@ -312,7 +322,7 @@ func (pp *piecePicker) isFinished(pieceIndex uint32, blockIndex int) bool {
 // Only fully-completed pieces (all blocks finished) are excluded.
 // Partially downloaded pieces stay in the array — pickPieces handles them
 // via the partial-pieces phase first, then falls back to the priority list.
-func (pp *piecePicker) rebuildPriorities(info meta.Info, strategy PiecePickStrategy) {
+func (pp *PiecePicker) rebuildPriorities(info meta.Info, strategy PiecePickStrategy) {
 	if pp == nil {
 		return
 	}
@@ -355,7 +365,7 @@ func (pp *piecePicker) rebuildPriorities(info meta.Info, strategy PiecePickStrat
 }
 
 // allBlocksFinished returns true if every block of the given piece is finished.
-func (pp *piecePicker) allBlocksResponded(pieceIndex uint32, info meta.Info) bool {
+func (pp *PiecePicker) allBlocksResponded(pieceIndex uint32, info meta.Info) bool {
 	if pp == nil {
 		return true
 	}
@@ -370,7 +380,7 @@ func (pp *piecePicker) allBlocksResponded(pieceIndex uint32, info meta.Info) boo
 }
 
 // updatePiecePriority recalculates the priority for a piece based on its availability.
-func (pp *piecePicker) updatePiecePriority(pieceIndex uint32) {
+func (pp *PiecePicker) updatePiecePriority(pieceIndex uint32) {
 	if pp == nil {
 		return
 	}
@@ -381,21 +391,21 @@ func (pp *piecePicker) updatePiecePriority(pieceIndex uint32) {
 	pp.piecePriorities[pieceIndex] = uint32(avail+1) * priorityFactor
 }
 
-// pieceBlock represents a specific block (piece index + block index).
-type pieceBlock struct {
-	pieceIndex uint32
-	blockIndex int
+// PieceBlock represents a specific block (piece index + block index).
+type PieceBlock struct {
+	PieceIndex uint32
+	BlockIndex int
 }
 
-// pickResult holds the result of pickPieces.
-type pickResult struct {
-	// Free blocks (not requested by any peer)
-	freeBlocks []pieceBlock
-	// Busy blocks (already requested by another peer), for endgame fallback.
-	busyBlocks []pieceBlock
+// PickResult holds the result of PickPieces.
+type PickResult struct {
+	// FreeBlocks are blocks not requested by any peer.
+	FreeBlocks []PieceBlock
+	// BusyBlocks are blocks already requested by another peer, for endgame fallback.
+	BusyBlocks []PieceBlock
 }
 
-// pickPieces picks blocks for a peer using the given piece pick strategy.
+// PickPieces picks blocks for a peer using the given piece pick strategy.
 //
 // Parameters:
 //   - bitfield: pieces the peer has
@@ -409,8 +419,8 @@ type pickResult struct {
 //
 // It first prioritizes partial pieces (highest progress first), then uses the given strategy.
 //
-//nolint:unparam
-func (pp *piecePicker) pickPieces(
+
+func (pp *PiecePicker) PickPieces(
 	bitfield *bm.Bitmap,
 	choked bool,
 	allowedFast *bm.Bitmap,
@@ -420,8 +430,8 @@ func (pp *piecePicker) pickPieces(
 	info meta.Info,
 	strategy PiecePickStrategy,
 	// re-use the slice to avoid alloc
-	result pickResult,
-) pickResult {
+	result PickResult,
+) PickResult {
 	if pp == nil {
 		return result
 	}
@@ -431,15 +441,15 @@ func (pp *piecePicker) pickPieces(
 	pp.rebuildPriorities(info, strategy)
 
 	// Reuse slices from previous call.
-	result.freeBlocks = result.freeBlocks[:0]
-	result.busyBlocks = result.busyBlocks[:0]
+	result.FreeBlocks = result.FreeBlocks[:0]
+	result.BusyBlocks = result.BusyBlocks[:0]
 
 	// ── Startup mode: no completed pieces and no partial pieces yet ──
 	// Pick a random medium-rarity piece to quickly get something to upload.
 	// Skip startup mode in sequential strategy — always start from piece 0.
 	if strategy != StrategySequential && pp.numCompletedPieces == 0 && len(pp.downloadingPieces) == 0 {
 		pp.pickStartupBlock(bitfield, choked, allowedFast, &result, info)
-		if len(result.freeBlocks) > 0 {
+		if len(result.FreeBlocks) > 0 {
 			return result
 		}
 	}
@@ -517,12 +527,12 @@ func (pp *piecePicker) pickPieces(
 			switch pp.blockInfos.get(idx + i) {
 			case blockStateNone:
 				if preferContiguous <= 0 && numBlocks > 0 {
-					result.freeBlocks = append(result.freeBlocks, pieceBlock{p.pieceIndex, i})
+					result.FreeBlocks = append(result.FreeBlocks, PieceBlock{p.pieceIndex, i})
 					numBlocks--
 				}
 			case blockStateRequested:
 				// busy block — only used in endgame
-				result.busyBlocks = append(result.busyBlocks, pieceBlock{p.pieceIndex, i})
+				result.BusyBlocks = append(result.BusyBlocks, PieceBlock{p.pieceIndex, i})
 			}
 		}
 	}
@@ -555,7 +565,7 @@ func (pp *piecePicker) pickPieces(
 			}
 			for i := range int(dp.blocksInPiece) {
 				if pp.blockInfos.get(idx+i) == blockStateRequested {
-					result.busyBlocks = append(result.busyBlocks, pieceBlock{dp.index, i})
+					result.BusyBlocks = append(result.BusyBlocks, PieceBlock{dp.index, i})
 				}
 			}
 		}
@@ -607,11 +617,11 @@ func (pp *piecePicker) pickPieces(
 // (not too rare to avoid stalling, not too common to be worth trading later).
 //
 // Caller must hold pp.mu.
-func (pp *piecePicker) pickStartupBlock(
+func (pp *PiecePicker) pickStartupBlock(
 	bitfield *bm.Bitmap,
 	choked bool,
 	allowedFast *bm.Bitmap,
-	result *pickResult,
+	result *PickResult,
 	info meta.Info,
 ) {
 	// Collect all pieces the peer has that we want.
@@ -650,15 +660,15 @@ func (pp *piecePicker) pickStartupBlock(
 
 	// Pick the first free block from the chosen piece.
 	// In startup mode no blocks are in flight, so the first block is always free.
-	result.freeBlocks = append(result.freeBlocks, pieceBlock{pieceIdx, 0})
+	result.FreeBlocks = append(result.FreeBlocks, PieceBlock{pieceIdx, 0})
 }
 
 // pickBlocksFromPiece picks free blocks from a specific piece.
-func (pp *piecePicker) pickBlocksFromPiece(
+func (pp *PiecePicker) pickBlocksFromPiece(
 	pieceIndex uint32,
 	info meta.Info,
 	numBlocks *int,
-	result *pickResult,
+	result *PickResult,
 ) {
 	if *numBlocks <= 0 {
 		return
@@ -672,20 +682,20 @@ func (pp *piecePicker) pickBlocksFromPiece(
 	for i := range blocksInPiece {
 		switch pp.blockInfos.get(idx + i) {
 		case blockStateNone:
-			result.freeBlocks = append(result.freeBlocks, pieceBlock{pieceIndex, i})
+			result.FreeBlocks = append(result.FreeBlocks, PieceBlock{pieceIndex, i})
 			*numBlocks--
 			if *numBlocks <= 0 {
 				return
 			}
 		case blockStateRequested:
-			result.busyBlocks = append(result.busyBlocks, pieceBlock{pieceIndex, i})
+			result.BusyBlocks = append(result.BusyBlocks, PieceBlock{pieceIndex, i})
 		}
 	}
 }
 
 // findDownloadingPiece finds a downloading piece by index.
 // Caller must hold pp.mu.
-func (pp *piecePicker) findDownloadingPiece(pieceIndex uint32) *downloadingPiece {
+func (pp *PiecePicker) findDownloadingPiece(pieceIndex uint32) *downloadingPiece {
 	for i := range pp.downloadingPieces {
 		if pp.downloadingPieces[i].index == pieceIndex {
 			return &pp.downloadingPieces[i]
@@ -696,17 +706,17 @@ func (pp *piecePicker) findDownloadingPiece(pieceIndex uint32) *downloadingPiece
 
 // isAlreadyPicked checks if a piece already has blocks in the result.
 // Caller must hold pp.mu.
-func (pp *piecePicker) isAlreadyPicked(pieceIndex uint32, result *pickResult) bool {
-	for _, fb := range result.freeBlocks {
-		if fb.pieceIndex == pieceIndex {
+func (pp *PiecePicker) isAlreadyPicked(pieceIndex uint32, result *PickResult) bool {
+	for _, fb := range result.FreeBlocks {
+		if fb.PieceIndex == pieceIndex {
 			return true
 		}
 	}
 	return false
 }
 
-// addDownloadingPiece adds a piece to the downloading set.
-func (pp *piecePicker) addDownloadingPiece(pieceIndex uint32, info meta.Info) {
+// AddDownloadingPiece adds a piece to the downloading set.
+func (pp *PiecePicker) AddDownloadingPiece(pieceIndex uint32, info meta.Info) {
 	if pp == nil {
 		return
 	}
@@ -741,8 +751,8 @@ func (pp *piecePicker) addDownloadingPiece(pieceIndex uint32, info meta.Info) {
 	pp.dirty = true
 }
 
-// removeDownloadingPiece removes a piece from the downloading set.
-func (pp *piecePicker) removeDownloadingPiece(pieceIndex uint32) {
+// RemoveDownloadingPiece removes a piece from the downloading set.
+func (pp *PiecePicker) RemoveDownloadingPiece(pieceIndex uint32) {
 	if pp == nil {
 		return
 	}
@@ -758,8 +768,8 @@ func (pp *piecePicker) removeDownloadingPiece(pieceIndex uint32) {
 	}
 }
 
-// countBusyBlocks returns the number of busy (requested) blocks in a piece.
-func (pp *piecePicker) countBusyBlocks(pieceIndex uint32, info meta.Info) int {
+// CountBusyBlocks returns the number of busy (requested) blocks in a piece.
+func (pp *PiecePicker) CountBusyBlocks(pieceIndex uint32, info meta.Info) int {
 	if pp == nil {
 		return 0
 	}
@@ -798,7 +808,7 @@ type DownloadingPieceInfo struct {
 }
 
 // DebugDownloadingPieces returns detail about every in-flight piece.
-func (pp *piecePicker) DebugDownloadingPieces(info meta.Info) []DownloadingPieceInfo {
+func (pp *PiecePicker) DebugDownloadingPieces(info meta.Info) []DownloadingPieceInfo {
 	if pp == nil {
 		return nil
 	}
@@ -831,7 +841,7 @@ func (pp *piecePicker) DebugDownloadingPieces(info meta.Info) []DownloadingPiece
 }
 
 // DebugStats returns picker state summary for debugging.
-func (pp *piecePicker) DebugStats(info meta.Info) PickerStats {
+func (pp *PiecePicker) DebugStats(info meta.Info) PickerStats {
 	if pp == nil {
 		return PickerStats{}
 	}
@@ -861,8 +871,8 @@ func (pp *piecePicker) DebugStats(info meta.Info) PickerStats {
 	return st
 }
 
-// resetPiece resets all blocks in a piece to state none (for hash check failure).
-func (pp *piecePicker) resetPiece(pieceIndex uint32, info meta.Info) {
+// ResetPiece resets all blocks in a piece to state none (for hash check failure).
+func (pp *PiecePicker) ResetPiece(pieceIndex uint32, info meta.Info) {
 	if pp == nil {
 		return
 	}
@@ -897,9 +907,9 @@ func (pp *piecePicker) resetPiece(pieceIndex uint32, info meta.Info) {
 	pp.dirty = true
 }
 
-// resetAll resets all block states to none and clears downloading pieces.
+// ResetAll resets all block states to none and clears downloading pieces.
 // Used during recheck (AsyncCheck) when completedBm is cleared.
-func (pp *piecePicker) resetAll() {
+func (pp *PiecePicker) ResetAll() {
 	if pp == nil {
 		return
 	}
@@ -913,7 +923,7 @@ func (pp *piecePicker) resetAll() {
 	pp.dirty = true
 }
 
-func (pp *piecePicker) removeDownloadingPieceUnsafe(pieceIndex uint32) {
+func (pp *PiecePicker) removeDownloadingPieceUnsafe(pieceIndex uint32) {
 	for i := range pp.downloadingPieces {
 		if pp.downloadingPieces[i].index == pieceIndex {
 			pp.downloadingPieces = slices.Delete(pp.downloadingPieces, i, i+1)
@@ -923,15 +933,15 @@ func (pp *piecePicker) removeDownloadingPieceUnsafe(pieceIndex uint32) {
 	}
 }
 
-// debugDump writes detailed picker state to string.
-func (pp *piecePicker) debugDump(info meta.Info) string {
+// DebugDump writes detailed picker state to string.
+func (pp *PiecePicker) DebugDump(info meta.Info) string {
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
 	return pp.debugDumpUnsafe(info)
 }
 
 // debugDumpUnsafe writes detailed picker state to buf. Caller must hold pp.mu.
-func (pp *piecePicker) debugDumpUnsafe(info meta.Info) string {
+func (pp *PiecePicker) debugDumpUnsafe(info meta.Info) string {
 	var buf strings.Builder
 	fmt.Fprintf(&buf, "numPieces=%d numWantLeft=%d downloadQueueSize=%d\n",
 		pp.numPieces, pp.numWantLeft, pp.downloadQueueSize)

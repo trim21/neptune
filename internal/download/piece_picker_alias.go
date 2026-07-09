@@ -1,0 +1,36 @@
+// Copyright 2024 trim21 <trim21.me@gmail.com>
+// SPDX-License-Identifier: GPL-3.0-only
+
+package download
+
+import "neptune/internal/piece_picker"
+
+// PiecePicker is imported from the piece_picker package.
+type PiecePicker = piece_picker.PiecePicker
+
+// PieceBlock is imported from the piece_picker package.
+type PieceBlock = piece_picker.PieceBlock
+
+// PickResult is imported from the piece_picker package.
+type PickResult = piece_picker.PickResult
+
+// PiecePickStrategy is imported from the piece_picker package.
+type PiecePickStrategy = piece_picker.PiecePickStrategy
+
+// PickerStats is imported from the piece_picker package.
+type PickerStats = piece_picker.PickerStats
+
+// DownloadingPieceInfo is imported from the piece_picker package.
+type DownloadingPieceInfo = piece_picker.DownloadingPieceInfo
+
+// Strategy constants.
+const (
+	StrategyRarestFirst = piece_picker.StrategyRarestFirst
+	StrategySequential  = piece_picker.StrategySequential
+)
+
+// NewPiecePicker is imported from the piece_picker package.
+var NewPiecePicker = piece_picker.NewPiecePicker
+
+// PiecePickStrategyFromString is imported from the piece_picker package.
+var PiecePickStrategyFromString = piece_picker.PiecePickStrategyFromString

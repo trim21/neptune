@@ -121,7 +121,7 @@ type Download struct {
 	connectedAddrs         *xsync.Map[netip.AddrPort, Peer]
 	stateCond              *gsync.Cond
 	peerList               *peerList
-	picker                 atomic.Pointer[piecePicker]
+	picker                 atomic.Pointer[PiecePicker]
 	err                    atomic.Pointer[error]
 	cancel                 context.CancelFunc
 	scheduleRequestSignal  chan empty.Empty
@@ -289,7 +289,7 @@ func (d *Download) markUnselectedPiecesDoneUnsafe() {
 	d.completedBm.OR(unwanted)
 
 	unwanted.Range(func(i uint32) {
-		d.picker.Load().weHave(i, d.info)
+		d.picker.Load().WeHave(i, d.info)
 	})
 }
 

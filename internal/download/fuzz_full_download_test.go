@@ -89,7 +89,7 @@ func FuzzFullDownload(f *testing.F) {
 			d.peers.Store(p.ID(), p)
 			for pi := range numPieces {
 				if p.bitmap.Contains(pi) {
-					d.picker.Load().incRefcount(pi)
+					d.picker.Load().IncRefcount(pi)
 				}
 			}
 
@@ -112,7 +112,7 @@ func FuzzFullDownload(f *testing.F) {
 			if !covered {
 				idx := int(rng.next() % uint64(len(peers)))
 				peers[idx].p.bitmap.Set(pi)
-				d.picker.Load().incRefcount(pi)
+				d.picker.Load().IncRefcount(pi)
 			}
 		}
 
@@ -138,7 +138,7 @@ func FuzzFullDownload(f *testing.F) {
 		// the piece was only on a disconnected peer).
 		hasCoverageLoss := func() bool {
 			for pi := range numPieces {
-				if !d.completedBm.Contains(pi) && !d.picker.Load().pieceIsAvailable(pi) {
+				if !d.completedBm.Contains(pi) && !d.picker.Load().PieceIsAvailable(pi) {
 					return true
 				}
 			}
@@ -157,7 +157,7 @@ func FuzzFullDownload(f *testing.F) {
 			select {
 			case <-timer.C:
 				count := d.completedBm.Count()
-				dump := d.picker.Load().debugDump(d.info)
+				dump := d.picker.Load().DebugDump(d.info)
 				var missing []uint32
 				for pi := range numPieces {
 					if !d.completedBm.Contains(pi) {
@@ -193,7 +193,7 @@ func FuzzFullDownload(f *testing.F) {
 					if stallStart.IsZero() {
 						stallStart = time.Now()
 					} else if time.Since(stallStart) > 6*time.Second {
-						dump := d.picker.Load().debugDump(d.info)
+						dump := d.picker.Load().DebugDump(d.info)
 						var missing []uint32
 						for pi := range numPieces {
 							if !d.completedBm.Contains(pi) {
