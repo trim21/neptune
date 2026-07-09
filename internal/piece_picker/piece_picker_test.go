@@ -43,7 +43,7 @@ func TestResetPieceIntoCandidates(t *testing.T) {
 	completedBm := bm.New(numPieces)
 	wantedBm := bm.New(numPieces)
 	wantedBm.Fill()
-	pp := NewPiecePicker(info, completedBm, wantedBm, nil, nil, false)
+	pp := NewPiecePicker(info, completedBm, wantedBm, nil, nil)
 
 	// First complete piece 1 (so numCompletedPieces > 0, avoiding startup mode).
 	for bi := range blocksPerPiece {
@@ -53,7 +53,7 @@ func TestResetPieceIntoCandidates(t *testing.T) {
 		pp.MarkAsResponded(1, bi)
 	}
 	completedBm.Set(1) // simulate hash check passed
-	pp.WeHave(1, info) // increments numCompletedPieces to avoid startup mode
+	pp.WeHave(1)       // increments numCompletedPieces to avoid startup mode
 
 	// Then simulate downloading piece 0: all blocks requested and responded.
 	for bi := range blocksPerPiece {
@@ -64,13 +64,13 @@ func TestResetPieceIntoCandidates(t *testing.T) {
 	}
 
 	// At this point, piece 0 is allBlocksResponded → rebuildPriorities removes it.
-	pp.rebuildPriorities(info, StrategyRarestFirst)
+	pp.rebuildPriorities(StrategyRarestFirst)
 
 	// Verify piece 0 is NOT pickable (allBlocksResponded, waiting for hash).
 	bitfield := bm.New(numPieces)
 	bitfield.Fill()
 	result := PickResult{}
-	result = pp.PickPieces(bitfield, false, nil, 100, 0, nil, info, StrategyRarestFirst, result)
+	result = pp.PickPieces(bitfield, false, nil, 100, 0, nil, result)
 	for _, fb := range result.FreeBlocks {
 		if fb.PieceIndex == 0 {
 			t.Fatal("piece 0 should not be pickable before resetPiece")
@@ -78,11 +78,11 @@ func TestResetPieceIntoCandidates(t *testing.T) {
 	}
 
 	// Simulate hash failure: resetPiece.
-	pp.ResetPiece(0, info)
+	pp.ResetPiece(0)
 
 	pp.mu.Lock()
 	t.Logf("After resetPiece: dirty=%v pieces=%v", pp.dirty, pp.pieces)
-	t.Logf("allBlocksResponded(0)=%v", pp.allBlocksResponded(0, info))
+	t.Logf("allBlocksResponded(0)=%v", pp.allBlocksResponded(0))
 	for bi := range blocksPerPiece {
 		idx := pp.blockInfoIdx(0) + bi
 		t.Logf("  block %d state: %d", bi, pp.blockInfos.get(idx))
@@ -94,10 +94,10 @@ func TestResetPieceIntoCandidates(t *testing.T) {
 
 	pp.mu.Lock()
 	t.Logf("Before pickPieces: dirty=%v pieces=%v", pp.dirty, pp.pieces)
-	t.Logf("allBlocksResponded(0)=%v", pp.allBlocksResponded(0, info))
+	t.Logf("allBlocksResponded(0)=%v", pp.allBlocksResponded(0))
 	pp.mu.Unlock()
 
-	result = pp.PickPieces(bitfield, false, nil, 100, 0, nil, info, StrategyRarestFirst, result)
+	result = pp.PickPieces(bitfield, false, nil, 100, 0, nil, result)
 
 	pp.mu.Lock()
 	t.Logf("After pickPieces: pieces=%v", pp.pieces)
@@ -105,10 +105,10 @@ func TestResetPieceIntoCandidates(t *testing.T) {
 
 	pp.mu.Lock()
 	t.Logf("Before pickPieces: dirty=%v pieces=%v", pp.dirty, pp.pieces)
-	t.Logf("allBlocksResponded(0)=%v", pp.allBlocksResponded(0, info))
+	t.Logf("allBlocksResponded(0)=%v", pp.allBlocksResponded(0))
 	pp.mu.Unlock()
 
-	result = pp.PickPieces(bitfield, false, nil, 100, 0, nil, info, StrategyRarestFirst, result)
+	result = pp.PickPieces(bitfield, false, nil, 100, 0, nil, result)
 
 	pp.mu.Lock()
 	t.Logf("After pickPieces: pieces=%v", pp.pieces)

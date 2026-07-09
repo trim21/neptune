@@ -43,11 +43,6 @@ func (pp *PiecePicker) RequestABlock(
 		return last
 	}
 
-	strategy := StrategyRarestFirst
-	if pp.strategy != nil {
-		strategy = PiecePickStrategy(pp.strategy.Load())
-	}
-
 	fastBm := fastBitmap
 	if fastBm == nil {
 		fastBm = bm.New(0)
@@ -60,8 +55,6 @@ func (pp *PiecePicker) RequestABlock(
 		numRequests,
 		0,
 		nil,
-		pp.info,
-		strategy,
 		last,
 	)
 

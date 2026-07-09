@@ -25,23 +25,23 @@ func TestEndgameNoFreeBlocks(t *testing.T) {
 
 	// Complete pieces 0-2.
 	for pi := range uint32(3) {
-		pp.AddDownloadingPiece(pi, info)
+		pp.AddDownloadingPiece(pi)
 		for bi := range info.PieceBlockCount(pi) {
 			pp.MarkAsRequesting(pi, bi)
 			pp.MarkAsResponded(pi, bi)
 		}
-		pp.WeHave(pi, info)
+		pp.WeHave(pi)
 	}
 
 	// Piece 3: all blocks responded (pending hash check).
-	pp.AddDownloadingPiece(3, info)
+	pp.AddDownloadingPiece(3)
 	for bi := range 4 {
 		pp.MarkAsRequesting(3, bi)
 		pp.MarkAsResponded(3, bi)
 	}
 
 	// Piece 4: 2 requested, 2 responded, 0 free.
-	pp.AddDownloadingPiece(4, info)
+	pp.AddDownloadingPiece(4)
 	pp.MarkAsRequesting(4, 0)
 	pp.MarkAsRequesting(4, 1)
 	pp.MarkAsResponded(4, 0)
@@ -49,7 +49,7 @@ func TestEndgameNoFreeBlocks(t *testing.T) {
 	pp.MarkAsRequesting(4, 2)
 	pp.MarkAsRequesting(4, 3)
 
-	result := pp.PickPieces(bitfield, false, nil, 4, 0, nil, info, StrategyRarestFirst, PickResult{})
+	result := pp.PickPieces(bitfield, false, nil, 4, 0, nil, PickResult{})
 
 	if len(result.FreeBlocks) == 0 && len(result.BusyBlocks) == 0 {
 		t.Error("BUG: pickPieces returned empty when busy blocks exist (99% stall)")
@@ -88,5 +88,5 @@ func pickerEnv(numPieces uint32, blocksPerPiece uint32) (*PiecePicker, meta.Info
 	wantedBm := bm.New(info.NumPieces)
 	wantedBm.Fill()
 
-	return NewPiecePicker(info, completedBm, wantedBm, nil, nil, false), info
+	return NewPiecePicker(info, completedBm, wantedBm, nil, nil), info
 }

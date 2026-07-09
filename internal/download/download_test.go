@@ -135,7 +135,7 @@ func TestRequestABlock_CompletedPieceSkipped(t *testing.T) {
 	// Mark piece 0 as complete — blocks for piece 0 should be skipped.
 	d, p := newRequestABlockFixture(t, 3)
 	d.completedBm.Set(0)
-	d.picker.Load().WeHave(0, d.info)
+	d.picker.Load().WeHave(0)
 
 	// Only pieces 1, 2 are available in picker now.
 	// Peer bitmap has all pieces.
@@ -162,7 +162,7 @@ func TestRequestABlock_EndgameBusyBlocks(t *testing.T) {
 		busyPiece = 4
 	}
 	picker := d.picker.Load()
-	picker.AddDownloadingPiece(busyPiece, d.info)
+	picker.AddDownloadingPiece(busyPiece)
 	nb := d.info.PieceBlockCount(busyPiece)
 	for bi := 1; bi < nb; bi++ {
 		picker.MarkAsRequesting(busyPiece, bi)

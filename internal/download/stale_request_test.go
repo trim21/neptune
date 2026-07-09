@@ -108,7 +108,7 @@ func FuzzStaleRequest(f *testing.F) {
 		if pp == nil {
 			return
 		}
-		qs := pp.DebugStats(d.info).DownloadQueue
+		qs := pp.DebugStats().DownloadQueue
 		if qs != 0 {
 			t.Errorf("stale request: downloadQueueSize=%d after all peers closed, seed=%d",
 				qs, seed)

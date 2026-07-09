@@ -33,14 +33,14 @@ func TestStallCompletedBmRace(t *testing.T) {
 	wantedBm := bm.New(numPieces)
 	wantedBm.Fill()
 
-	pp := NewPiecePicker(info, completedBm, wantedBm, nil, nil, false)
+	pp := NewPiecePicker(info, completedBm, wantedBm, nil, nil)
 	peerBitfield := bm.New(numPieces)
 	peerBitfield.Fill()
 
 	// Add piece 0 to downloadingPieces with some free blocks.
 	pp.MarkAsRequesting(0, 0)
 	pp.MarkAsRequesting(0, 1)
-	pp.AddDownloadingPiece(0, info)
+	pp.AddDownloadingPiece(0)
 
 	// Simulate the race window after checkPiece succeeds:
 	// completedBm.SetX runs but weHave hasn't removed from downloadingPieces yet.
@@ -48,7 +48,7 @@ func TestStallCompletedBmRace(t *testing.T) {
 
 	// pickPieces → Phase 1 finds piece 0 in downloadingPieces, returns free blocks.
 	result := PickResult{}
-	result = pp.PickPieces(peerBitfield, false, nil, 4, 0, nil, info, StrategyRarestFirst, result)
+	result = pp.PickPieces(peerBitfield, false, nil, 4, 0, nil, result)
 
 	badBlocks := 0
 	for _, fb := range result.FreeBlocks {
@@ -84,9 +84,9 @@ func TestStallEndgameBusyLoop(t *testing.T) {
 
 	// Only pieces 0 and 1 remain. Start both.
 	d.picker.Load().MarkAsRequesting(0, 0)
-	d.picker.Load().AddDownloadingPiece(0, d.info)
+	d.picker.Load().AddDownloadingPiece(0)
 	d.picker.Load().MarkAsRequesting(1, 0)
-	d.picker.Load().AddDownloadingPiece(1, d.info)
+	d.picker.Load().AddDownloadingPiece(1)
 
 	// Receive all blocks for piece 1 → triggers async checkPiece.
 	for bi := range d.info.PieceBlockCount(1) {
@@ -110,7 +110,7 @@ func TestStallEndgameBusyLoop(t *testing.T) {
 
 	pp := d.picker.Load()
 	result := PickResult{}
-	result = pp.PickPieces(peerBitfield, false, nil, 100, 0, nil, d.info, StrategyRarestFirst, result)
+	result = pp.PickPieces(peerBitfield, false, nil, 100, 0, nil, result)
 
 	completedFromResult := 0
 	for _, fb := range result.FreeBlocks {
@@ -140,27 +140,27 @@ func TestStall_NewPickerDoesntInheritDownloadingPieces(t *testing.T) {
 	wantedBm := bm.New(numPieces)
 	wantedBm.Fill()
 
-	oldPicker := NewPiecePicker(info, completedBm, wantedBm, nil, nil, false)
+	oldPicker := NewPiecePicker(info, completedBm, wantedBm, nil, nil)
 
 	// Add piece 0 to OLD picker's downloadingPieces.
 	for bi := range int(blocksPerPiece) {
 		oldPicker.MarkAsRequesting(0, bi)
 		oldPicker.MarkAsResponded(0, bi)
 	}
-	oldPicker.AddDownloadingPiece(0, info)
+	oldPicker.AddDownloadingPiece(0)
 
 	// checkPiece completes: completedBm.SetX(0)
 	completedBm.SetX(0)
 
 	// Create NEW picker (strategy change race).
-	newPicker := NewPiecePicker(info, completedBm, wantedBm, nil, nil, false)
+	newPicker := NewPiecePicker(info, completedBm, wantedBm, nil, nil)
 	newPicker.MarkAsRequesting(1, 0)
 	newPicker.MarkAsResponded(1, 0)
 	completedBm.Set(1)
-	newPicker.WeHave(1, info)
+	newPicker.WeHave(1)
 
 	// weHave(0) on NEW picker → no-op (piece 0 not in newPicker's downloadingPieces).
-	newPicker.WeHave(0, info)
+	newPicker.WeHave(0)
 
 	// OLD picker still has piece 0 in downloadingPieces, all blocks responded.
 	// If requestABlock loaded OLD picker before the swap → operates on stale state.
@@ -168,7 +168,7 @@ func TestStall_NewPickerDoesntInheritDownloadingPieces(t *testing.T) {
 	peerBitfield.Fill()
 
 	result := PickResult{}
-	result = oldPicker.PickPieces(peerBitfield, false, nil, 100, 0, nil, info, StrategyRarestFirst, result)
+	result = oldPicker.PickPieces(peerBitfield, false, nil, 100, 0, nil, result)
 
 	for _, fb := range result.FreeBlocks {
 		if fb.PieceIndex == 0 {
@@ -199,7 +199,7 @@ func TestStallEndgamePicksFreeZeroPieces(t *testing.T) {
 	wantedBm := bm.New(numPieces)
 	wantedBm.Fill()
 
-	pp := NewPiecePicker(info, completedBm, wantedBm, nil, nil, false)
+	pp := NewPiecePicker(info, completedBm, wantedBm, nil, nil)
 	peerBitfield := bm.New(numPieces)
 	peerBitfield.Fill()
 
@@ -207,7 +207,7 @@ func TestStallEndgamePicksFreeZeroPieces(t *testing.T) {
 	pp.MarkAsRequesting(0, 0)
 	pp.MarkAsResponded(0, 0)
 	completedBm.Set(0)
-	pp.WeHave(0, info)
+	pp.WeHave(0)
 
 	// Piece 1: 0 free, 1 requested, 3 responded (stalled near completion).
 	for bi := range int(blocksPerPiece) {
@@ -223,14 +223,14 @@ func TestStallEndgamePicksFreeZeroPieces(t *testing.T) {
 		pp.MarkAsResponded(2, bi)
 	}
 	completedBm.Set(2)
-	pp.WeHave(2, info)
+	pp.WeHave(2)
 
 	// Now: numWantLeft == 0 (all pieces either completed or in downloadingPieces).
 	// Piece 1 has 0 free, 1 requested, 3 responded.
 	// Endgame fallback should collect piece 1's requested block as busy.
 
 	result := PickResult{}
-	result = pp.PickPieces(peerBitfield, false, nil, 100, 0, nil, info, StrategyRarestFirst, result)
+	result = pp.PickPieces(peerBitfield, false, nil, 100, 0, nil, result)
 
 	// Should have collected the busy block from piece 1.
 	hasBusy := false

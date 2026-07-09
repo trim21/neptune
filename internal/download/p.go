@@ -232,58 +232,40 @@ func (p *peerImpl) Unchoke() {
 }
 
 func (p *peerImpl) Close() {
-	if p.closed.CompareAndSwap(false, true) {
-		p.disconnecting.Store(true)
-		p.log.Trace().Caller(1).Msg("close")
-
-		// Decrement picker refcount for all pieces this peer had,
-		// and abort any blocks we had requested from this peer.
-		// These operate on p's own data; always safe.
-		p.Bitmap.Range(func(u uint32) {
-			if !p.d.HasState(Seeding) {
-				p.peerCtx.Picker().DecRefcount(u)
-			}
-		})
-		// Abort blocks that were requested from the picker (sent to peer).
-		p.myRequests.Range(func(req proto.ChunkRequest, _ time.Time) bool {
-			bi := int(req.Begin / uint32(defaultBlockSize))
-			p.peerCtx.Picker().AbortDownload(req.PieceIndex, bi)
-			return true
-		})
-
-		// Also abort blocks that were picked but not yet sent.
-		p.rqMu.Lock()
-		for _, b := range p.requestQueue {
-			p.peerCtx.Picker().AbortDownload(b.PieceIndex, b.BlockIndex)
-		}
-		p.rqMu.Unlock()
-
-		// Shared state cleanup: recordDisconnect checks whether we are the
-		// primary peer (in connectedAddrs) and only then updates peerList.
-		p.d.recordDisconnect(p)
-
-		// peers map: keyed by unique peer ID, safe to always delete.
-		p.d.peers.Delete(p.id)
-
-		// Per-connection resources: we own one slot acquired before peer creation.
-		p.d.session.ConnSem.Release(1)
-		p.d.session.ConnCount.Sub(1)
-
-		p.cancel()
-		_ = p.Conn.Close()
-
-		// Signal connection loop to fill the freed slot.
-		if p.d.HasState(Downloading | Seeding) {
-			select {
-			case p.d.pendingPeersSignal <- empty.Empty{}:
-			default:
-			}
-		}
-
-		// Signal scheduler: blocks freed by abortDownload are now available
-		// for other peers to pick up immediately.
-		p.d.notifyPeersToRequest()
+	if !p.closed.CompareAndSwap(false, true) {
+		return
 	}
+
+	p.disconnecting.Store(true)
+	p.log.Trace().Caller(1).Msg("close")
+
+	// Decrement picker refcount for all pieces this peer had,
+	// and abort any blocks we had requested from this peer.
+	p.Bitmap.Range(func(u uint32) {
+		if !p.d.HasState(Seeding) {
+			p.peerCtx.Picker().DecRefcount(u)
+		}
+	})
+	// Abort blocks that were requested from the picker (sent to peer).
+	p.myRequests.Range(func(req proto.ChunkRequest, _ time.Time) bool {
+		bi := int(req.Begin / uint32(defaultBlockSize))
+		p.peerCtx.Picker().AbortDownload(req.PieceIndex, bi)
+		return true
+	})
+
+	// Also abort blocks that were picked but not yet sent.
+	p.rqMu.Lock()
+	for _, b := range p.requestQueue {
+		p.peerCtx.Picker().AbortDownload(b.PieceIndex, b.BlockIndex)
+	}
+	p.rqMu.Unlock()
+
+	// Shared state cleanup: recordDisconnect handles connectedAddrs,
+	// peerList, peer map, connection slot release, and re-request signal.
+	p.d.recordDisconnect(p)
+
+	p.cancel()
+	_ = p.Conn.Close()
 }
 
 func (p *peerImpl) sendBlockRequests() {
@@ -341,16 +323,16 @@ func (p *peerImpl) requestBlocks() {
 
 // requestABlock picks blocks using the global piece picker.
 func (p *peerImpl) requestABlock() {
-	ctx := p.peerCtx
-	if p.closed.Load() || !ctx.IsDownloading() {
+	if p.closed.Load() || !p.peerCtx.IsDownloading() {
 		return
 	}
+	picker := p.peerCtx.Picker()
 
 	desired := p.DesiredQueueSize()
 	outstanding := p.OutstandingRequests()
 	queued := p.QueueLen()
 
-	pickResult := ctx.Picker().RequestABlock(
+	pickResult := picker.RequestABlock(
 		p.LastPickResult(),
 		desired,
 		outstanding,
@@ -364,7 +346,7 @@ func (p *peerImpl) requestABlock() {
 	busy := pickResult.BusyBlocks
 
 	if len(free) == 0 && len(busy) == 0 {
-		if ctx.IsDebug() {
+		if p.d.session.Debug {
 			s := fmt.Sprintf("skip: numReq=%d (desired=%d, myReq=%d, reqQ=%d), free=%d busy=%d",
 				desired-outstanding-queued, desired, outstanding, queued, len(free), len(busy))
 			p.SetLastPickDebug(s)
@@ -374,7 +356,7 @@ func (p *peerImpl) requestABlock() {
 
 	// Free blocks: enqueue and confirm.
 	for _, fb := range free {
-		if p.IsInQueue(pieceChunk(ctx.Info(), fb.PieceIndex, fb.BlockIndex)) {
+		if p.IsInQueue(pieceChunk(p.d.info, fb.PieceIndex, fb.BlockIndex)) {
 			continue
 		}
 		p.EnqueueBlock(fb.PieceIndex, fb.BlockIndex)
@@ -382,15 +364,15 @@ func (p *peerImpl) requestABlock() {
 		if p.closed.Load() {
 			continue
 		}
-		ctx.Picker().MarkAsRequesting(fb.PieceIndex, fb.BlockIndex)
-		ctx.Picker().AddDownloadingPiece(fb.PieceIndex, ctx.Info())
+		picker.MarkAsRequesting(fb.PieceIndex, fb.BlockIndex)
+		picker.AddDownloadingPiece(fb.PieceIndex)
 	}
 
 	p.SendBlockRequests()
 
 	// Busy blocks (endgame): at most one to avoid burst.
 	for _, bb := range busy {
-		if p.IsInQueue(pieceChunk(ctx.Info(), bb.PieceIndex, bb.BlockIndex)) {
+		if p.IsInQueue(pieceChunk(p.d.info, bb.PieceIndex, bb.BlockIndex)) {
 			continue
 		}
 		p.EnqueueBlock(bb.PieceIndex, bb.BlockIndex)
@@ -398,8 +380,8 @@ func (p *peerImpl) requestABlock() {
 		if p.closed.Load() {
 			continue
 		}
-		ctx.Picker().MarkAsRequesting(bb.PieceIndex, bb.BlockIndex)
-		ctx.Picker().AddDownloadingPiece(bb.PieceIndex, ctx.Info())
+		picker.MarkAsRequesting(bb.PieceIndex, bb.BlockIndex)
+		picker.AddDownloadingPiece(bb.PieceIndex)
 		p.SendBlockRequests()
 		return
 	}

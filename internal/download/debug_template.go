@@ -158,7 +158,7 @@ func BuildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 		}
 		top := make([]kv, 0, len(d.corruptedPieces))
 		for idx, count := range d.corruptedPieces {
-			blockedBy := d.picker.Load().CountBusyBlocks(idx, d.info)
+			blockedBy := d.picker.Load().CountBusyBlocks(idx)
 			top = append(top, kv{idx, count, blockedBy})
 		}
 		slices.SortFunc(top, func(a, b kv) int { return b.count - a.count })
@@ -246,7 +246,7 @@ func BuildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 	dlTotal := d.pieceDownloadRate.Status().Total
 
 	// Picker stats
-	st := d.picker.Load().DebugStats(d.info)
+	st := d.picker.Load().DebugStats()
 	totalBlocks := st.FreeBlocks + st.RequestedBlocks + st.RespondedBlocks
 	data.PickerText = fmt.Sprintf(
 		"picker: %d open pieces, %d downloading pieces\n"+
@@ -263,7 +263,7 @@ func BuildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 	)
 
 	// Downloading pieces detail
-	dlPieces := d.picker.Load().DebugDownloadingPieces(d.info)
+	dlPieces := d.picker.Load().DebugDownloadingPieces()
 	if len(dlPieces) > 0 {
 		// cap at 200 to keep the page readable
 		limit := min(len(dlPieces), 200)

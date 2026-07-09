@@ -64,7 +64,7 @@ func (d *Download) SetFilePriority(fileIDs []int, priority int) error {
 			}
 
 			d.completedBm.Unset(pi)
-			d.picker.Load().ResetPiece(pi, d.info)
+			d.picker.Load().ResetPiece(pi)
 		}
 	}
 

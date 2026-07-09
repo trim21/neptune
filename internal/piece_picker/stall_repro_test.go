@@ -40,7 +40,7 @@ func TestStallZombiePiece(t *testing.T) {
 	wantedBm := bm.New(numPieces)
 	wantedBm.Fill()
 
-	pp := NewPiecePicker(info, completedBm, wantedBm, nil, nil, false)
+	pp := NewPiecePicker(info, completedBm, wantedBm, nil, nil)
 	peerBitfield := bm.New(numPieces)
 	peerBitfield.Fill()
 
@@ -48,14 +48,14 @@ func TestStallZombiePiece(t *testing.T) {
 	pp.MarkAsRequesting(1, 0)
 	pp.MarkAsResponded(1, 0)
 	completedBm.Set(1)
-	pp.WeHave(1, info)
+	pp.WeHave(1)
 
 	// Simulate: piece 0 fully received, all blocks responded, hash check pending.
 	for bi := range int(blocksPerPiece) {
 		pp.MarkAsRequesting(0, bi)
 		pp.MarkAsResponded(0, bi)
 	}
-	pp.AddDownloadingPiece(0, info)
+	pp.AddDownloadingPiece(0)
 
 	// Manually remove from downloadingPieces (simulating picker swap race).
 	pp.mu.Lock()
@@ -72,7 +72,7 @@ func TestStallZombiePiece(t *testing.T) {
 	// rebuildPriorities filters it out (allBlocksResponded) → pp.pieces sans 0.
 
 	result := PickResult{}
-	result = pp.PickPieces(peerBitfield, false, nil, 100, 0, nil, info, StrategyRarestFirst, result)
+	result = pp.PickPieces(peerBitfield, false, nil, 100, 0, nil, result)
 
 	for _, fb := range result.FreeBlocks {
 		if fb.PieceIndex == 0 {
@@ -89,10 +89,10 @@ func TestStallZombiePiece(t *testing.T) {
 		len(result.FreeBlocks), len(result.BusyBlocks))
 
 	// Recovery: resetPiece should bring piece 0 back.
-	pp.ResetPiece(0, info)
+	pp.ResetPiece(0)
 	result.FreeBlocks = result.FreeBlocks[:0]
 	result.BusyBlocks = result.BusyBlocks[:0]
-	result = pp.PickPieces(peerBitfield, false, nil, 100, 0, nil, info, StrategyRarestFirst, result)
+	result = pp.PickPieces(peerBitfield, false, nil, 100, 0, nil, result)
 
 	recovered := false
 	for _, fb := range result.FreeBlocks {
@@ -126,7 +126,7 @@ func FuzzStallNearCompletion(f *testing.F) {
 		wantedBm := bm.New(numPieces)
 		wantedBm.Fill()
 
-		pp := NewPiecePicker(info, completedBm, wantedBm, nil, nil, false)
+		pp := NewPiecePicker(info, completedBm, wantedBm, nil, nil)
 		peerBitfield := bm.New(numPieces)
 		peerBitfield.Fill()
 
@@ -136,7 +136,7 @@ func FuzzStallNearCompletion(f *testing.F) {
 		pp.MarkAsRequesting(0, 0)
 		pp.MarkAsResponded(0, 0)
 		completedBm.Set(0)
-		pp.WeHave(0, info)
+		pp.WeHave(0)
 
 		// Randomly assign states to remaining pieces.
 		for pi := uint32(1); pi < numPieces; pi++ {
@@ -148,19 +148,19 @@ func FuzzStallNearCompletion(f *testing.F) {
 				for bi := range nReq {
 					pp.MarkAsRequesting(pi, bi)
 				}
-				pp.AddDownloadingPiece(pi, info)
+				pp.AddDownloadingPiece(pi)
 			case 2: // fully responded, in downloadingPieces
 				for bi := range int(blocksPerPiece) {
 					pp.MarkAsRequesting(pi, bi)
 					pp.MarkAsResponded(pi, bi)
 				}
-				pp.AddDownloadingPiece(pi, info)
+				pp.AddDownloadingPiece(pi)
 			case 3: // zombie: fully responded, NOT in downloadingPieces
 				for bi := range int(blocksPerPiece) {
 					pp.MarkAsRequesting(pi, bi)
 					pp.MarkAsResponded(pi, bi)
 				}
-				pp.AddDownloadingPiece(pi, info)
+				pp.AddDownloadingPiece(pi)
 				pp.mu.Lock()
 				for j, dp := range pp.downloadingPieces {
 					if dp.index == pi {
@@ -171,13 +171,13 @@ func FuzzStallNearCompletion(f *testing.F) {
 				pp.mu.Unlock()
 			case 4: // race: completedBm set, still in downloadingPieces
 				pp.MarkAsRequesting(pi, 0)
-				pp.AddDownloadingPiece(pi, info)
+				pp.AddDownloadingPiece(pi)
 				completedBm.SetX(pi)
 			}
 		}
 
 		var result PickResult
-		result = pp.PickPieces(peerBitfield, false, nil, 100, 0, nil, info, StrategyRarestFirst, result)
+		result = pp.PickPieces(peerBitfield, false, nil, 100, 0, nil, result)
 
 		// Invariant: Phase 1 now checks completedBm, so no completed-piece blocks
 		// should leak into the result.
@@ -201,7 +201,7 @@ func FuzzStallNearCompletion(f *testing.F) {
 		zombieBlocks := 0
 		pp.mu.Lock()
 		for _, fb := range result.FreeBlocks {
-			if pp.allBlocksResponded(fb.PieceIndex, info) && !pp.completedBm.Contains(fb.PieceIndex) {
+			if pp.allBlocksResponded(fb.PieceIndex) && !pp.completedBm.Contains(fb.PieceIndex) {
 				if pp.findDownloadingPiece(fb.PieceIndex) == nil {
 					zombieBlocks++
 				}

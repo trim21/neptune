@@ -274,7 +274,7 @@ func (m *mockPeer) requestABlock() {
 			continue
 		}
 		d.picker.Load().MarkAsRequesting(fb.PieceIndex, fb.BlockIndex)
-		d.picker.Load().AddDownloadingPiece(fb.PieceIndex, d.info)
+		d.picker.Load().AddDownloadingPiece(fb.PieceIndex)
 	}
 	m.SendBlockRequests()
 }

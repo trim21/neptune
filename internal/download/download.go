@@ -437,7 +437,7 @@ func (d *Download) checkPiece(pieceIndex uint32) error {
 
 	if !ok {
 		// Piece hash check failed — reset in picker so blocks can be re-requested
-		d.picker.Load().ResetPiece(pieceIndex, d.info)
+		d.picker.Load().ResetPiece(pieceIndex)
 		d.corruptedPiecesMu.Lock()
 		d.corruptedPieces[pieceIndex]++
 		d.corruptedPiecesMu.Unlock()
@@ -457,7 +457,7 @@ func (d *Download) checkPiece(pieceIndex uint32) error {
 	notHave := d.completedBm.SetX(pieceIndex)
 
 	// Mark piece as fully owned in the picker
-	d.picker.Load().WeHave(pieceIndex, d.info)
+	d.picker.Load().WeHave(pieceIndex)
 
 	if notHave {
 		d.completed.Add(pieceSize)

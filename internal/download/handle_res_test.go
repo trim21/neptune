@@ -100,7 +100,7 @@ func newTestDownload(t testing.TB, numPieces uint32, blocksPerPiece uint32, newS
 	d.completedBm = completedBm
 	d.wantedBm = wantedBm
 	d.peerList = newPeerList(d)
-	d.picker.Store(NewPiecePicker(info, completedBm, wantedBm, nil, nil, false))
+	d.picker.Store(NewPiecePicker(info, completedBm, wantedBm, nil, nil))
 	d.state.Store(uint32(Downloading))
 	return d
 }

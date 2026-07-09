@@ -157,7 +157,7 @@ func FuzzFullDownload(f *testing.F) {
 			select {
 			case <-timer.C:
 				count := d.completedBm.Count()
-				dump := d.picker.Load().DebugDump(d.info)
+				dump := d.picker.Load().DebugDump()
 				var missing []uint32
 				for pi := range numPieces {
 					if !d.completedBm.Contains(pi) {
@@ -193,7 +193,7 @@ func FuzzFullDownload(f *testing.F) {
 					if stallStart.IsZero() {
 						stallStart = time.Now()
 					} else if time.Since(stallStart) > 6*time.Second {
-						dump := d.picker.Load().DebugDump(d.info)
+						dump := d.picker.Load().DebugDump()
 						var missing []uint32
 						for pi := range numPieces {
 							if !d.completedBm.Contains(pi) {

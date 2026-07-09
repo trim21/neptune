@@ -23,7 +23,7 @@ func newTestPicker(numPieces uint32) *PiecePicker {
 	info := testInfo(numPieces)
 	completedBm := bm.New(info.NumPieces)
 	wantedBm := bm.New(info.NumPieces)
-	return NewPiecePicker(info, completedBm, wantedBm, nil, nil, false)
+	return NewPiecePicker(info, completedBm, wantedBm, nil, nil)
 }
 
 func TestRequestABlock_AllCompleted(t *testing.T) {
@@ -31,7 +31,7 @@ func TestRequestABlock_AllCompleted(t *testing.T) {
 	completedBm := bm.New(info.NumPieces)
 	completedBm.Fill()
 
-	pp := NewPiecePicker(info, completedBm, nil, nil, nil, false)
+	pp := NewPiecePicker(info, completedBm, nil, nil, nil)
 	result := pp.RequestABlock(PickResult{}, 8, 0, 0, false, nil, nil)
 
 	require.Empty(t, result.FreeBlocks)
@@ -65,7 +65,7 @@ func TestRequestABlock_ChokedNoFast(t *testing.T) {
 	peerBitfield := bm.New(info.NumPieces)
 	peerBitfield.Fill()
 
-	pp := NewPiecePicker(info, bm.New(info.NumPieces), wantedBm, nil, nil, false)
+	pp := NewPiecePicker(info, bm.New(info.NumPieces), wantedBm, nil, nil)
 
 	for i := range info.NumPieces {
 		pp.IncRefcount(i)
@@ -88,7 +88,7 @@ func TestRequestABlock_ChokedWithFast(t *testing.T) {
 	fastBm := bm.New(info.NumPieces)
 	fastBm.Set(0)
 
-	pp := NewPiecePicker(info, bm.New(info.NumPieces), wantedBm, nil, nil, false)
+	pp := NewPiecePicker(info, bm.New(info.NumPieces), wantedBm, nil, nil)
 
 	for i := range info.NumPieces {
 		pp.IncRefcount(i)
@@ -110,7 +110,7 @@ func TestRequestABlock_UnchokedNormal(t *testing.T) {
 	peerBitfield := bm.New(info.NumPieces)
 	peerBitfield.Fill()
 
-	pp := NewPiecePicker(info, bm.New(info.NumPieces), wantedBm, nil, nil, false)
+	pp := NewPiecePicker(info, bm.New(info.NumPieces), wantedBm, nil, nil)
 
 	for i := range info.NumPieces {
 		pp.IncRefcount(i)
@@ -129,7 +129,7 @@ func TestRequestABlock_LastPickResultReuse(t *testing.T) {
 	peerBitfield := bm.New(info.NumPieces)
 	peerBitfield.Fill()
 
-	pp := NewPiecePicker(info, bm.New(info.NumPieces), wantedBm, nil, nil, false)
+	pp := NewPiecePicker(info, bm.New(info.NumPieces), wantedBm, nil, nil)
 
 	for i := range info.NumPieces {
 		pp.IncRefcount(i)

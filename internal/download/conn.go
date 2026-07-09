@@ -130,25 +130,35 @@ func (d *Download) tryDial(pp *persistentPeer) {
 	d.peerList.newConnection(pp.addrPort, p, time.Now().Unix())
 }
 
-// recordDisconnect is called by Peer.close() to update shared peer tracking.
-// It only acts if p is the primary peer for its address (registered in connectedAddrs).
+// recordDisconnect is called by Peer.Close() to clean up shared peer tracking.
+// The connectedAddrs/peerList part is skipped if p is not the primary peer
+// for its address (e.g. when a replacement has already arrived).
 func (d *Download) recordDisconnect(p Peer) {
-	if actual, ok := d.connectedAddrs.Load(p.Addr()); !ok || actual != p {
-		return
+	if actual, ok := d.connectedAddrs.Load(p.Addr()); ok && actual == p {
+		d.connectedAddrs.Delete(p.Addr())
+
+		failed := p.CloseError() != nil &&
+			!errors.Is(p.CloseError(), io.EOF) &&
+			!errors.Is(p.CloseError(), context.Canceled)
+
+		d.peerList.connectionClosed(p.Addr(), time.Now().Unix(), p.HadTransfer(), failed)
 	}
-	d.connectedAddrs.Delete(p.Addr())
 
-	failed := p.CloseError() != nil &&
-		!errors.Is(p.CloseError(), io.EOF) &&
-		!errors.Is(p.CloseError(), context.Canceled)
-
-	d.peerList.connectionClosed(p.Addr(), time.Now().Unix(), p.HadTransfer(), failed)
+	d.peers.Delete(p.ID())
+	d.session.ConnSem.Release(1)
+	d.session.ConnCount.Sub(1)
 
 	// Wake up connection loop to fill the freed slot.
-	select {
-	case d.pendingPeersSignal <- empty.Empty{}:
-	default:
+	if d.HasState(Downloading | Seeding) {
+		select {
+		case d.pendingPeersSignal <- empty.Empty{}:
+		default:
+		}
 	}
+
+	// Notify scheduler: blocks freed by abortDownload are now available
+	// for other peers to pick up immediately.
+	d.notifyPeersToRequest()
 }
 
 // peerTurnover disconnects slow peers to make room for fresh candidates.
