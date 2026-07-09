@@ -1,0 +1,48 @@
+name: publish-sdk-typescript
+
+on:
+  push:
+    paths:
+      - "sdk/typescript/**"
+      - ".github/workflows/publish-sdk-typescript.yml"
+    branches:
+      - master
+
+concurrency:
+  group: "${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Build & publish dev release to npm
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdk/typescript
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7.0.0
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v6.0.9
+        with:
+          package_json_file: sdk/typescript/package.json
+
+      - uses: actions/setup-node@v6.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: sdk/typescript/pnpm-lock.yaml
+          registry-url: https://registry.npmjs.org
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm build
+
+      - name: Bump to dev version
+        run: pnpm version "$(node "$GITHUB_WORKSPACE/.github/scripts/ts-sdk-dev-version.js")" --no-git-tag-version
+
+      - name: Publish dev release
+        run: pnpm publish --tag dev --no-git-checks --provenance

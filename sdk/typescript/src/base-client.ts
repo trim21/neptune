@@ -29,13 +29,6 @@ import type {
 
 // ── JSON-RPC wire types ─────────────────────────────────────────────
 
-interface JsonRpcRequest {
-  jsonrpc: '2.0';
-  method: string;
-  params: unknown;
-  id: number;
-}
-
 interface JsonRpcResponse<T = unknown> {
   jsonrpc: '2.0';
   result?: T;
@@ -88,69 +81,39 @@ export type NeptuneMethod = keyof NeptuneMethodMap;
 // ── Client options ───────────────────────────────────────────────────
 
 export interface NeptuneClientOptions {
-  /** Base URL of the Neptune HTTP server (e.g. `http://127.0.0.1:8002`). */
-  baseUrl: string;
+  /** Full URL of the Neptune JSON-RPC endpoint (e.g. `http://127.0.0.1:8002/json_rpc`). */
+  url: string;
   /** Secret token for the `Authorization` header. */
   token: string;
-  /**
-   * Custom `fetch` implementation (useful for testing or proxy support).
-   * Defaults to the global `fetch`.
-   */
+  /** Custom `fetch` implementation. Defaults to the global `fetch`. */
   fetch?: typeof fetch;
 }
 
-// ── Client ───────────────────────────────────────────────────────────
+// ── Base client ──────────────────────────────────────────────────────
 
 /**
- * Type-safe JSON-RPC 2.0 client for the Neptune headless BitTorrent client.
+ * Abstract base for Neptune JSON-RPC clients.
  *
- * @example
- * ```ts
- * import { NeptuneClient } from '@neptune/sdk';
- *
- * const client = new NeptuneClient({
- *   baseUrl: 'http://127.0.0.1:8002',
- *   token: 'your-secret-token',
- * });
- *
- * // Ping the server
- * await client.call('system.ping');
- *
- * // List all torrents
- * const { torrents } = await client.call('torrent.list');
- *
- * // Add a torrent (base64-encoded .torrent file)
- * const { info_hash } = await client.call('torrent.add', {
- *   torrent_file: base64Content,
- *   tags: ['linux-iso'],
- * });
- *
- * // Set global download limit to 10 MiB/s
- * await client.call('client.set_download_limit', { limit: 10 * 1024 * 1024 });
- * ```
+ * Subclasses implement {@link request} to provide the transport layer
+ * (e.g. standard `fetch`, or `node:http` for Unix domain sockets).
  */
-export class NeptuneClient {
-  readonly #baseUrl: string;
-  readonly #token: string;
-  readonly #fetch: typeof fetch;
+export abstract class BaseClient {
+  protected readonly url: string;
+  protected readonly token: string;
+  protected readonly fetch: typeof fetch;
   #id = 0;
 
   constructor(options: NeptuneClientOptions) {
-    // Strip trailing slash for consistent URL joining.
-    this.#baseUrl = options.baseUrl.replace(/\/+$/, '');
-    this.#token = options.token;
-    this.#fetch = options.fetch ?? globalThis.fetch;
+    this.url = options.url;
+    this.token = options.token;
+    this.fetch = options.fetch ?? globalThis.fetch;
   }
+
+  /** Implemented by subclasses — sends the JSON-RPC body and returns the HTTP response. */
+  protected abstract request(body: string): Promise<Response>;
 
   /**
    * Invoke a typed Neptune JSON-RPC method.
-   *
-   * @param method  – the method name (e.g. `'torrent.list'`).
-   * @param params  – method parameters (optional when the method takes none).
-   * @returns The parsed result.
-   * @throws {NeptuneConnectionError} when a low-level connection failure occurs.
-   * @throws {NeptuneHTTPError} when the server returns a non-2xx HTTP status.
-   * @throws {NeptuneRPCError} when the server returns a JSON-RPC error.
    */
   async call<M extends NeptuneMethod>(
     method: M,
@@ -160,38 +123,32 @@ export class NeptuneClient {
   ): Promise<NeptuneMethodMap[M]['result']> {
     const params = args[0] ?? {};
 
-    const request: JsonRpcRequest = {
+    const id = ++this.#id;
+
+    const body = JSON.stringify({
       jsonrpc: '2.0',
       method,
       params,
-      id: ++this.#id,
-    };
+      id,
+    });
 
     let response: Response;
     try {
-      response = await this.#fetch(`${this.#baseUrl}/json_rpc`, {
-        method: 'POST',
-        headers: {
-          Authorization: this.#token,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(request),
-      });
+      response = await this.request(body);
     } catch (err) {
-      throw new NeptuneConnectionError(`Failed to reach Neptune at ${this.#baseUrl}: ${String(err)}`, err);
+      throw new NeptuneConnectionError(`Failed to reach Neptune at ${this.url}: ${String(err)}`, err);
     }
 
     if (!response.ok) {
       throw new NeptuneHTTPError(`Neptune returned HTTP ${response.status} ${response.statusText}`, response.status);
     }
 
-    const body = (await response.json()) as JsonRpcResponse<NeptuneMethodMap[M]['result']>;
+    const json = (await response.json()) as JsonRpcResponse<NeptuneMethodMap[M]['result']>;
 
-    if (body.error) {
-      throw new NeptuneRPCError(body.error.code, body.error.message, body.error.data);
+    if (json.error) {
+      throw new NeptuneRPCError(json.error.code, json.error.message, json.error.data);
     }
 
-    // "result" is absent for void-returning methods (or null on the wire).
-    return body.result as NeptuneMethodMap[M]['result'];
+    return json.result as NeptuneMethodMap[M]['result'];
   }
 }

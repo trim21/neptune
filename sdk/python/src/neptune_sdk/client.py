@@ -64,22 +64,34 @@ class NeptuneClient:
 
     Example::
 
-        with NeptuneClient("http://127.0.0.1:8002", token="secret") as c:
+        with NeptuneClient("http://127.0.0.1:8002/json_rpc", token="secret") as c:
+            torrents = c.torrent_list()
+
+        with NeptuneClient("unix:///run/neptune.sock", token="secret") as c:
             torrents = c.torrent_list()
     """
 
     def __init__(
         self,
-        base_url: str,
+        url: str,
         *,
         token: str,
         timeout: float = 30.0,
     ) -> None:
-        self._client = httpx.Client(
-            base_url=base_url.rstrip("/"),
-            headers={"Authorization": token},
-            timeout=timeout,
-        )
+        if url.startswith("unix://"):
+            transport = httpx.HTTPTransport(uds=url[7:])
+            self._client = httpx.Client(
+                transport=transport,
+                headers={"Authorization": token},
+                timeout=timeout,
+            )
+            self._url = "http://neptune/json_rpc"
+        else:
+            self._client = httpx.Client(
+                headers={"Authorization": token},
+                timeout=timeout,
+            )
+            self._url = url
 
     # ── lifecycle ──────────────────────────────────────────────────────
 
@@ -108,7 +120,7 @@ class NeptuneClient:
 
         try:
             resp = self._client.post(
-                "/json_rpc",
+                self._url,
                 content=body_bytes,
                 headers={"Content-Type": "application/json"},
             )
