@@ -4,6 +4,7 @@ package download
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -53,11 +54,11 @@ func (rp *remotePeer) Run(cfg remoteConfig, done <-chan struct{}, blockSize int6
 	return rp.serveRequests(cfg, blockSize, done)
 }
 
-func (rp *remotePeer) randomSleep(max time.Duration) {
-	if max <= 0 {
+func (rp *remotePeer) randomSleep(maxValue time.Duration) {
+	if maxValue <= 0 {
 		return
 	}
-	d := time.Duration(rp.rng.next() % uint64(max))
+	d := time.Duration(rp.rng.next() % uint64(maxValue))
 	if d > 0 {
 		time.Sleep(d)
 	}
