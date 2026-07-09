@@ -13,15 +13,15 @@ import (
 	"neptune/internal/pkg/sys"
 )
 
-// skipIfDisabled skips the test if NEPTUNE_TEST_URING=0 or kernel < 5.1.
+// skipIfDisabled skips the test if NEPTUNE_TEST_URING=0 or kernel < 6.12.
 func skipIfDisabled(t *testing.T) {
 	t.Helper()
 	if os.Getenv("NEPTUNE_TEST_URING") == "0" {
 		t.Skip("io_uring tests disabled (NEPTUNE_TEST_URING=0)")
 	}
 	major, minor := sys.KernelVersion()
-	if major < 5 || (major == 5 && minor < 1) {
-		t.Skipf("io_uring requires kernel >= 5.1, got %d.%d", major, minor)
+	if major < 6 || (major == 6 && minor < 12) {
+		t.Skipf("io_uring tests require kernel >= 6.12, got %d.%d", major, minor)
 	}
 }
 

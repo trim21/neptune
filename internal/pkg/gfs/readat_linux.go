@@ -11,10 +11,14 @@ import (
 	"sync"
 	"unsafe"
 
+	"neptune/internal/pkg/sys"
 	"neptune/internal/pkg/uring"
 )
 
 const ringEntries = 256
+
+// minKernelMajor/Minor — only use io_uring on kernel >= 6.12.
+const minKernelMajor, minKernelMinor = 6, 12
 
 // IOContext holds a single io_uring ring and manages completion dispatch.
 // All file I/O for one download session shares this ring.
@@ -34,7 +38,13 @@ type ioResult struct {
 }
 
 // NewIOContext creates an IOContext backed by a shared io_uring ring.
+// Returns a ringless fallback context on kernels < 6.18 or if io_uring
+// setup fails.
 func NewIOContext() *IOContext {
+	major, minor := sys.KernelVersion()
+	if major < minKernelMajor || (major == minKernelMajor && minor < minKernelMinor) {
+		return &IOContext{}
+	}
 	r, err := uring.New(ringEntries)
 	if err != nil {
 		return &IOContext{}
