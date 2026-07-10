@@ -55,6 +55,7 @@ type mockPeer struct {
 	downloadTotal   int64
 	sendBlockCalled int
 	mu              sync.Mutex
+	reqMu           sync.Mutex // protects requestABlock against concurrent calls
 	desiredSize     int32
 	outstanding     int32
 	queueLimit      uint32
@@ -244,6 +245,9 @@ func (m *mockPeer) SetLastPickDebug(s string) { m.lastPickDebug = s }
 
 // requestABlock implements the scheduling logic for mock peers in tests.
 func (m *mockPeer) requestABlock() {
+	m.reqMu.Lock()
+	defer m.reqMu.Unlock()
+
 	d := m.dl
 	if d == nil || m.closed.Load() || !d.HasState(Downloading) {
 		return
