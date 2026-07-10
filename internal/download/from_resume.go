@@ -60,7 +60,9 @@ func ResumeFromData(sess *session.Session, data []byte) (*Download, error) {
 		d.tracker.Key = random.URLSafeStr(16)
 	}
 
-	d.completedBm = bm.FromBitfields(r.Bitfield, d.info.NumPieces)
+	// OR into the bitmap rather than replacing the pointer,
+	// so PiecePicker's reference to completedBm stays valid.
+	d.completedBm.OR(bm.FromBitfields(r.Bitfield, d.info.NumPieces))
 	if d.completedBm.Count() == d.info.NumPieces {
 		d.picker.Store(nil)
 	} else {
