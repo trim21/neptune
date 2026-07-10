@@ -3,7 +3,7 @@ import { BaseClient } from './base-client.ts';
 
 export type * from './base-client.ts';
 export * from './errors.ts';
-export type * from './types.ts';
+export * from './types.ts';
 
 /**
  * Node.js Neptune JSON-RPC client with Unix domain socket support.

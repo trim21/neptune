@@ -8,8 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strconv"
 	"net/netip"
+	"strconv"
 	"sync"
 
 	"github.com/kelindar/bitmap"

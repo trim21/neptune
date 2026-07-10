@@ -38,30 +38,30 @@ var (
 
 type MainDataTorrent struct {
 	Custom               map[string]string `json:"custom"`
+	TrackerErrors        map[string]string `json:"tracker_errors"`
 	InfoHash             string            `json:"hash"`
 	Name                 string            `json:"name"`
-	State                uint8             `json:"state"`
 	Comment              string            `json:"comment"`
 	DirectoryBase        string            `json:"directory_base"`
 	Message              string            `json:"message"`
-	TrackerErrors        map[string]string `json:"tracker_errors"`
 	Tags                 []string          `json:"tags"`
-	DownloadRate         int64             `json:"download_rate"`
+	UploadTotal          int64             `json:"upload_total"`
+	AddedAt              int64             `json:"add_at"`
 	DownloadTotal        int64             `json:"download_total"`
 	UploadRate           int64             `json:"upload_rate"`
-	UploadTotal          int64             `json:"upload_total"`
+	ConnectedDownloading int               `json:"connected_downloading"`
 	ConnectionCount      int               `json:"connection_count"`
 	Completed            int64             `json:"completed"`
 	TotalLength          int64             `json:"total_length"`
 	SelectedSize         int64             `json:"selected_size"`
-	AddedAt              int64             `json:"add_at"`
+	DownloadRate         int64             `json:"download_rate"`
 	CompletedAt          int64             `json:"completed_at"`
-	Private              bool              `json:"private"`
+	ConnectedSeeding     int               `json:"connected_seeding"`
 	Corrupted            int64             `json:"corrupted"`
 	TotalSeeding         int               `json:"total_seeding"`
 	TotalDownloading     int               `json:"total_downloading"`
-	ConnectedSeeding     int               `json:"connected_seeding"`
-	ConnectedDownloading int               `json:"connected_downloading"`
+	Private              bool              `json:"private"`
+	State                uint8             `json:"state"`
 }
 
 type TorrentList struct {
