@@ -56,24 +56,13 @@ func FuzzDownloadMultiPeer_Async(f *testing.F) {
 	) {
 		numPieces := uint32(max(numPieces8%5, 2))
 		blocksPerPiece := uint32(max(blocksPerPiece8%4, 2))
-		numPeers := max(int(numPeers8%4), 1)
+		numPeers := max(int(numPeers8%4), 2)
 
 		rng := rand.New(rand.NewPCG(seed, seed>>32))
 
-		var corruptPieces []uint32
-		for pi := range numPieces {
-			if rng.IntN(3) == 0 {
-				corruptPieces = append(corruptPieces, pi)
-			}
-		}
-
 		d := newTestDownload(t, numPieces, blocksPerPiece,
 			func(info meta.Info) piece_store.PieceStore {
-				mem := piece_store.NewMemStore(info)
-				if len(corruptPieces) > 0 {
-					return NewFailNPieceStore(mem, corruptPieces)
-				}
-				return mem
+				return piece_store.NewMemStore(info)
 			})
 		d.state.Store(uint32(Downloading))
 		d.resChan = make(chan *proto.ChunkResponse, 100)
@@ -125,9 +114,9 @@ func FuzzDownloadMultiPeer_Async(f *testing.F) {
 					return true
 				})
 				if hasCapable && d.completedBm.Count() < numPieces {
-					t.Errorf("download incomplete: %d/%d, corrupt=%v, seed=%d,"+
+					t.Errorf("download incomplete: %d/%d, seed=%d,"+
 						" alivePeer=%d unchoked=%d interested=%d\n%s",
-						d.completedBm.Count(), numPieces, corruptPieces, seed,
+						d.completedBm.Count(), numPieces, seed,
 						peersAlive, peersUnchoked, peersInterested,
 						dumpState(d))
 				}

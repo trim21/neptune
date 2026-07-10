@@ -91,4 +91,7 @@ type PeerInterface interface {
 	// ── Hash-fail punishment ──────────────────────────────────────────
 	OnHashFailed(pieceIndex uint32)
 	OnHashPassed(pieceIndex uint32)
+
+	// ── Blocked pieces (per-peer corrupt piece blocklist) ─────────────
+	BlockedPieces() *bm.Bitmap
 }

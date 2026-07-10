@@ -118,6 +118,7 @@ func newPeer(
 		allowFast: bm.New(d.info.NumPieces),
 
 		contributedPieces: bm.New(d.info.NumPieces),
+		blockedPieces:     bm.New(d.info.NumPieces),
 
 		peerID: *atomic.NewPointer(&proto.PeerID{}),
 
@@ -164,6 +165,7 @@ type peerImpl struct {
 	r                 *bufio.Reader
 	pieceUploadRate   *flowrate.Monitor
 	contributedPieces *bm.Bitmap
+	blockedPieces     *bm.Bitmap
 	Address           netip.AddrPort
 	lastPickResult    PickResult
 	requestQueue      []PieceBlock
@@ -180,7 +182,6 @@ type peerImpl struct {
 	ourChoking        atomic.Bool
 	preferred         atomic.Bool
 	peerChoking       atomic.Bool
-	hashFails         atomic.Uint32
 	rttMutex          sync.RWMutex
 	wm                sync.Mutex
 	rqMu              sync.Mutex
@@ -344,6 +345,7 @@ func (p *peerImpl) requestABlock() {
 		p.IsChoking(),
 		p.PeerBitmap(),
 		p.FastBitmap(),
+		p.blockedPieces,
 	)
 	p.SetLastPickResult(pickResult)
 	free := pickResult.FreeBlocks

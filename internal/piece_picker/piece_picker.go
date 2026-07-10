@@ -436,6 +436,7 @@ func (pp *PiecePicker) PickPieces(
 	bitfield *bm.Bitmap,
 	choked bool,
 	allowedFast *bm.Bitmap,
+	blockedPieces *bm.Bitmap,
 	numBlocks int,
 	preferContiguous int,
 	suggestedPieces []uint32,
@@ -484,6 +485,9 @@ func (pp *PiecePicker) PickPieces(
 			continue
 		}
 		if choked && !allowedFast.Contains(dp.index) {
+			continue
+		}
+		if blockedPieces.Contains(dp.index) {
 			continue
 		}
 
@@ -567,6 +571,9 @@ func (pp *PiecePicker) PickPieces(
 			if choked && !allowedFast.Contains(dp.index) {
 				continue
 			}
+			if blockedPieces.Contains(dp.index) {
+				continue
+			}
 			idx := pp.blockInfoIdx(dp.index)
 			hasFree := false
 			for i := range int(dp.blocksInPiece) {
@@ -597,6 +604,9 @@ func (pp *PiecePicker) PickPieces(
 		if choked && !allowedFast.Contains(pi) {
 			continue
 		}
+		if blockedPieces.Contains(pi) {
+			continue
+		}
 		pp.pickBlocksFromPiece(pi, &numBlocks, &result)
 	}
 
@@ -613,6 +623,9 @@ func (pp *PiecePicker) PickPieces(
 			continue
 		}
 		if choked && !allowedFast.Contains(pi) {
+			continue
+		}
+		if blockedPieces.Contains(pi) {
 			continue
 		}
 		if pp.isAlreadyPicked(pi, &result) {

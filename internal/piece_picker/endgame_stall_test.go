@@ -45,7 +45,7 @@ func TestEndgameNoFreeBlocks(t *testing.T) {
 	pp.MarkAsRequesting(4, 2)
 	pp.MarkAsRequesting(4, 3)
 
-	result := pp.PickPieces(bitfield, false, nil, 4, 0, nil, PickResult{})
+	result := pp.PickPieces(bitfield, false, nil, bm.New(0), 4, 0, nil, PickResult{})
 
 	if len(result.FreeBlocks) == 0 && len(result.BusyBlocks) == 0 {
 		t.Error("BUG: pickPieces returned empty when busy blocks exist (99% stall)")

@@ -35,6 +35,7 @@ type mockPeer struct {
 	closed          *atomic.Bool
 	fastBitmap      *bm.Bitmap
 	bitmap          *bm.Bitmap
+	blockedPieces   *bm.Bitmap
 	lastUnchokeAt   *atomic.Time
 	peerRequests    map[proto.ChunkRequest]empty.Empty
 	responseFunc    func(res *proto.ChunkResponse) bool
@@ -84,6 +85,7 @@ func newMockPeer() *mockPeer {
 		lastUnchokeAt:  atomic.NewTime(time.Now()),
 		bitmap:         bm.New(0),
 		fastBitmap:     bm.New(0),
+		blockedPieces:  bm.New(0),
 		downloadRate:   *flowrate.New(time.Second, time.Second),
 		uploadRate:     *flowrate.New(time.Second, time.Second),
 		desiredSize:    4,
@@ -261,6 +263,7 @@ func (m *mockPeer) requestABlock() {
 		m.IsChoking(),
 		m.PeerBitmap(),
 		m.FastBitmap(),
+		m.blockedPieces,
 	)
 	m.SetLastPickResult(pickResult)
 	free := pickResult.FreeBlocks
@@ -328,5 +331,6 @@ func (m *mockPeer) QueueLimit() uint32   { return m.queueLimit }
 
 // ── Hash-fail punishment ────────────────────────────────────────────
 
-func (m *mockPeer) OnHashFailed(pieceIndex uint32) {}
-func (m *mockPeer) OnHashPassed(pieceIndex uint32) {}
+func (m *mockPeer) OnHashFailed(pieceIndex uint32) { m.blockedPieces.Set(pieceIndex) }
+func (m *mockPeer) OnHashPassed(pieceIndex uint32) { m.blockedPieces.Unset(pieceIndex) }
+func (m *mockPeer) BlockedPieces() *bm.Bitmap      { return m.blockedPieces }

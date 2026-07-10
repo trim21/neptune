@@ -138,28 +138,21 @@ func (p *peerImpl) QueueLimit() uint32   { return p.queueLimit.Load() }
 
 // ── Hash-fail punishment ────────────────────────────────────────────────
 
-const maxHashFails = 3
-
-// OnHashFailed increments the consecutive hash-fail counter for this peer.
-// If the counter exceeds maxHashFails, the peer is disconnected and marked
-// as failed so peerList increments failcount (preventing immediate reconnect).
+// OnHashFailed adds pieceIndex to blockedPieces so the picker won't
+// select blocks from this piece for this peer again.
 func (p *peerImpl) OnHashFailed(pieceIndex uint32) {
 	if !p.contributedPieces.Contains(pieceIndex) {
 		return
 	}
-	fails := p.hashFails.Add(1)
-	if fails >= maxHashFails {
-		p.closeErr = ErrPeerSendInvalidData
-		p.log.Warn().Uint32("hash_fails", fails).Msg("disconnecting peer: too many hash failures")
-		p.Close()
-	}
+	p.blockedPieces.Set(pieceIndex)
 }
 
-// OnHashPassed resets the hash-fail counter when this peer successfully
-// delivers data for a piece that passes hash verification.
+// OnHashPassed removes pieceIndex from blockedPieces.
 func (p *peerImpl) OnHashPassed(pieceIndex uint32) {
 	if !p.contributedPieces.Contains(pieceIndex) {
 		return
 	}
-	p.hashFails.Store(0)
+	p.blockedPieces.Unset(pieceIndex)
 }
+
+func (p *peerImpl) BlockedPieces() *bm.Bitmap { return p.blockedPieces }

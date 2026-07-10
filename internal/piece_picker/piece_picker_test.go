@@ -35,7 +35,7 @@ func TestResetPieceIntoCandidates(t *testing.T) {
 	bitfield := bm.New(numPieces)
 	bitfield.Fill()
 	result := PickResult{}
-	result = pp.PickPieces(bitfield, false, nil, 100, 0, nil, result)
+	result = pp.PickPieces(bitfield, false, nil, bm.New(0), 100, 0, nil, result)
 	for _, fb := range result.FreeBlocks {
 		if fb.PieceIndex == 0 {
 			t.Fatal("piece 0 should not be pickable before resetPiece")
@@ -48,7 +48,7 @@ func TestResetPieceIntoCandidates(t *testing.T) {
 	// After resetPiece, piece 0 should be pickable again.
 	result.FreeBlocks = result.FreeBlocks[:0]
 	result.BusyBlocks = result.BusyBlocks[:0]
-	result = pp.PickPieces(bitfield, false, nil, 100, 0, nil, result)
+	result = pp.PickPieces(bitfield, false, nil, bm.New(0), 100, 0, nil, result)
 
 	found := false
 	for _, fb := range result.FreeBlocks {

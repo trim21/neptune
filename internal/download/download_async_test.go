@@ -111,11 +111,10 @@ func TestAsyncDownload_CorruptRecovery(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
 		failPieces []uint32
-		numPeers   int
 	}{
-		{"half fail", []uint32{0, 2, 4, 6}, 1},
-		{"all fail", []uint32{0, 1, 2, 3, 4, 5, 6, 7}, 1},
-		{"one fail", []uint32{3}, 1},
+		{"half fail", []uint32{0, 2, 4, 6}},
+		{"all fail", []uint32{0, 1, 2, 3, 4, 5, 6, 7}},
+		{"one fail", []uint32{3}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			d := newTestDownload(t, numPieces, blocksPerPiece,
@@ -126,17 +125,49 @@ func TestAsyncDownload_CorruptRecovery(t *testing.T) {
 			cancel := asyncHelper(d)
 			defer cancel()
 
-			for i := range tc.numPeers {
-				p := fullPeer(d, numPieces, uint64(i+1))
-				d.peers.Store(p.ID(), p)
-				for pi := range numPieces {
-					d.picker.Load().IncRefcount(pi)
-				}
+			// Peer 1: first download attempt. Will get blocked for pieces
+			// that fail hash due to FailNPieceStore.
+			p1 := fullPeer(d, numPieces, 1)
+			d.peers.Store(p1.ID(), p1)
+			for pi := range numPieces {
+				d.picker.Load().IncRefcount(pi)
 			}
 
-			if !waitDownload(t, d, numPieces, 5*time.Second) {
-				t.Fatalf("%s: only %d/%d completed", tc.name,
-					d.completedBm.Count(), numPieces)
+			// Wait for first pass: some pieces complete, corrupt pieces fail hash.
+			// Once corrupt pieces are reset (back in pp.pieces), add a fresh peer
+			// that didn't contribute to the failed attempts.
+			timeout := 5 * time.Second
+			deadline := time.After(timeout)
+			ticker := time.NewTicker(5 * time.Millisecond)
+			defer ticker.Stop()
+
+			preAddSentinel := true
+			var firstCorruptAt time.Time
+		w1:
+			for {
+				select {
+				case <-deadline:
+					t.Fatalf("%s: timed out waiting for first download pass, only %d/%d completed", tc.name,
+						d.completedBm.Count(), numPieces)
+				case <-ticker.C:
+					// Once at least one hash failure occurs, wait 500ms for
+					// remaining in-flight blocks to settle, then add a clean peer.
+					if preAddSentinel && d.corrupted.Load() > 0 {
+						if firstCorruptAt.IsZero() {
+							firstCorruptAt = time.Now()
+						} else if time.Since(firstCorruptAt) > 500*time.Millisecond {
+							preAddSentinel = false
+							p2 := fullPeer(d, numPieces, 2)
+							d.peers.Store(p2.ID(), p2)
+							for pi := range numPieces {
+								d.picker.Load().IncRefcount(pi)
+							}
+						}
+					}
+					if d.completedBm.Count() == numPieces {
+						break w1
+					}
+				}
 			}
 		})
 	}

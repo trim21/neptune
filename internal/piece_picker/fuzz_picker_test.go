@@ -68,7 +68,7 @@ func FuzzPiecePicker(f *testing.F) {
 			outstanding := rng.IntN(maxNumReq)
 			queued := rng.IntN(maxNumReq)
 
-			last = pp.RequestABlock(last, desired, outstanding, queued, choked, fullPeer, fastBm)
+			last = pp.RequestABlock(last, desired, outstanding, queued, choked, fullPeer, fastBm, bm.New(0))
 
 			if len(last.FreeBlocks) == 0 && len(last.BusyBlocks) == 0 {
 				continue
