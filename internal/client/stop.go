@@ -16,15 +16,22 @@ func (c *Client) Shutdown() {
 	log.Info().Msg("core shutting down...")
 
 	c.m.RLock()
-	downloads := c.downloads
-	c.saveSessionUnsafe()
-	c.m.RUnlock()
+	defer c.m.RUnlock()
 
-	// Send Eventdownload.Stopped to all trackers before cancelling contexts.
-	// Each tracker request has a 5-second timeout.
-	for _, d := range downloads {
-		d.Trk.Shutdown()
+	// Save resume, send tracker stopped events, and tear down each download
+	// concurrently. Limit to 5 concurrent save operations to bound I/O.
+	var wg conc.WaitGroup
+	var sem = semaphore.NewWeighted(5)
+	for _, d := range c.downloads {
+		wg.Go(func() {
+			_ = sem.Acquire(context.Background(), 1)
+			d.SaveResume()
+			sem.Release(1)
+
+			d.Close()
+		})
 	}
+	wg.Wait()
 
 	c.session.Cancel()
 }

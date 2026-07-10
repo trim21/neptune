@@ -287,7 +287,7 @@ func (c *Client) GetTorrentTrackers(h metainfo.Hash) []APITrackers {
 	}
 	c.m.RUnlock()
 
-	infos := d.Trk.List()
+	infos := d.Trackers()
 	results := make([]APITrackers, len(infos))
 	for i, info := range infos {
 		results[i] = APITrackers{
@@ -318,7 +318,7 @@ func (c *Client) AddTracker(h metainfo.Hash, trackerURL string, tier int) error 
 		return errTrackerURLMissingHost
 	}
 
-	d.Trk.Add(trackerURL, tier)
+	d.AddTracker(trackerURL, tier)
 	return nil
 }
 
@@ -330,7 +330,7 @@ func (c *Client) RemoveTracker(h metainfo.Hash, trackerURL string) error {
 		return fmt.Errorf("torrent %s not exists", h)
 	}
 
-	d.Trk.Remove(trackerURL)
+	d.RemoveTracker(trackerURL)
 	return nil
 }
 
@@ -342,7 +342,7 @@ func (c *Client) ReplaceTrackers(h metainfo.Hash, replacements map[string]string
 		return fmt.Errorf("torrent %s not exists", h)
 	}
 
-	d.Trk.Replace(replacements)
+	d.ReplaceTrackers(replacements)
 	return nil
 }
 
@@ -365,7 +365,7 @@ func (c *Client) Reannounce(h metainfo.Hash) error {
 		event = ""
 	}
 
-	if !d.Trk.ForceReannounce(event) {
+	if !d.Reannounce(event) {
 		return errors.New("reannounce not allowed yet: earliest interval not expired")
 	}
 	return nil
@@ -388,13 +388,9 @@ func (c *Client) RemoveTorrent(h metainfo.Hash, removeData bool) error {
 
 	log.Info().Stringer("hash", h).Msg("torrent.remove: saving resume")
 	d.SaveResume()
-	log.Info().Stringer("hash", h).Msg("torrent.remove: resume saved, canceling context")
-	d.Cancel()
-	log.Info().Stringer("hash", h).Msg("torrent.remove: context canceled, waiting for background goroutines")
-	d.BackgroundWgWait()
-	log.Info().Stringer("hash", h).Msg("torrent.remove: background goroutines finished, closing peers")
-	d.CloseAllPeers()
-	log.Info().Stringer("hash", h).Msg("torrent.remove: all peers closed, removing files")
+	log.Info().Stringer("hash", h).Msg("torrent.remove: closing download")
+	d.Close()
+	log.Info().Stringer("hash", h).Msg("torrent.remove: download closed, removing files")
 
 	dir, file := d.ResumeFilePath()
 

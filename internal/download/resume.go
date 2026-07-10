@@ -122,8 +122,8 @@ func (d *Download) MarshalBinary() (data []byte, err error) {
 		FilePaths:          d.filePaths(),
 		DownloadSpeedLimit: d.downloadLimiter.Rate(),
 		UploadSpeedLimit:   d.uploadLimiter.Rate(),
-		Trackers:           d.Trk.URLs(),
-		TrackerKey:         d.Trk.Key,
+		Trackers:           d.tracker.URLs(),
+		TrackerKey:         d.tracker.Key,
 		PiecePickStrategy:  uint32(d.GetPiecePickStrategy()),
 		QueueWeight:        int64(d.QueueWeight()),
 	})

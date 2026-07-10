@@ -129,7 +129,7 @@ func New(sess *session.Session, m *metainfo.MetaInfo, info meta.Info, basePath s
 
 	d.peerList.d = d
 
-	d.Trk = tracker.New(d.ctx, tracker.Config{
+	d.tracker = tracker.New(d.ctx, tracker.Config{
 		Key:             random.URLSafeStr(16),
 		HTTP:            sess.HTTP,
 		Log:             d.log,

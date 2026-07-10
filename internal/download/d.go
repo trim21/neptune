@@ -129,7 +129,7 @@ type Download struct {
 	cancel                 context.CancelFunc
 	scheduleResponseSignal chan empty.Empty
 	pendingPeersSignal     chan empty.Empty
-	Trk                    *tracker.Trackers
+	tracker                *tracker.Trackers
 	completedBm            *bm.Bitmap
 	wantedBm               *bm.Bitmap
 	s                      downloadState

@@ -102,7 +102,7 @@ func newTestEnv(t *testing.T, numPieces, blocksPerPiece uint32, failPieces []uin
 		stateCond:         stateCond,
 		private:           false,
 		corruptedPieces:   make(map[uint32]int),
-		Trk:               tracker.New(ctx, tracker.Config{}),
+		tracker:           tracker.New(ctx, tracker.Config{}),
 	}
 	d.session.DownloadLimiter = ratelimit.New(0)
 	d.session.UploadLimiter = ratelimit.New(0)

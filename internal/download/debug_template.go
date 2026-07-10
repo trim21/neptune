@@ -176,9 +176,9 @@ func BuildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 
 	// Trackers
 	var trackers []debugTracker
-	d.Trk.Each(func(tierIdx int, tr *tracker.Tracker) {
-		trackerSeed, _ := d.Trk.Seeds.Load(tr.URL)
-		trackerLeecher, _ := d.Trk.Leechers.Load(tr.URL)
+	d.tracker.Each(func(tierIdx int, tr *tracker.Tracker) {
+		trackerSeed, _ := d.tracker.Seeds.Load(tr.URL)
+		trackerLeecher, _ := d.tracker.Leechers.Load(tr.URL)
 		trackers = append(trackers, debugTracker{
 			Tier:         tierIdx,
 			URL:          lo.Ellipsis(tr.URL, 60),

@@ -95,7 +95,7 @@ func newTestDownload(t testing.TB, numPieces uint32, blocksPerPiece uint32, newS
 		stateCond:              stateCond,
 		private:                false,
 		corruptedPieces:        make(map[uint32]int),
-		Trk:                    tracker.New(ctx, tracker.Config{}),
+		tracker:                tracker.New(ctx, tracker.Config{}),
 		scheduleResponseSignal: make(chan empty.Empty, 1),
 	}
 	wantedBm := bm.New(info.NumPieces)

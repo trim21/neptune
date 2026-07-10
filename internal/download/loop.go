@@ -24,7 +24,7 @@ func (d *Download) Start() error {
 	}
 
 	d.stateCond.Broadcast()
-	d.Trk.Resume()
+	d.tracker.Resume()
 	return nil
 }
 
@@ -36,7 +36,7 @@ func (d *Download) Stop() error {
 
 	d.stateCond.Broadcast()
 
-	d.Trk.Pause()
+	d.tracker.Pause()
 	return nil
 }
 
@@ -73,8 +73,8 @@ func (d *Download) Init(resumed bool, skipHashCheck bool) {
 	d.check(resumed, skipHashCheck)
 
 	go d.startBackground()
-	d.goBackground(d.Trk.Run)
-	d.Trk.Announce(tracker.EventStarted)
+	d.goBackground(d.tracker.Run)
+	d.tracker.Announce(tracker.EventStarted)
 
 	d.saveResume()
 }

@@ -55,9 +55,9 @@ func ResumeFromData(sess *session.Session, data []byte) (*Download, error) {
 	d := New(sess, m, info, r.BasePath, r.Tags, r.Custom, r.SelectedFiles)
 
 	if r.TrackerKey != "" {
-		d.Trk.Key = r.TrackerKey
+		d.tracker.Key = r.TrackerKey
 	} else {
-		d.Trk.Key = random.URLSafeStr(16)
+		d.tracker.Key = random.URLSafeStr(16)
 	}
 
 	d.completedBm = bm.FromBitfields(r.Bitfield, d.info.NumPieces)
@@ -113,5 +113,5 @@ func ResumeFromData(sess *session.Session, data []byte) (*Download, error) {
 
 // TrkStagger calls Stagger on the download's tracker set.
 func (d *Download) TrkStagger(totalDownloads int) {
-	d.Trk.Stagger(totalDownloads)
+	d.tracker.Stagger(totalDownloads)
 }

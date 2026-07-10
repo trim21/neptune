@@ -27,16 +27,15 @@ type scrapeResponseFile struct {
 	Incomplete    int         `bencode:"incomplete"`
 }
 
-// trackerRef references a specific tracker within a download.
-type trackerRef struct {
-	download *download.Download
-	tracker  *tracker.Tracker
+// scrapeRef records a download and one of its tracker URLs for batch scrape.
+type scrapeRef struct {
+	d   *download.Download
+	url string
 }
 
 func (c *Client) scrape() {
-	// Map from scrape URL to list of (download, tracker) pairs.
-	m := make(map[string][]trackerRef, 20)
-	// Map from scrape URL to list of info_hashes for the HTTP request.
+	// Map from scrape URL to list of (download, tracker url) pairs.
+	m := make(map[string][]scrapeRef, 20)
 	hashes := make(map[string][]metainfo.Hash, 20)
 
 	c.m.RLock()
@@ -47,12 +46,12 @@ func (c *Client) scrape() {
 			continue
 		}
 
-		d.Trk.Each(func(_ int, t *tracker.Tracker) {
-			if scrapeURL, ok := tracker.AnnounceToScrape(t.URL); ok {
-				m[scrapeURL] = append(m[scrapeURL], trackerRef{download: d, tracker: t})
+		for _, trURL := range d.TrackerURLs() {
+			if scrapeURL, ok := tracker.AnnounceToScrape(trURL); ok {
+				m[scrapeURL] = append(m[scrapeURL], scrapeRef{d: d, url: trURL})
 				hashes[scrapeURL] = append(hashes[scrapeURL], d.InfoHash())
 			}
-		})
+		}
 	}
 
 	for scrapeURL, refs := range m {
@@ -74,9 +73,8 @@ func (c *Client) scrape() {
 		}
 
 		for _, ref := range refs {
-			if file, ok := resp.Files[ref.download.InfoHash()]; ok {
-				ref.download.Trk.Seeds.Store(ref.tracker.URL, file.Complete)
-				ref.download.Trk.Leechers.Store(ref.tracker.URL, file.Incomplete)
+			if file, ok := resp.Files[ref.d.InfoHash()]; ok {
+				ref.d.StoreTrackerStats(ref.url, file.Complete, file.Incomplete)
 			}
 		}
 	}

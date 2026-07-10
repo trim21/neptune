@@ -520,7 +520,7 @@ func (d *Download) checkDone() {
 		return true
 	})
 
-	d.Trk.Announce(tracker.EventCompleted)
+	d.tracker.Announce(tracker.EventCompleted)
 
 	// Release picker memory — no longer needed when seeding.
 	d.picker.Store(nil)
@@ -551,7 +551,7 @@ func (d *Download) recheckAfterComplete() {
 			return true
 		})
 
-		d.Trk.Announce(tracker.EventCompleted)
+		d.tracker.Announce(tracker.EventCompleted)
 		d.picker.Store(nil)
 	})
 }
