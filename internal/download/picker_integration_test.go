@@ -89,11 +89,11 @@ func runIntegration(t *testing.T, numPieces, blocksPerPiece uint32, seed uint64)
 				}
 			}
 
-			d.handleRes(&proto.ChunkResponse{
+			d.handleRes(chunkSubmit{peerID: 0, res: &proto.ChunkResponse{
 				PieceIndex: fb.PieceIndex,
 				Begin:      uint32(fb.BlockIndex) * uint32(defaultBlockSize),
 				Data:       make([]byte, chunkSize),
-			})
+			}})
 		}
 	}
 

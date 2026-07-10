@@ -26,11 +26,11 @@ func TestStallEndgameBusyLoop(t *testing.T) {
 			continue
 		}
 		for bi := range d.info.PieceBlockCount(pi) {
-			d.handleRes(&proto.ChunkResponse{
+			d.handleRes(chunkSubmit{peerID: 0, res: &proto.ChunkResponse{
 				PieceIndex: pi,
 				Begin:      uint32(bi) * defaultBlockSize,
 				Data:       make([]byte, defaultBlockSize),
-			})
+			}})
 		}
 	}
 	time.Sleep(20 * time.Millisecond)
@@ -46,15 +46,15 @@ func TestStallEndgameBusyLoop(t *testing.T) {
 		if bi == 0 {
 			continue
 		}
-		d.handleRes(&proto.ChunkResponse{
+		d.handleRes(chunkSubmit{peerID: 0, res: &proto.ChunkResponse{
 			PieceIndex: 1, Begin: uint32(bi) * defaultBlockSize,
 			Data: make([]byte, defaultBlockSize),
-		})
+		}})
 	}
-	d.handleRes(&proto.ChunkResponse{
+	d.handleRes(chunkSubmit{peerID: 0, res: &proto.ChunkResponse{
 		PieceIndex: 1, Begin: 0,
 		Data: make([]byte, defaultBlockSize),
-	})
+	}})
 
 	time.Sleep(5 * time.Millisecond) // async checkPiece may be in-flight
 

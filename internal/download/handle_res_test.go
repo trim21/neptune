@@ -271,9 +271,12 @@ func TestHandleResOrder(t *testing.T) {
 			// goroutines leaking from one test to another.
 			d := newTestDownload(t, numPieces, blocksPerPiece, piece_store.NewMemStore)
 			for _, c := range order {
-				d.handleRes(&proto.ChunkResponse{
-					PieceIndex: c.pieceIndex, Begin: c.begin,
-					Data: make([]byte, c.length),
+				d.handleRes(chunkSubmit{
+					res: &proto.ChunkResponse{
+						PieceIndex: c.pieceIndex, Begin: c.begin,
+						Data: make([]byte, c.length),
+					},
+					peerID: 0,
 				})
 			}
 			if h := d.chunk.heap.Len(); h != 0 || !allDone(d) {
@@ -325,10 +328,10 @@ func TestHandleResLargePiece(t *testing.T) {
 	}
 
 	for _, c := range order {
-		d.handleRes(&proto.ChunkResponse{
+		d.handleRes(chunkSubmit{peerID: 0, res: &proto.ChunkResponse{
 			PieceIndex: c.pieceIndex, Begin: c.begin,
 			Data: make([]byte, c.length),
-		})
+		}})
 	}
 
 	if h := d.chunk.heap.Len(); h != 0 || !allDone(d) {
@@ -369,13 +372,16 @@ func FuzzHandleRes(f *testing.F) {
 			all[i], all[j] = all[j], all[i]
 		})
 
-		d.resChan = make(chan *proto.ChunkResponse, len(all))
+		d.resChan = make(chan chunkSubmit, len(all))
 		go d.backgroundResHandler()
 
 		for _, c := range all {
-			d.resChan <- &proto.ChunkResponse{
-				PieceIndex: c.pieceIndex, Begin: c.begin,
-				Data: make([]byte, c.length),
+			d.resChan <- chunkSubmit{
+				res: &proto.ChunkResponse{
+					PieceIndex: c.pieceIndex, Begin: c.begin,
+					Data: make([]byte, c.length),
+				},
+				peerID: 0,
 			}
 		}
 
@@ -423,13 +429,16 @@ func FuzzHandleResDuplicates(f *testing.F) {
 			all[i], all[j] = all[j], all[i]
 		})
 
-		d.resChan = make(chan *proto.ChunkResponse, len(all))
+		d.resChan = make(chan chunkSubmit, len(all))
 		go d.backgroundResHandler()
 
 		for _, c := range all {
-			d.resChan <- &proto.ChunkResponse{
-				PieceIndex: c.pieceIndex, Begin: c.begin,
-				Data: make([]byte, c.length),
+			d.resChan <- chunkSubmit{
+				res: &proto.ChunkResponse{
+					PieceIndex: c.pieceIndex, Begin: c.begin,
+					Data: make([]byte, c.length),
+				},
+				peerID: 0,
 			}
 		}
 

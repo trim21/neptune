@@ -12,6 +12,7 @@ import (
 	"neptune/internal/client/tracker"
 	"neptune/internal/meta"
 	"neptune/internal/pkg/as"
+	"neptune/internal/pkg/empty"
 	"neptune/internal/pkg/global/tasks"
 	"neptune/internal/pkg/gsync"
 	"neptune/internal/pkg/heap"
@@ -127,7 +128,8 @@ var pieceChunksPool = gsync.NewPool(func() *mempool.Buffer {
 	}
 })
 
-func (d *Download) handleRes(res *proto.ChunkResponse) {
+func (d *Download) handleRes(submit chunkSubmit) {
+	res := submit.res
 	d.log.Trace().
 		Int("length", len(res.Data)).
 		Uint32("offset", res.Begin).
@@ -154,13 +156,38 @@ func (d *Download) handleRes(res *proto.ChunkResponse) {
 		return
 	}
 
+	// Discard duplicate blocks that have already been flushed to disk
+	// (endgame race). Overwriting would replace the first peer's data.
+	cPi := res.Begin/defaultBlockSize + res.PieceIndex*d.normalChunkLen
+	d.chunk.mu.RLock()
+	if d.chunk.done.Contains(cPi) {
+		d.chunk.mu.RUnlock()
+		proto.PiecePool.Put(res)
+		return
+	}
+	d.chunk.mu.RUnlock()
+
+	// Record which peer contributed to this piece — after all early returns
+	// so dropped chunks don't leave stale entries in pieceContributors.
+	d.chunk.mu.Lock()
+	if d.chunk.pieceContributors == nil {
+		d.chunk.pieceContributors = make(map[uint32]map[uint64]empty.Empty)
+	}
+	peers, ok := d.chunk.pieceContributors[res.PieceIndex]
+	if !ok {
+		peers = make(map[uint64]empty.Empty)
+		d.chunk.pieceContributors[res.PieceIndex] = peers
+	}
+	peers[submit.peerID] = empty.Empty{}
+	d.chunk.mu.Unlock()
+
 	// Mark block as writing in the picker
 	blockIndex := int(res.Begin / uint32(defaultBlockSize))
 	d.picker.Load().MarkAsResponded(res.PieceIndex, blockIndex)
 
 	c := responseChunk{
 		res:    res,
-		pi:     res.Begin/defaultBlockSize + res.PieceIndex*d.normalChunkLen,
+		pi:     cPi,
 		recvAt: time.Now(),
 	}
 
@@ -480,17 +507,30 @@ func (d *Download) checkPiece(pieceIndex uint32) error {
 	return nil
 }
 
-// penalizePiecePeers iterates over all connected peers and calls
-// OnHashFailed or OnHashPassed for those that contributed blocks to this piece.
+// penalizePiecePeers reads the contributors recorded in chunkState for this
+// piece, calls OnHashFailed or OnHashPassed on each, then clears the record.
+// Peers that did not contribute are unaffected.
 func (d *Download) penalizePiecePeers(pieceIndex uint32, passed bool) {
-	d.peers.Range(func(_ uint64, p Peer) bool {
+	d.chunk.mu.Lock()
+	contributors := d.chunk.pieceContributors[pieceIndex]
+	delete(d.chunk.pieceContributors, pieceIndex)
+	d.chunk.mu.Unlock()
+
+	if len(contributors) == 0 {
+		return
+	}
+
+	for peerID := range contributors {
+		p, ok := d.peers.Load(peerID)
+		if !ok {
+			continue
+		}
 		if passed {
 			p.OnHashPassed(pieceIndex)
 		} else {
 			p.OnHashFailed(pieceIndex)
 		}
-		return true
-	})
+	}
 }
 
 func (d *Download) checkDone() {

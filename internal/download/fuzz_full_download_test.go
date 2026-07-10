@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"neptune/internal/piece_store"
-	"neptune/internal/proto"
 )
 
 // FuzzFullDownload simulates a realistic download with multiple peers,
@@ -30,7 +29,7 @@ func FuzzFullDownload(f *testing.F) {
 		rng := rand.New(rand.NewPCG(uint64(seed), uint64(seed)>>32))
 
 		d := newTestDownload(t, numPieces, blocksPerPiece, piece_store.NewMemStore)
-		d.resChan = make(chan *proto.ChunkResponse, 100)
+		d.resChan = make(chan chunkSubmit, 100)
 		d.state.Store(uint32(Downloading))
 		go d.backgroundResHandler()
 

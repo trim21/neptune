@@ -39,7 +39,7 @@ type mockPeer struct {
 	lastUnchokeAt   *atomic.Time
 	peerRequests    map[proto.ChunkRequest]empty.Empty
 	responseFunc    func(res *proto.ChunkResponse) bool
-	resChan         chan *proto.ChunkResponse
+	resChan         chan chunkSubmit
 	dl              *Download
 	addr            netip.AddrPort
 	lastPickDebug   string
@@ -224,10 +224,13 @@ func (m *mockPeer) Request(chunk proto.ChunkRequest) {
 	// Async delivery via resChan.
 	if m.resChan != nil {
 		go func() {
-			m.resChan <- &proto.ChunkResponse{
-				PieceIndex: chunk.PieceIndex,
-				Begin:      chunk.Begin,
-				Data:       make([]byte, chunk.Length),
+			m.resChan <- chunkSubmit{
+				res: &proto.ChunkResponse{
+					PieceIndex: chunk.PieceIndex,
+					Begin:      chunk.Begin,
+					Data:       make([]byte, chunk.Length),
+				},
+				peerID: m.peerID,
 			}
 		}()
 	}

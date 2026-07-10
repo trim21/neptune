@@ -11,7 +11,6 @@ import (
 
 	"neptune/internal/piece_store"
 	"neptune/internal/pkg/bm"
-	"neptune/internal/proto"
 )
 
 // FuzzStaleRequest verifies that no block remains in "requested" state
@@ -33,7 +32,7 @@ func FuzzStaleRequest(f *testing.F) {
 
 		d := newTestDownload(t, numPieces, blocksPerPiece, piece_store.NewMemStore)
 		d.state.Store(uint32(Downloading))
-		d.resChan = make(chan *proto.ChunkResponse, 100)
+		d.resChan = make(chan chunkSubmit, 100)
 		go d.backgroundResHandler()
 
 		combined := bm.New(numPieces)

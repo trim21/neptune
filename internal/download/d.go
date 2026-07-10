@@ -138,7 +138,7 @@ type Download struct {
 	pieceDownloadRate      *flowrate.Monitor
 	ioDownloadRate         *flowrate.Monitor
 	pieceUploadRate        *flowrate.Monitor
-	resChan                chan *proto.ChunkResponse
+	resChan                chan chunkSubmit
 	uploadLimiter          *ratelimit.Limiter
 	peersCh                chan []tracker.DiscoveredPeer
 	peers                  *xsync.Map[uint64, Peer]
@@ -182,11 +182,19 @@ type Download struct {
 	private                bool
 }
 
+// chunkSubmit wraps a chunk response with the peer that sent it, allowing
+// handleRes to record contributions at reception time instead of in the peer.
+type chunkSubmit struct {
+	res    *proto.ChunkResponse
+	peerID uint64
+}
+
 type chunkState struct {
-	heap    heap.Heap[responseChunk]
-	done    bitmap.Bitmap
-	pending bitmap.Bitmap
-	mu      sync.RWMutex
+	pieceContributors map[uint32]map[uint64]empty.Empty
+	heap              heap.Heap[responseChunk]
+	done              bitmap.Bitmap
+	pending           bitmap.Bitmap
+	mu                sync.RWMutex
 }
 
 // downloadState groups mutable fields that must be accessed under s.mu.

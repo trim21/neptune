@@ -717,7 +717,7 @@ func (p *peerImpl) start(skipHandshake bool) {
 			}
 
 			select {
-			case p.d.resChan <- event.Res:
+			case p.d.resChan <- chunkSubmit{res: event.Res, peerID: p.id}:
 			case <-p.ctx.Done():
 				proto.PiecePool.Put(event.Res)
 				return

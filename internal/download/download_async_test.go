@@ -13,12 +13,11 @@ import (
 
 	"neptune/internal/meta"
 	"neptune/internal/piece_store"
-	"neptune/internal/proto"
 )
 
 // asyncHelper starts the background goroutines and returns a stop function.
 func asyncHelper(d *Download) func() {
-	d.resChan = make(chan *proto.ChunkResponse, 100)
+	d.resChan = make(chan chunkSubmit, 100)
 	d.state.Store(uint32(Downloading))
 	go d.backgroundResHandler()
 

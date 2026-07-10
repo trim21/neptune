@@ -13,7 +13,6 @@ import (
 	"neptune/internal/meta"
 	"neptune/internal/piece_store"
 	"neptune/internal/pkg/bm"
-	"neptune/internal/proto"
 )
 
 // asyncPeer creates a mockPeer configured for async response delivery.
@@ -65,7 +64,7 @@ func FuzzDownloadMultiPeer_Async(f *testing.F) {
 				return piece_store.NewMemStore(info)
 			})
 		d.state.Store(uint32(Downloading))
-		d.resChan = make(chan *proto.ChunkResponse, 100)
+		d.resChan = make(chan chunkSubmit, 100)
 		go d.backgroundResHandler()
 
 		// Create mock peers with async delivery.

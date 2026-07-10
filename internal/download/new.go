@@ -24,7 +24,6 @@ import (
 	"neptune/internal/pkg/gsync"
 	"neptune/internal/pkg/random"
 	"neptune/internal/pkg/ratelimit"
-	"neptune/internal/proto"
 	"neptune/internal/session"
 )
 
@@ -78,7 +77,7 @@ func New(sess *session.Session, m *metainfo.MetaInfo, info meta.Info, basePath s
 		// have higher weight (less negative) and thus higher priority.
 		queueWeight: *atomic.NewInt64(-time.Now().Unix()),
 
-		resChan: make(chan *proto.ChunkResponse, 1),
+		resChan: make(chan chunkSubmit, 1),
 
 		pieceDownloadRate: flowrate.New(time.Second, 5*time.Second),
 		ioDownloadRate:    flowrate.New(time.Second, 5*time.Second),

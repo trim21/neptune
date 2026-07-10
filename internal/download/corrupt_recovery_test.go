@@ -124,10 +124,10 @@ func (env *testEnv) sendPiece(pieceIndex uint32) {
 	data := make([]byte, d.info.PieceLength)
 	for bi := range d.info.PieceBlockCount(pieceIndex) {
 		ci := pieceChunk(d.info, pieceIndex, bi)
-		d.handleRes(&proto.ChunkResponse{
+		d.handleRes(chunkSubmit{peerID: 0, res: &proto.ChunkResponse{
 			PieceIndex: pieceIndex, Begin: ci.Begin,
 			Data: data[ci.Begin : ci.Begin+ci.Length],
-		})
+		}})
 	}
 }
 
