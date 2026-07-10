@@ -510,6 +510,11 @@ func (d *Download) checkPiece(pieceIndex uint32) error {
 // penalizePiecePeers reads the contributors recorded in chunkState for this
 // piece, calls OnHashFailed or OnHashPassed on each, then clears the record.
 // Peers that did not contribute are unaffected.
+//
+// On hash failure: if a peer was the sole contributor, it is marked as
+// bad for this piece. If all connected peers end up blocked from
+// the piece, the one blocked longest ago (and not marked bad) is
+// unblocked to cycle through peers until a correct one is found.
 func (d *Download) penalizePiecePeers(pieceIndex uint32, passed bool) {
 	d.chunk.mu.Lock()
 	contributors := d.chunk.pieceContributors[pieceIndex]
@@ -529,7 +534,56 @@ func (d *Download) penalizePiecePeers(pieceIndex uint32, passed bool) {
 			p.OnHashPassed(pieceIndex)
 		} else {
 			p.OnHashFailed(pieceIndex)
+
+			// If this peer was the ONLY contributor, they are definitively
+			// the source of corrupt data for this piece.
+			if len(contributors) == 1 {
+				p.SetBadPiece(pieceIndex)
+			}
 		}
+	}
+
+	// On hash fail: if all connected peers are now blocked, gradually
+	// unblock the one blocked longest ago (excluding bad peers).
+	if !passed {
+		d.gradualUnblockPiece(pieceIndex)
+	}
+}
+
+// gradualUnblockPiece checks whether every connected peer is blocked from
+// pieceIndex. If so, it unblocks the peer blocked longest ago (skipping
+// peers marked bad for this piece), so they can retry the piece.
+func (d *Download) gradualUnblockPiece(pieceIndex uint32) {
+	var (
+		oldestPeer Peer
+		oldestTime time.Time
+	)
+
+	d.peers.Range(func(_ uint64, p Peer) bool {
+		if p.Closed() {
+			return true
+		}
+		if !p.IsBlocked(pieceIndex) {
+			// At least one peer is not blocked — no need to unblock.
+			oldestPeer = nil
+			return false
+		}
+		if p.IsBadPiece(pieceIndex) {
+			return true
+		}
+		t, ok := p.BlockedPieceTime(pieceIndex)
+		if !ok {
+			return true
+		}
+		if oldestPeer == nil || t.Before(oldestTime) {
+			oldestPeer = p
+			oldestTime = t
+		}
+		return true
+	})
+
+	if oldestPeer != nil {
+		oldestPeer.OnHashPassed(pieceIndex)
 	}
 }
 

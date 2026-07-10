@@ -145,6 +145,7 @@ func (p *peerImpl) OnHashFailed(pieceIndex uint32) {
 		return
 	}
 	p.blockedPieces.Set(pieceIndex)
+	p.blockedPieceTimestamps.Store(pieceIndex, time.Now())
 }
 
 // OnHashPassed removes pieceIndex from blockedPieces.
@@ -153,6 +154,19 @@ func (p *peerImpl) OnHashPassed(pieceIndex uint32) {
 		return
 	}
 	p.blockedPieces.Unset(pieceIndex)
+	p.suspectPieces.Unset(pieceIndex)
+	p.blockedPieceTimestamps.Delete(pieceIndex)
 }
 
-func (p *peerImpl) BlockedPieces() *bm.Bitmap { return p.blockedPieces }
+func (p *peerImpl) IsBlocked(pieceIndex uint32) bool {
+	return p.blockedPieces.Contains(pieceIndex)
+}
+func (p *peerImpl) IsBadPiece(pieceIndex uint32) bool {
+	return p.suspectPieces.Contains(pieceIndex)
+}
+func (p *peerImpl) SetBadPiece(pieceIndex uint32) {
+	p.suspectPieces.Set(pieceIndex)
+}
+func (p *peerImpl) BlockedPieceTime(pieceIndex uint32) (time.Time, bool) {
+	return p.blockedPieceTimestamps.Load(pieceIndex)
+}

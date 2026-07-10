@@ -92,6 +92,18 @@ type PeerInterface interface {
 	OnHashFailed(pieceIndex uint32)
 	OnHashPassed(pieceIndex uint32)
 
-	// ── Blocked pieces (per-peer corrupt piece blocklist) ─────────────
-	BlockedPieces() *bm.Bitmap
+	// ── Piece-level blocklist ─────────────────────────────────────────
+	// IsBlocked returns true when this piece should not be requested from
+	// this peer. This covers all reasons: the peer contributed to a
+	// hash-failed piece, was confirmed as a bad source for this piece, etc.
+	// (Whether the peer actually has the piece is separately checked via
+	// PeerBitmap in the picker.)
+	IsBlocked(pieceIndex uint32) bool
+	// IsBadPiece returns true when this peer is confirmed to have corrupt
+	// data for this piece (sole contributor on a hash-failed piece).
+	IsBadPiece(pieceIndex uint32) bool
+	SetBadPiece(pieceIndex uint32)
+	// BlockedPieceTime returns when this piece was last blocked for this
+	// peer (for gradual-unblock cycling).
+	BlockedPieceTime(pieceIndex uint32) (time.Time, bool)
 }

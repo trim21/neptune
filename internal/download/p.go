@@ -117,8 +117,10 @@ func newPeer(
 
 		allowFast: bm.New(d.info.NumPieces),
 
-		contributedPieces: bm.New(d.info.NumPieces),
-		blockedPieces:     bm.New(d.info.NumPieces),
+		contributedPieces:      bm.New(d.info.NumPieces),
+		blockedPieces:          bm.New(d.info.NumPieces),
+		suspectPieces:          bm.New(d.info.NumPieces),
+		blockedPieceTimestamps: xsync.NewMap[uint32, time.Time](),
 
 		peerID: *atomic.NewPointer(&proto.PeerID{}),
 
@@ -140,62 +142,64 @@ func newPeer(
 var ErrPeerSendInvalidData = errors.New("addrPort send invalid data")
 
 type peerImpl struct {
-	log               zerolog.Logger
-	closeErr          error
-	ctx               context.Context
-	Conn              net.Conn
-	lastSend          atomic.Time
-	snubbedAt         atomic.Time
-	lastUnchokeAt     atomic.Time
-	d                 *Download
-	peerCtx           *PeerContext
-	cancel            context.CancelFunc
-	Bitmap            *bm.Bitmap
-	myRequests        *xsync.Map[proto.ChunkRequest, time.Time]
-	myRequestHistory  *xsync.Map[proto.ChunkRequest, empty.Empty]
-	lastPickDebug     atomic.Pointer[string]
-	Rejected          *xsync.Map[proto.ChunkRequest, empty.Empty]
-	allowFast         *bm.Bitmap
-	peerRequests      *xsync.Map[proto.ChunkRequest, empty.Empty]
-	pieceDownloadRate *flowrate.Monitor
-	userAgent         atomic.Pointer[string]
-	responseCond      *gsync.Cond
-	peerID            atomic.Pointer[proto.PeerID]
-	w                 *bufio.Writer
-	r                 *bufio.Reader
-	pieceUploadRate   *flowrate.Monitor
-	contributedPieces *bm.Bitmap
-	blockedPieces     *bm.Bitmap
-	Address           netip.AddrPort
-	lastPickResult    PickResult
-	requestQueue      []PieceBlock
-	rttAverage        sizedSlice[time.Duration]
-	id                uint64
-	disconnecting     atomic.Bool
-	isSeed            atomic.Bool
-	queueLimit        atomic.Uint32
-	desiredQueueSize  atomic.Int32
-	ourInterested     atomic.Bool
-	snubbed           atomic.Bool
-	closed            atomic.Bool
-	peerInterested    atomic.Bool
-	ourChoking        atomic.Bool
-	preferred         atomic.Bool
-	peerChoking       atomic.Bool
-	rttMutex          sync.RWMutex
-	wm                sync.Mutex
-	rqMu              sync.Mutex
-	lastPickResultMu  sync.Mutex
-	extDontHaveID     gsync.AtomicUint[proto.ExtensionMessage]
-	extPexID          gsync.AtomicUint[proto.ExtensionMessage]
-	readBuf           [4]byte
-	writeBuf          [4]byte
-	incoming          bool
-	encrypted         bool
-	fastExtension     bool
-	dhtEnabled        bool
-	subExtensions     bool
-	hadTransfer       bool
+	log                    zerolog.Logger
+	closeErr               error
+	ctx                    context.Context
+	Conn                   net.Conn
+	lastSend               atomic.Time
+	snubbedAt              atomic.Time
+	lastUnchokeAt          atomic.Time
+	d                      *Download
+	peerCtx                *PeerContext
+	cancel                 context.CancelFunc
+	Bitmap                 *bm.Bitmap
+	myRequests             *xsync.Map[proto.ChunkRequest, time.Time]
+	myRequestHistory       *xsync.Map[proto.ChunkRequest, empty.Empty]
+	lastPickDebug          atomic.Pointer[string]
+	Rejected               *xsync.Map[proto.ChunkRequest, empty.Empty]
+	allowFast              *bm.Bitmap
+	peerRequests           *xsync.Map[proto.ChunkRequest, empty.Empty]
+	pieceDownloadRate      *flowrate.Monitor
+	userAgent              atomic.Pointer[string]
+	responseCond           *gsync.Cond
+	peerID                 atomic.Pointer[proto.PeerID]
+	w                      *bufio.Writer
+	r                      *bufio.Reader
+	pieceUploadRate        *flowrate.Monitor
+	contributedPieces      *bm.Bitmap
+	blockedPieces          *bm.Bitmap
+	suspectPieces          *bm.Bitmap
+	blockedPieceTimestamps *xsync.Map[uint32, time.Time]
+	Address                netip.AddrPort
+	lastPickResult         PickResult
+	requestQueue           []PieceBlock
+	rttAverage             sizedSlice[time.Duration]
+	id                     uint64
+	disconnecting          atomic.Bool
+	isSeed                 atomic.Bool
+	queueLimit             atomic.Uint32
+	desiredQueueSize       atomic.Int32
+	ourInterested          atomic.Bool
+	snubbed                atomic.Bool
+	closed                 atomic.Bool
+	peerInterested         atomic.Bool
+	ourChoking             atomic.Bool
+	preferred              atomic.Bool
+	peerChoking            atomic.Bool
+	rttMutex               sync.RWMutex
+	wm                     sync.Mutex
+	rqMu                   sync.Mutex
+	lastPickResultMu       sync.Mutex
+	extDontHaveID          gsync.AtomicUint[proto.ExtensionMessage]
+	extPexID               gsync.AtomicUint[proto.ExtensionMessage]
+	readBuf                [4]byte
+	writeBuf               [4]byte
+	incoming               bool
+	encrypted              bool
+	fastExtension          bool
+	dhtEnabled             bool
+	subExtensions          bool
+	hadTransfer            bool
 }
 
 func (p *peerImpl) Response(res *proto.ChunkResponse) bool {

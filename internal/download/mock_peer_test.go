@@ -22,78 +22,82 @@ import (
 // mockPeer is a controllable Peer implementation for testing download scheduling.
 // Default values produce a sane, usable peer (not closed, not choking, empty bitmap).
 type mockPeer struct {
-	closeErr        error
-	preferred       *atomic.Bool
-	inQueueMap      map[proto.ChunkRequest]bool
-	disconnecting   *atomic.Bool
-	isSeed          *atomic.Bool
-	snubbed         *atomic.Bool
-	peerInterested  *atomic.Bool
-	ourChoking      *atomic.Bool
-	ourInterested   *atomic.Bool
-	peerChoking     *atomic.Bool
-	closed          *atomic.Bool
-	fastBitmap      *bm.Bitmap
-	bitmap          *bm.Bitmap
-	blockedPieces   *bm.Bitmap
-	lastUnchokeAt   *atomic.Time
-	peerRequests    map[proto.ChunkRequest]empty.Empty
-	responseFunc    func(res *proto.ChunkResponse) bool
-	resChan         chan chunkSubmit
-	dl              *Download
-	addr            netip.AddrPort
-	lastPickDebug   string
-	peerIDString    string
-	userAgent       string
-	lastPickRes     PickResult
-	queued          []PieceBlock
-	enqueuedBlocks  []PieceBlock
-	requestsSent    []proto.ChunkRequest
-	info            meta.Info
-	uploadRate      flowrate.Monitor
-	downloadRate    flowrate.Monitor
-	peerID          uint64
-	downloadTotal   int64
-	sendBlockCalled int
-	mu              sync.Mutex
-	reqMu           sync.Mutex // protects requestABlock against concurrent calls
-	desiredSize     int32
-	outstanding     int32
-	queueLimit      uint32
-	encrypted       bool
-	subExtension    bool
-	hadTrans        bool
-	fastExtension   bool
-	dhtEnabled      bool
-	closedCalled    bool
-	incoming        bool
+	closeErr               error
+	preferred              *atomic.Bool
+	inQueueMap             map[proto.ChunkRequest]bool
+	disconnecting          *atomic.Bool
+	isSeed                 *atomic.Bool
+	snubbed                *atomic.Bool
+	peerInterested         *atomic.Bool
+	ourChoking             *atomic.Bool
+	ourInterested          *atomic.Bool
+	peerChoking            *atomic.Bool
+	closed                 *atomic.Bool
+	fastBitmap             *bm.Bitmap
+	bitmap                 *bm.Bitmap
+	blockedPieces          *bm.Bitmap
+	suspectPieces          *bm.Bitmap
+	blockedPieceTimestamps map[uint32]time.Time
+	lastUnchokeAt          *atomic.Time
+	peerRequests           map[proto.ChunkRequest]empty.Empty
+	responseFunc           func(res *proto.ChunkResponse) bool
+	resChan                chan chunkSubmit
+	dl                     *Download
+	addr                   netip.AddrPort
+	lastPickDebug          string
+	peerIDString           string
+	userAgent              string
+	lastPickRes            PickResult
+	queued                 []PieceBlock
+	enqueuedBlocks         []PieceBlock
+	requestsSent           []proto.ChunkRequest
+	info                   meta.Info
+	uploadRate             flowrate.Monitor
+	downloadRate           flowrate.Monitor
+	peerID                 uint64
+	downloadTotal          int64
+	sendBlockCalled        int
+	mu                     sync.Mutex
+	reqMu                  sync.Mutex // protects requestABlock against concurrent calls
+	desiredSize            int32
+	outstanding            int32
+	queueLimit             uint32
+	encrypted              bool
+	subExtension           bool
+	hadTrans               bool
+	fastExtension          bool
+	dhtEnabled             bool
+	closedCalled           bool
+	incoming               bool
 }
 
 func newMockPeer() *mockPeer {
 	return &mockPeer{
-		peerID:         1,
-		addr:           netip.MustParseAddrPort("127.0.0.1:6881"),
-		closed:         atomic.NewBool(false),
-		disconnecting:  atomic.NewBool(false),
-		isSeed:         atomic.NewBool(false),
-		snubbed:        atomic.NewBool(false),
-		peerInterested: atomic.NewBool(false),
-		ourChoking:     atomic.NewBool(false),
-		ourInterested:  atomic.NewBool(false),
-		peerChoking:    atomic.NewBool(false),
-		preferred:      atomic.NewBool(false),
-		lastUnchokeAt:  atomic.NewTime(time.Now()),
-		bitmap:         bm.New(0),
-		fastBitmap:     bm.New(0),
-		blockedPieces:  bm.New(0),
-		downloadRate:   *flowrate.New(time.Second, time.Second),
-		uploadRate:     *flowrate.New(time.Second, time.Second),
-		desiredSize:    4,
-		queueLimit:     2000,
-		peerRequests:   make(map[proto.ChunkRequest]empty.Empty),
-		enqueuedBlocks: make([]PieceBlock, 0),
-		requestsSent:   make([]proto.ChunkRequest, 0),
-		inQueueMap:     make(map[proto.ChunkRequest]bool),
+		peerID:                 1,
+		addr:                   netip.MustParseAddrPort("127.0.0.1:6881"),
+		closed:                 atomic.NewBool(false),
+		disconnecting:          atomic.NewBool(false),
+		isSeed:                 atomic.NewBool(false),
+		snubbed:                atomic.NewBool(false),
+		peerInterested:         atomic.NewBool(false),
+		ourChoking:             atomic.NewBool(false),
+		ourInterested:          atomic.NewBool(false),
+		peerChoking:            atomic.NewBool(false),
+		preferred:              atomic.NewBool(false),
+		lastUnchokeAt:          atomic.NewTime(time.Now()),
+		bitmap:                 bm.New(0),
+		fastBitmap:             bm.New(0),
+		blockedPieces:          bm.New(0),
+		suspectPieces:          bm.New(0),
+		blockedPieceTimestamps: make(map[uint32]time.Time),
+		downloadRate:           *flowrate.New(time.Second, time.Second),
+		uploadRate:             *flowrate.New(time.Second, time.Second),
+		desiredSize:            4,
+		queueLimit:             2000,
+		peerRequests:           make(map[proto.ChunkRequest]empty.Empty),
+		enqueuedBlocks:         make([]PieceBlock, 0),
+		requestsSent:           make([]proto.ChunkRequest, 0),
+		inQueueMap:             make(map[proto.ChunkRequest]bool),
 	}
 }
 
@@ -334,6 +338,25 @@ func (m *mockPeer) QueueLimit() uint32   { return m.queueLimit }
 
 // ── Hash-fail punishment ────────────────────────────────────────────
 
-func (m *mockPeer) OnHashFailed(pieceIndex uint32) { m.blockedPieces.Set(pieceIndex) }
-func (m *mockPeer) OnHashPassed(pieceIndex uint32) { m.blockedPieces.Unset(pieceIndex) }
-func (m *mockPeer) BlockedPieces() *bm.Bitmap      { return m.blockedPieces }
+func (m *mockPeer) OnHashFailed(pieceIndex uint32) {
+	m.blockedPieces.Set(pieceIndex)
+	m.blockedPieceTimestamps[pieceIndex] = time.Now()
+}
+func (m *mockPeer) OnHashPassed(pieceIndex uint32) {
+	m.blockedPieces.Unset(pieceIndex)
+	m.suspectPieces.Unset(pieceIndex)
+	delete(m.blockedPieceTimestamps, pieceIndex)
+}
+func (m *mockPeer) IsBlocked(pieceIndex uint32) bool {
+	return m.blockedPieces.Contains(pieceIndex)
+}
+func (m *mockPeer) IsBadPiece(pieceIndex uint32) bool {
+	return m.suspectPieces.Contains(pieceIndex)
+}
+func (m *mockPeer) SetBadPiece(pieceIndex uint32) {
+	m.suspectPieces.Set(pieceIndex)
+}
+func (m *mockPeer) BlockedPieceTime(pieceIndex uint32) (time.Time, bool) {
+	t, ok := m.blockedPieceTimestamps[pieceIndex]
+	return t, ok
+}
