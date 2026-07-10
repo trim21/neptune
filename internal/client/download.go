@@ -27,7 +27,11 @@ func (c *Client) UnmarshalResume(data []byte, totalDownloads int) error {
 	if err != nil {
 		return err
 	}
-	d.TrkStagger(totalDownloads)
+	// Only stagger incomplete downloads; seeds don't need delay
+	// because they already have all pieces and just need to announce presence.
+	if !d.HasState(download.Seeding) {
+		d.TrkStagger(totalDownloads)
+	}
 
 	c.m.Lock()
 	defer c.m.Unlock()
