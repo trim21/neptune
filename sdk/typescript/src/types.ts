@@ -9,8 +9,9 @@
  * - `Checking`     – verifying local data against piece hashes.
  * - `Moving`       – relocating data files.
  * - `Error`        – fatal error, torrent is stopped.
+ * - `Queued`       – waiting for a download slot.
  */
-export type TorrentState = 'Stopped' | 'Downloading' | 'Seeding' | 'Checking' | 'Moving' | 'Error';
+export type TorrentState = 'Stopped' | 'Downloading' | 'Seeding' | 'Checking' | 'Moving' | 'Error' | 'Queued';
 
 // ── Domain types ─────────────────────────────────────────────────────
 
@@ -155,9 +156,32 @@ export interface SpeedLimitParams extends InfoHashParams {
   limit: number;
 }
 
+export interface SetQueueWeightParams extends InfoHashParams {
+  /** Queue priority weight. Higher weight = higher priority. */
+  weight: number;
+}
+
 export interface GlobalSpeedLimitParams {
   /** Speed limit in bytes/s. 0 or negative = unlimited. */
   limit: number;
+}
+
+export interface SetDownloadSlotsParams {
+  /** Max concurrent actively-downloading torrents. 0 = unlimited. */
+  slots: number;
+}
+
+export interface GetDownloadSlotsResult {
+  slots: number;
+}
+
+export interface SetSlowDownloadSpeedThresholdParams {
+  /** Speed in bytes/s below which a download does not consume a slot. 0 = disabled. */
+  threshold: number;
+}
+
+export interface GetSlowDownloadSpeedThresholdResult {
+  threshold: number;
 }
 
 /** Response for client.get_transfer_config. */

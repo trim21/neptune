@@ -4,7 +4,9 @@ import type {
   AddTorrentResult,
   AddTrackerParams,
   DelCustomParams,
+  GetDownloadSlotsResult,
   GetRecheckOnCompleteResult,
+  GetSlowDownloadSpeedThresholdResult,
   GlobalSpeedLimitParams,
   InfoHashParams,
   ListTorrentParams,
@@ -13,8 +15,11 @@ import type {
   RemoveTrackerParams,
   ReplaceTrackersParams,
   SetCustomParams,
+  SetDownloadSlotsParams,
   SetFilePriorityParams,
+  SetQueueWeightParams,
   SetRecheckOnCompleteParams,
+  SetSlowDownloadSpeedThresholdParams,
   SpeedLimitParams,
   TagsParams,
   TorrentFiles,
@@ -65,11 +70,19 @@ export interface NeptuneMethodMap {
   'torrent.set_file_priority': { params: SetFilePriorityParams; result: void; };
   'torrent.set_download_limit': { params: SpeedLimitParams; result: void; };
   'torrent.set_upload_limit': { params: SpeedLimitParams; result: void; };
+  'torrent.set_queue_weight': { params: SetQueueWeightParams; result: void; };
   'torrent.custom.set': { params: SetCustomParams; result: void; };
   'torrent.custom.update': { params: UpdateCustomParams; result: void; };
   'torrent.custom.del': { params: DelCustomParams; result: void; };
   'client.set_download_limit': { params: GlobalSpeedLimitParams; result: void; };
   'client.set_upload_limit': { params: GlobalSpeedLimitParams; result: void; };
+  'client.set_download_slots': { params: SetDownloadSlotsParams; result: void; };
+  'client.get_download_slots': { params: Record<string, never>; result: GetDownloadSlotsResult; };
+  'client.set_slow_download_speed_threshold': { params: SetSlowDownloadSpeedThresholdParams; result: void; };
+  'client.get_slow_download_speed_threshold': {
+    params: Record<string, never>;
+    result: GetSlowDownloadSpeedThresholdResult;
+  };
   'client.get_transfer_config': { params: Record<string, never>; result: TransferConfig; };
   'client.set_recheck_on_complete': { params: SetRecheckOnCompleteParams; result: void; };
   'client.get_recheck_on_complete': { params: Record<string, never>; result: GetRecheckOnCompleteResult; };

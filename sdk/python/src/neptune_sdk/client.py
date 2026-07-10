@@ -18,7 +18,9 @@ from .models import (
     AddTorrentResponse,
     AddTrackerRequest,
     DelCustomRequest,
+    GetDownloadSlotsResponse,
     GetRecheckOnCompleteResponse,
+    GetSlowDownloadSpeedThresholdResponse,
     InfoHashRequest,
     ListTorrentRequest,
     MoveTorrentRequest,
@@ -26,9 +28,12 @@ from .models import (
     RemoveTrackerRequest,
     ReplaceTrackersRequest,
     SetCustomRequest,
+    SetDownloadSlotsRequest,
     SetFilePriorityRequest,
     SetGlobalSpeedLimitRequest,
+    SetQueueWeightRequest,
     SetRecheckOnCompleteRequest,
+    SetSlowDownloadSpeedThresholdRequest,
     SetSpeedLimitRequest,
     TagsRequest,
     TorrentFilesResponse,
@@ -295,6 +300,13 @@ class NeptuneClient:
             SetSpeedLimitRequest(info_hash=info_hash, limit=limit),
         )
 
+    def torrent_set_queue_weight(self, info_hash: str, weight: int) -> None:
+        """Set torrent queue priority weight. Higher weight = higher priority."""
+        self._call(
+            "torrent.set_queue_weight",
+            SetQueueWeightRequest(info_hash=info_hash, weight=weight),
+        )
+
     def client_set_download_limit(self, limit: int) -> None:
         """Set global download speed limit (bytes/s, <=0 = unlimited)."""
         self._call(
@@ -312,6 +324,36 @@ class NeptuneClient:
     def client_get_transfer_config(self) -> TransferConfig:
         """Get global download/upload speed limits."""
         return _validate(TransferConfig, self._call("client.get_transfer_config"))
+
+    def client_set_download_slots(self, slots: int) -> None:
+        """Set max concurrent actively-downloading torrents. 0 = unlimited."""
+        self._call(
+            "client.set_download_slots",
+            SetDownloadSlotsRequest(slots=slots),
+        )
+
+    def client_get_download_slots(self) -> GetDownloadSlotsResponse:
+        """Get max concurrent actively-downloading torrents."""
+        return _validate(
+            GetDownloadSlotsResponse,
+            self._call("client.get_download_slots"),
+        )
+
+    def client_set_slow_download_speed_threshold(self, threshold: int) -> None:
+        """Set speed below which a download does not consume a slot. 0 = disabled."""
+        self._call(
+            "client.set_slow_download_speed_threshold",
+            SetSlowDownloadSpeedThresholdRequest(threshold=threshold),
+        )
+
+    def client_get_slow_download_speed_threshold(
+        self,
+    ) -> GetSlowDownloadSpeedThresholdResponse:
+        """Get the slow download speed threshold."""
+        return _validate(
+            GetSlowDownloadSpeedThresholdResponse,
+            self._call("client.get_slow_download_speed_threshold"),
+        )
 
     def client_set_recheck_on_complete(self, enabled: bool) -> None:
         """Enable/disable automatic recheck on download completion."""

@@ -152,10 +152,46 @@ class SetSpeedLimitRequest:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class SetQueueWeightRequest:
+    """Parameters for torrent.set_queue_weight."""
+
+    info_hash: str
+    weight: int = 0
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class SetGlobalSpeedLimitRequest:
     """Parameters for client.set_download_limit / client.set_upload_limit."""
 
     limit: int = 0
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SetDownloadSlotsRequest:
+    """Parameters for client.set_download_slots."""
+
+    slots: int = 0
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class GetDownloadSlotsResponse:
+    """Response for client.get_download_slots."""
+
+    slots: int = 0
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SetSlowDownloadSpeedThresholdRequest:
+    """Parameters for client.set_slow_download_speed_threshold."""
+
+    threshold: int = 0
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class GetSlowDownloadSpeedThresholdResponse:
+    """Response for client.get_slow_download_speed_threshold."""
+
+    threshold: int = 0
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

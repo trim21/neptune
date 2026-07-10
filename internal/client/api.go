@@ -179,6 +179,12 @@ func (c *Client) AddTorrent(raw []byte, m *metainfo.MetaInfo, info meta.Info, do
 	c.downloadMap[info.Hash] = d
 	c.infoHashes = lo.Keys(c.downloadMap)
 
+	// If download slots are configured, trigger a rebalance after a short
+	// delay so Init has time to set the initial state.
+	if c.session.DownloadSlots.Load() > 0 {
+		c.triggerQueueRebalance()
+	}
+
 	return nil
 }
 
@@ -416,6 +422,12 @@ func (c *Client) RemoveTorrent(h metainfo.Hash, removeData bool) error {
 		log.Warn().Stringer("hash", h).Err(err).Msg("torrent.remove: finished with errors")
 	} else {
 		log.Info().Stringer("hash", h).Msg("torrent.remove: done")
+	}
+
+	// If download slots are configured, rebalance to promote a queued torrent
+	// into the newly freed slot.
+	if c.session.DownloadSlots.Load() > 0 {
+		c.triggerQueueRebalance()
 	}
 
 	return err

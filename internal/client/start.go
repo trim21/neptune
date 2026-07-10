@@ -30,6 +30,9 @@ func (c *Client) Start() error {
 		return err
 	}
 
+	// Start the download queue manager.
+	go c.startQueueManager()
+
 	// TODO: impl
 	if !global.Dev {
 		go func() {
@@ -103,6 +106,9 @@ func (c *Client) Start() error {
 			return err
 		}
 	}
+
+	// Trigger initial queue rebalance after all resumes are loaded.
+	c.triggerQueueRebalance()
 	return nil
 }
 

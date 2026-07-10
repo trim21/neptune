@@ -36,7 +36,7 @@ func (d *Download) notifyPeersToRequest() {
 	if !d.notifyScheduled.CompareAndSwap(false, true) {
 		return
 	}
-	if !d.HasState(Downloading) {
+	if !d.IsActiveDownloading() {
 		d.notifyScheduled.Store(false)
 		return
 	}

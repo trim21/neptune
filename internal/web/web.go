@@ -137,6 +137,11 @@ func New(c *client.Client, token string, enableDebug bool) http.Handler {
 	setPiecePickStrategy(h, c)
 	getPiecePickStrategy(h, c)
 	torrentSetPiecePickStrategy(h, c)
+	setQueueWeight(h, c)
+	setDownloadSlots(h, c)
+	getDownloadSlots(h, c)
+	setSlowDownloadSpeedThreshold(h, c)
+	getSlowDownloadSpeedThreshold(h, c)
 	torrentGetPiecePickStrategy(h, c)
 	// MoveTorrent(h, c)
 

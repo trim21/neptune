@@ -23,5 +23,15 @@ func (c *Client) StopTorrent(h metainfo.Hash) error {
 		return nil
 	}
 
-	return d.Stop()
+	if err := d.Stop(); err != nil {
+		return err
+	}
+
+	// If download slots are configured, rebalance to promote a queued torrent
+	// into the newly freed slot.
+	if c.session.DownloadSlots.Load() > 0 {
+		c.triggerQueueRebalance()
+	}
+
+	return nil
 }

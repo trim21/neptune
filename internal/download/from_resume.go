@@ -86,6 +86,12 @@ func ResumeFromData(sess *session.Session, data []byte) (*Download, error) {
 	d.AddAt = r.AddAt
 	d.CompletedAt.Store(r.CompletedAt)
 
+	if r.QueueWeight != 0 {
+		d.queueWeight.Store(r.QueueWeight)
+	} else {
+		d.queueWeight.Store(-d.AddAt)
+	}
+
 	d.downloaded.Store(r.Downloaded)
 	d.downloadAtStart = r.Downloaded
 	d.uploaded.Store(r.Uploaded)

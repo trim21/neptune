@@ -40,6 +40,19 @@ func (d *Download) Stop() error {
 	return nil
 }
 
+// DemoteToQueued sets the Queued flag on a Downloading torrent.
+// The download loop skips peer connections when the Queued flag is set,
+// but trackers keep running so peers continue to accumulate.
+func (d *Download) DemoteToQueued() {
+	d.setQueued()
+}
+
+// PromoteFromQueued clears the Queued flag from a Downloading torrent,
+// letting the download loop resume peer connections and block requests.
+func (d *Download) PromoteFromQueued() {
+	d.clearQueued()
+}
+
 func (d *Download) AsyncCheck() error {
 	if err := d.transition(Checking); err != nil {
 		return err
@@ -131,7 +144,7 @@ func (d *Download) startBackground() {
 				continue
 			}
 
-			if !d.HasState(Seeding | Downloading) {
+			if !d.HasState(Seeding|Downloading) || d.HasState(Queued) {
 				continue
 			}
 

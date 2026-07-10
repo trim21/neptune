@@ -314,7 +314,7 @@ func (p *peerImpl) requestBlocks() {
 	if p.closed.Load() || p.isDisconnecting() {
 		return
 	}
-	if !p.d.HasState(Downloading) {
+	if !p.d.IsActiveDownloading() {
 		return
 	}
 	// If choked and no allowed-fast pieces, nothing to request.

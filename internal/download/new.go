@@ -74,6 +74,10 @@ func New(sess *session.Session, m *metainfo.MetaInfo, info meta.Info, basePath s
 
 		AddAt: time.Now().Unix(),
 
+		// Default queue weight: negative timestamp so earlier-added torrents
+		// have higher weight (less negative) and thus higher priority.
+		queueWeight: *atomic.NewInt64(-time.Now().Unix()),
+
 		resChan: make(chan *proto.ChunkResponse, 1),
 
 		pieceDownloadRate: flowrate.New(time.Second, 5*time.Second),

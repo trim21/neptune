@@ -214,6 +214,28 @@ var configFields = map[string]configField{
 		},
 		getter: func(a *Application) lua.LValue { return lua.LNumber(a.GlobalUploadSlots) },
 	},
+	"application.download-slots": {
+		setter: func(a *Application, v lua.LValue) error {
+			n, err := toGoUint16(v)
+			if err != nil {
+				return err
+			}
+			a.DownloadSlots = n
+			return nil
+		},
+		getter: func(a *Application) lua.LValue { return lua.LNumber(a.DownloadSlots) },
+	},
+	"application.slow-download-speed-threshold": {
+		setter: func(a *Application, v lua.LValue) error {
+			n, err := toGoInt64(v)
+			if err != nil {
+				return err
+			}
+			a.SlowDownloadSpeedThreshold = n
+			return nil
+		},
+		getter: func(a *Application) lua.LValue { return lua.LNumber(a.SlowDownloadSpeedThreshold) },
+	},
 	"application.global-download-speed-limit": {
 		setter: func(a *Application, v lua.LValue) error {
 			n, err := toGoInt64(v)

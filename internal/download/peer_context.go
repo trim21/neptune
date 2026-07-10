@@ -29,6 +29,6 @@ func (c *PeerContext) IsDownloading() bool {
 func (d *Download) newPeerContext() *PeerContext {
 	return &PeerContext{
 		picker:        &d.picker,
-		isDownloading: func() bool { return d.HasState(Downloading) },
+		isDownloading: func() bool { return d.IsActiveDownloading() },
 	}
 }

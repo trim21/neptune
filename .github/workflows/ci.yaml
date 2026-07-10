@@ -96,8 +96,8 @@ jobs:
         with:
           cache-namespace: fuzz
       - run: go test -race -fuzz=FuzzDownloadMultiPeer_Async -fuzztime=30s ./internal/download/
-      - run: go test -race -fuzz=FuzzHandleRes -fuzztime=30s ./internal/download/
-      - run: go test -race -fuzz=FuzzHandleResDuplicates -fuzztime=30s ./internal/download/
+      - run: go test -race -fuzz=^FuzzHandleRes$ -fuzztime=30s ./internal/download/
+      - run: go test -race -fuzz=^FuzzHandleResDuplicates$ -fuzztime=30s ./internal/download/
 
   fuzz-download-2:
     runs-on: ubuntu-latest

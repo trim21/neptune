@@ -249,7 +249,7 @@ func (m *mockPeer) requestABlock() {
 	defer m.reqMu.Unlock()
 
 	d := m.dl
-	if d == nil || m.closed.Load() || !d.HasState(Downloading) {
+	if d == nil || m.closed.Load() || !d.IsActiveDownloading() {
 		return
 	}
 

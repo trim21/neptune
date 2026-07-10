@@ -46,3 +46,36 @@ func (c *Client) GetGlobalDownloadLimit() int64 {
 func (c *Client) GetGlobalUploadLimit() int64 {
 	return c.session.UploadLimiter.Rate()
 }
+
+func (c *Client) SetQueueWeight(h metainfo.Hash, weight int) error {
+	c.m.RLock()
+	d, ok := c.downloadMap[h]
+	c.m.RUnlock()
+	if !ok {
+		return fmt.Errorf("torrent %s not exists", h)
+	}
+	d.SetQueueWeight(weight)
+
+	// If download slots are configured, rebalance so the new weight takes effect.
+	if c.session.DownloadSlots.Load() > 0 {
+		c.triggerQueueRebalance()
+	}
+	return nil
+}
+
+func (c *Client) SetDownloadSlots(slots uint16) {
+	c.session.DownloadSlots.Store(uint32(slots))
+	c.triggerQueueRebalance()
+}
+
+func (c *Client) GetDownloadSlots() uint16 {
+	return uint16(c.session.DownloadSlots.Load())
+}
+
+func (c *Client) SetSlowDownloadSpeedThreshold(limit int64) {
+	c.session.SlowDownloadSpeedThreshold.Store(limit)
+}
+
+func (c *Client) GetSlowDownloadSpeedThreshold() int64 {
+	return c.session.SlowDownloadSpeedThreshold.Load()
+}

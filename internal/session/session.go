@@ -39,31 +39,33 @@ import (
 // limiters, file pool, DHT, and configuration constants that do not change
 // after startup.
 type Session struct {
-	Ctx                context.Context
-	MSESelector        mse.CryptoSelector
-	DownloadLimiter    *ratelimit.Limiter
-	DHT                *dht.DHT
-	FilePool           *filepool.FilePool
-	IOContext          *gfs.IOContext
-	HTTP               *resty.Client
-	ConnSem            *semaphore.Weighted
-	IPv6               atomic.Pointer[netip.Addr]
-	PieceUploadRate    *flowrate.Monitor
-	UploadLimiter      *ratelimit.Limiter
-	Cancel             context.CancelFunc
-	IPv4               atomic.Pointer[netip.Addr]
-	PieceDownloadRate  *flowrate.Monitor
-	UploadQ            chan func()
-	ResumePath         string
-	TorrentPath        string
-	randKey            []byte
-	Config             config.Config
-	RecheckOnComplete  atomic.Bool
-	ConnCount          atomic.Uint32
-	MSEPreferredCrypto mse.CryptoMethod
-	MSEForce           bool
-	MSEEnabled         bool
-	Debug              bool
+	Ctx                        context.Context
+	MSESelector                mse.CryptoSelector
+	DownloadLimiter            *ratelimit.Limiter
+	DHT                        *dht.DHT
+	FilePool                   *filepool.FilePool
+	IOContext                  *gfs.IOContext
+	HTTP                       *resty.Client
+	ConnSem                    *semaphore.Weighted
+	IPv6                       atomic.Pointer[netip.Addr]
+	PieceUploadRate            *flowrate.Monitor
+	UploadLimiter              *ratelimit.Limiter
+	Cancel                     context.CancelFunc
+	IPv4                       atomic.Pointer[netip.Addr]
+	PieceDownloadRate          *flowrate.Monitor
+	UploadQ                    chan func()
+	ResumePath                 string
+	TorrentPath                string
+	randKey                    []byte
+	Config                     config.Config
+	RecheckOnComplete          atomic.Bool
+	DownloadSlots              atomic.Uint32
+	SlowDownloadSpeedThreshold atomic.Int64
+	ConnCount                  atomic.Uint32
+	MSEPreferredCrypto         mse.CryptoMethod
+	MSEForce                   bool
+	MSEEnabled                 bool
+	Debug                      bool
 }
 
 // New creates a Session for a neptune process.
@@ -145,6 +147,8 @@ func New(cfg config.Config, sessionPath string, debug bool) *Session {
 	}
 
 	s.RecheckOnComplete.Store(cfg.App.RecheckOnComplete)
+	s.DownloadSlots.Store(uint32(cfg.App.DownloadSlots))
+	s.SlowDownloadSpeedThreshold.Store(cfg.App.SlowDownloadSpeedThreshold)
 
 	s.IPv4.Store(v4)
 	s.IPv6.Store(v6)

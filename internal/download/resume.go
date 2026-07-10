@@ -53,6 +53,7 @@ type resume struct {
 	TrackerKey         string
 	State              ResumeState
 	PiecePickStrategy  uint32
+	QueueWeight        int64
 }
 
 func (d *Download) filePaths() []string {
@@ -124,5 +125,6 @@ func (d *Download) MarshalBinary() (data []byte, err error) {
 		Trackers:           d.Trk.URLs(),
 		TrackerKey:         d.Trk.Key,
 		PiecePickStrategy:  uint32(d.GetPiecePickStrategy()),
+		QueueWeight:        int64(d.QueueWeight()),
 	})
 }

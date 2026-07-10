@@ -14,6 +14,7 @@ func _() {
 	_ = x[Checking-8]
 	_ = x[Moving-16]
 	_ = x[Error-32]
+	_ = x[Queued-64]
 }
 
 const (
@@ -22,6 +23,7 @@ const (
 	_State_name_2 = "Checking"
 	_State_name_3 = "Moving"
 	_State_name_4 = "Error"
+	_State_name_5 = "Queued"
 )
 
 var (
@@ -41,6 +43,8 @@ func (i State) String() string {
 		return _State_name_3
 	case i == 32:
 		return _State_name_4
+	case i == 64:
+		return _State_name_5
 	default:
 		return "State(" + strconv.FormatInt(int64(i), 10) + ")"
 	}

@@ -15,6 +15,7 @@ import (
 	"neptune/internal/config"
 	"neptune/internal/download"
 	"neptune/internal/metainfo"
+	"neptune/internal/pkg/empty"
 	"neptune/internal/pkg/flowrate"
 	"neptune/internal/pkg/ratelimit"
 	"neptune/internal/session"
@@ -24,11 +25,12 @@ func New(cfg config.Config, sessionPath string, debug bool) *Client {
 	sess := session.New(cfg, sessionPath, debug)
 
 	c := &Client{
-		session:     sess,
-		checkQueue:  make([]metainfo.Hash, 0, 3),
-		downloadMap: make(map[metainfo.Hash]*Download),
-		connChan:    make(chan incomingConn, 1),
-		fh:          make(map[string]*os.File),
+		session:          sess,
+		checkQueue:       make([]metainfo.Hash, 0, 3),
+		downloadMap:      make(map[metainfo.Hash]*Download),
+		connChan:         make(chan incomingConn, 1),
+		fh:               make(map[string]*os.File),
+		queueRebalanceCh: make(chan empty.Empty, 1),
 	}
 
 	if s, err := download.PiecePickStrategyFromString(cfg.App.PiecePickStrategy); err == nil {
@@ -52,6 +54,7 @@ type Client struct {
 	downloadMap       map[metainfo.Hash]*Download
 	connChan          chan incomingConn
 	fh                map[string]*os.File
+	queueRebalanceCh  chan empty.Empty
 	downloads         []*Download
 	infoHashes        []metainfo.Hash
 	checkQueue        []metainfo.Hash

@@ -41,6 +41,7 @@ const (
 	Checking    State = 1 << 3
 	Moving      State = 1 << 4
 	Error       State = 1 << 5
+	Queued      State = 1 << 6
 )
 
 type TransitionError struct {
@@ -98,6 +99,8 @@ func validTransition(from, to State) bool {
 		return to == Downloading || to == Seeding || to == Stopped || to == Error
 	case Error:
 		return to == Checking
+	case Queued:
+		return to == Downloading || to == Stopped || to == Checking || to == Error
 	}
 	return false
 }
@@ -150,6 +153,7 @@ type Download struct {
 	downloadAtStart        int64
 	selectedSize           atomic.Int64
 	unchokeCycleOffset     int
+	queueWeight            atomic.Int64
 	corruptedPiecesMu      sync.Mutex
 	normalChunkLen         uint32
 	bitfieldSize           uint32
@@ -181,6 +185,57 @@ func (d *Download) GetState() State {
 // HasState returns true if the download is in any of the given states.
 func (d *Download) HasState(state State) bool {
 	return d.GetState()&state != 0
+}
+
+// setQueued atomically sets the Queued flag on top of the current base state.
+// It broadcasts the state change to wake up waiting loops.
+func (d *Download) setQueued() {
+	for {
+		old := State(d.state.Load())
+		if old&Queued != 0 {
+			return
+		}
+		if d.state.CompareAndSwap(uint32(old), uint32(old|Queued)) {
+			d.stateCond.Broadcast()
+			return
+		}
+	}
+}
+
+// clearQueued atomically clears the Queued flag.
+func (d *Download) clearQueued() {
+	for {
+		old := State(d.state.Load())
+		if old&Queued == 0 {
+			return
+		}
+		if d.state.CompareAndSwap(uint32(old), uint32(old&^Queued)) {
+			d.stateCond.Broadcast()
+			return
+		}
+	}
+}
+
+// IsActiveDownloading returns true when the download is in Downloading state
+// without the Queued flag — i.e. actually consuming a download slot.
+func (d *Download) IsActiveDownloading() bool {
+	s := d.GetState()
+	return s&Downloading != 0 && s&Queued == 0
+}
+
+// QueueWeight returns the queue priority weight (higher = higher priority).
+func (d *Download) QueueWeight() int {
+	return int(d.queueWeight.Load())
+}
+
+// SetQueueWeight sets the queue priority weight.
+func (d *Download) SetQueueWeight(w int) {
+	d.queueWeight.Store(int64(w))
+}
+
+// DownloadRate returns the current EMA download rate in bytes/sec.
+func (d *Download) DownloadRate() int64 {
+	return d.pieceDownloadRate.Status().CurRate
 }
 
 var ErrTorrentNotFound = errors.New("torrent not found")
