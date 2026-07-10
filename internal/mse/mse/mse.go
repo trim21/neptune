@@ -9,7 +9,6 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/rand"
-	"crypto/rc4"
 	"crypto/sha1"
 	"encoding/binary"
 	"errors"
@@ -23,6 +22,7 @@ import (
 
 	"neptune/internal/pkg/gsync"
 	"neptune/internal/pkg/mempool"
+	"neptune/internal/pkg/rc4"
 )
 
 type CryptoMethod uint32

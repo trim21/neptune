@@ -84,6 +84,8 @@ jobs:
   test-pass:
     needs:
       - test
+      - test-arm64
+      - bench-rc4
     runs-on: ubuntu-slim
     steps:
       - run: echo success
@@ -150,3 +152,43 @@ jobs:
       - run: echo "/home/runner/.dprint/bin" >> $GITHUB_PATH
       - run: dprint output-file-paths
       - run: dprint check
+
+  # Test RC4 asm on native arm64. The amd64 cross-compile only verifies
+  # syntax; native execution catches logic bugs in the arm64 assembly.
+  test-arm64:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - uses: trim21/actions/setup-go@master
+        with:
+          cache-namespace: test-arm64
+
+      - name: Test RC4 package
+        run: go test -count=1 ./internal/pkg/rc4/
+
+      - name: Fuzz RC4 (short)
+        run: go test -fuzz=FuzzXORKeyStream -fuzztime=15s ./internal/pkg/rc4/
+
+      - name: Full test suite (no race detector on arm64)
+        run: go test -short -count=1 ./...
+
+  # RC4 benchmark on both amd64 and arm64 native hardware.
+  bench-rc4:
+    runs-on: "${{ matrix.os }}"
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm]
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - uses: trim21/actions/setup-go@master
+        with:
+          cache-namespace: bench-rc4
+
+      - name: Benchmark RC4 (ours)
+        run: go test -bench=XORKeyStream -benchtime=1s -count=5 ./internal/pkg/rc4/
+
+      - name: Benchmark RC4 (stdlib)
+        run: go test -bench=StdXORKeyStream -benchtime=1s -count=5 ./internal/pkg/rc4/
