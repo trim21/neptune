@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"net/netip"
 	"sync"
 
@@ -33,16 +34,36 @@ const defaultBlockSize = meta.DefaultBlockSize
 
 type State uint8
 
-//go:generate go tool golang.org/x/tools/cmd/stringer -type=State
 const (
-	Stopped     State = 1 << 0
-	Downloading State = 1 << 1
-	Seeding     State = 1 << 2
-	Checking    State = 1 << 3
-	Moving      State = 1 << 4
-	Error       State = 1 << 5
-	Queued      State = 1 << 6
+	Downloading        State = 1
+	PendingDownloading State = 2
+	Seeding            State = 3
+	Checking           State = 4
+	Stopped            State = 5
+	Moving             State = 6
+	Error              State = 7
 )
+
+func (i State) String() string {
+	switch i {
+	case Stopped:
+		return "Stopped"
+	case Downloading:
+		return "Downloading"
+	case PendingDownloading:
+		return "PendingDownloading"
+	case Seeding:
+		return "Seeding"
+	case Checking:
+		return "Checking"
+	case Moving:
+		return "Moving"
+	case Error:
+		return "Error"
+	default:
+		return "State(" + strconv.FormatUint(uint64(i), 10) + ")"
+	}
+}
 
 type TransitionError struct {
 	From State
@@ -90,7 +111,9 @@ func validTransition(from, to State) bool {
 	case Stopped:
 		return to == Downloading || to == Seeding || to == Checking || to == Moving
 	case Downloading:
-		return to == Stopped || to == Seeding || to == Error || to == Checking || to == Moving
+		return to == Stopped || to == Seeding || to == Error || to == Checking || to == Moving || to == PendingDownloading
+	case PendingDownloading:
+		return to == Downloading || to == Stopped || to == Checking || to == Error
 	case Seeding:
 		return to == Stopped || to == Error || to == Checking || to == Moving
 	case Checking:
@@ -99,8 +122,6 @@ func validTransition(from, to State) bool {
 		return to == Downloading || to == Seeding || to == Stopped || to == Error
 	case Error:
 		return to == Checking
-	case Queued:
-		return to == Downloading || to == Stopped || to == Checking || to == Error
 	}
 	return false
 }
@@ -182,45 +203,32 @@ func (d *Download) GetState() State {
 	return State(d.state.Load())
 }
 
-// HasState returns true if the download is in any of the given states.
+// HasState returns true when the download is in exactly the given state.
 func (d *Download) HasState(state State) bool {
-	return d.GetState()&state != 0
+	return d.GetState() == state
 }
 
-// setQueued atomically sets the Queued flag on top of the current base state.
-// It broadcasts the state change to wake up waiting loops.
-func (d *Download) setQueued() {
-	for {
-		old := State(d.state.Load())
-		if old&Queued != 0 {
-			return
-		}
-		if d.state.CompareAndSwap(uint32(old), uint32(old|Queued)) {
-			d.stateCond.Broadcast()
-			return
-		}
-	}
-}
-
-// clearQueued atomically clears the Queued flag.
-func (d *Download) clearQueued() {
-	for {
-		old := State(d.state.Load())
-		if old&Queued == 0 {
-			return
-		}
-		if d.state.CompareAndSwap(uint32(old), uint32(old&^Queued)) {
-			d.stateCond.Broadcast()
-			return
-		}
-	}
-}
-
-// IsActiveDownloading returns true when the download is in Downloading state
-// without the Queued flag — i.e. actually consuming a download slot.
-func (d *Download) IsActiveDownloading() bool {
+// IsDownloading returns true when the download is Downloading or PendingDownloading.
+func (d *Download) IsDownloading() bool {
 	s := d.GetState()
-	return s&Downloading != 0 && s&Queued == 0
+	return s == Downloading || s == PendingDownloading
+}
+
+// IsActive returns true when the download is Downloading or Seeding (actively transferring data).
+func (d *Download) IsActive() bool {
+	s := d.GetState()
+	return s == Downloading || s == Seeding
+}
+
+// IsAlive returns true when the download is in a running state (Downloading/Seeding/PendingDownloading).
+func (d *Download) IsAlive() bool {
+	s := d.GetState()
+	return s == Downloading || s == Seeding || s == PendingDownloading
+}
+
+// IsActiveDownloading returns true when the download is in Downloading state (not PendingDownloading, not Seeding).
+func (d *Download) IsActiveDownloading() bool {
+	return d.GetState() == Downloading
 }
 
 // QueueWeight returns the queue priority weight (higher = higher priority).

@@ -275,7 +275,7 @@ func (d *Download) backgroundReqHandler() {
 			d.log.Info().Msg("backgroundReqHandler: exiting (ctx canceled)")
 			return
 		case <-d.scheduleResponseSignal:
-			if !d.HasState(Downloading | Seeding) {
+			if !d.IsActive() {
 				continue
 			}
 
@@ -350,7 +350,7 @@ func (d *Download) processUpload(peer Peer, req proto.ChunkRequest, data []byte)
 	if d.ctx.Err() != nil || peer.Closed() {
 		return
 	}
-	if d.GetState()&(Downloading|Seeding) == 0 {
+	if !d.IsActive() {
 		return
 	}
 

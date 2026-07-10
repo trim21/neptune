@@ -40,7 +40,7 @@ type MainDataTorrent struct {
 	Custom               map[string]string `json:"custom"`
 	InfoHash             string            `json:"hash"`
 	Name                 string            `json:"name"`
-	State                string            `json:"state"`
+	State                uint8             `json:"state"`
 	Comment              string            `json:"comment"`
 	DirectoryBase        string            `json:"directory_base"`
 	Message              string            `json:"message"`
@@ -80,7 +80,7 @@ func (c *Client) GetTorrentList(keys []string) TorrentList {
 		torrents[i] = MainDataTorrent{
 			InfoHash:             info.Hash,
 			Name:                 info.Name,
-			State:                info.State.String(),
+			State:                uint8(info.State),
 			DownloadRate:         info.DownloadRate,
 			DownloadTotal:        info.DownloadTotal,
 			UploadRate:           info.UploadRate,
@@ -356,7 +356,7 @@ func (c *Client) Reannounce(h metainfo.Hash) error {
 
 	var event tracker.AnnounceEvent
 	switch {
-	case d.HasState(Downloading):
+	case d.IsDownloading():
 		event = tracker.EventStarted
 	case d.HasState(Seeding):
 		event = tracker.EventCompleted

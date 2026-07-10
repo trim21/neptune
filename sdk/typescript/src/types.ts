@@ -1,17 +1,14 @@
 // ── Torrent state ────────────────────────────────────────────────────
 
-/**
- * BitTorrent state as reported by Neptune.
- *
- * - `Stopped`      – torrent is paused.
- * - `Downloading`  – actively downloading pieces.
- * - `Seeding`      – download complete, uploading to peers.
- * - `Checking`     – verifying local data against piece hashes.
- * - `Moving`       – relocating data files.
- * - `Error`        – fatal error, torrent is stopped.
- * - `Queued`       – waiting for a download slot.
- */
-export type TorrentState = 'Stopped' | 'Downloading' | 'Seeding' | 'Checking' | 'Moving' | 'Error' | 'Queued';
+export const TorrentState = {
+  Downloading: 1,
+  PendingDownloading: 2,
+  Seeding: 3,
+  Checking: 4,
+  Stopped: 5,
+  Moving: 6,
+  Error: 7,
+} as const;
 
 // ── Domain types ─────────────────────────────────────────────────────
 
@@ -19,7 +16,7 @@ export type TorrentState = 'Stopped' | 'Downloading' | 'Seeding' | 'Checking' | 
 export interface Torrent {
   hash: string;
   name: string;
-  state: TorrentState;
+  state: number;
   comment: string;
   directory_base: string;
   message: string;

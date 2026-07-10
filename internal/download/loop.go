@@ -40,17 +40,21 @@ func (d *Download) Stop() error {
 	return nil
 }
 
-// DemoteToQueued sets the Queued flag on a Downloading torrent.
-// The download loop skips peer connections when the Queued flag is set,
+// DemoteToQueued transitions a Downloading torrent to PendingDownloading.
+// The download loop skips peer connections in this state,
 // but trackers keep running so peers continue to accumulate.
 func (d *Download) DemoteToQueued() {
-	d.setQueued()
+	if err := d.transition(PendingDownloading); err != nil {
+		d.log.Error().Err(err).Msg("failed to demote to PendingDownloading")
+	}
 }
 
-// PromoteFromQueued clears the Queued flag from a Downloading torrent,
+// PromoteFromQueued transitions a PendingDownloading torrent back to Downloading,
 // letting the download loop resume peer connections and block requests.
 func (d *Download) PromoteFromQueued() {
-	d.clearQueued()
+	if err := d.transition(Downloading); err != nil {
+		d.log.Error().Err(err).Msg("failed to promote from PendingDownloading")
+	}
 }
 
 func (d *Download) AsyncCheck() error {
@@ -79,18 +83,17 @@ func (d *Download) Init(resumed bool, skipHashCheck bool) {
 	d.saveResume()
 }
 
-func (d *Download) wait(states State) bool {
-	if !d.HasState(states) {
+func (d *Download) wait(state State) bool {
+	if d.GetState() != state {
 		select {
 		case <-d.ctx.Done():
 			return false
 		case <-d.stateCond.C:
-			if !d.HasState(states) {
+			if d.GetState() != state {
 				return false
 			}
 		}
 	}
-
 	return true
 }
 
@@ -127,7 +130,7 @@ func (d *Download) startBackground() {
 				d.recalcPeerCounts()
 				continue
 			case <-optimisticTicker.C:
-				if d.HasState(Downloading) {
+				if d.IsActiveDownloading() {
 					d.optimisticUnchoke()
 				}
 				continue
@@ -144,7 +147,7 @@ func (d *Download) startBackground() {
 				continue
 			}
 
-			if !d.HasState(Seeding|Downloading) || d.HasState(Queued) {
+			if !d.IsActive() {
 				continue
 			}
 

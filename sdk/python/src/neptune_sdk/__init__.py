@@ -25,6 +25,7 @@ from .models import (
     TorrentInfo,
     TorrentListResponse,
     TorrentPeersResponse,
+    TorrentState,
     TorrentTrackersResponse,
     Tracker,
     TransferSummary,
@@ -64,6 +65,7 @@ __all__ = [
     "TorrentListResponse",
     "TorrentPeersResponse",
     "TorrentTrackersResponse",
+    "TorrentState",
     "Tracker",
     "TransferSummary",
 ]

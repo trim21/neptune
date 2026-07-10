@@ -61,7 +61,7 @@ func (c *Client) rebalanceQueue() {
 
 	var candidates []queueCandidate
 	for _, d := range c.downloads {
-		if !d.HasState(download.Downloading) {
+		if !d.IsDownloading() {
 			continue
 		}
 		candidates = append(candidates, queueCandidate{d: d, weight: d.QueueWeight()})
@@ -81,7 +81,7 @@ func (c *Client) rebalanceQueue() {
 
 	used := 0
 	for _, r := range candidates {
-		isQueued := r.d.HasState(download.Queued)
+		isQueued := r.d.HasState(download.PendingDownloading)
 		isSlow := slowThreshold > 0 && r.d.DownloadRate() < slowThreshold
 
 		if !isQueued {

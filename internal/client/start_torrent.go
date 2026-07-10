@@ -19,8 +19,8 @@ func (c *Client) StartTorrent(h metainfo.Hash) error {
 		return fmt.Errorf("torrent %s not exists", h)
 	}
 
-	// Already running (Downloading, Seeding, Queued) or Checking — no-op.
-	if d.HasState(download.Downloading) || d.HasState(download.Seeding) || d.HasState(download.Queued) || d.HasState(download.Checking) {
+	// Already running (Downloading, Seeding, PendingDownloading) or Checking — no-op.
+	if d.IsDownloading() || d.HasState(download.Seeding) || d.HasState(download.Checking) {
 		return nil
 	}
 

@@ -149,7 +149,7 @@ func (d *Download) recordDisconnect(p Peer) {
 	d.session.ConnCount.Sub(1)
 
 	// Wake up connection loop to fill the freed slot.
-	if d.HasState(Downloading | Seeding) {
+	if d.IsActive() {
 		select {
 		case d.pendingPeersSignal <- empty.Empty{}:
 		default:

@@ -1,6 +1,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import IntFlag
+
+# ── Torrent state ────────────────────────────────────────────────────
+
+
+class TorrentState(IntFlag):
+    Downloading = 1
+    PendingDownloading = 2
+    Seeding = 3
+    Checking = 4
+    Stopped = 5
+    Moving = 6
+    Error = 7
+
 
 # ── Shared domain types ──────────────────────────────────────────────
 
@@ -11,7 +25,7 @@ class MainDataTorrent:
 
     hash: str
     name: str
-    state: str
+    state: int
     comment: str
     directory_base: str
     message: str

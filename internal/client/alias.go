@@ -16,11 +16,12 @@ type (
 
 // State constants (re-exported from download package).
 const (
-	Stopped         = download.Stopped
-	Downloading     = download.Downloading
-	Seeding         = download.Seeding
-	Checking        = download.Checking
-	Moving          = download.Moving
-	StateError      = download.Error
-	UnchokeInterval = download.UnchokeInterval
+	Stopped            = download.Stopped
+	Downloading        = download.Downloading
+	PendingDownloading = download.PendingDownloading
+	Seeding            = download.Seeding
+	Checking           = download.Checking
+	Moving             = download.Moving
+	StateError         = download.Error
+	UnchokeInterval    = download.UnchokeInterval
 )

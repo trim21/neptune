@@ -13,9 +13,10 @@ from neptune_sdk import (
     AddTorrentRequest,
     NeptuneClient,
     NeptuneRPCError,
+    TorrentState,
 )
 
-BASE = "http://127.0.0.1:8002"
+BASE = "http://127.0.0.1:8002/json_rpc"
 TOKEN = "test-token"
 
 # ── helpers ───────────────────────────────────────────────────────────
@@ -35,7 +36,7 @@ def _rpc_error(code=-32600, message="bad request", *, id=1):
 TORRENT_JSON = {
     "hash": "aabb",
     "name": "test",
-    "state": "Downloading",
+    "state": TorrentState.Downloading,
     "comment": "",
     "directory_base": "/downloads/test",
     "message": "",
