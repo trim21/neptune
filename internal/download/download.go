@@ -449,6 +449,10 @@ func (d *Download) checkPiece(pieceIndex uint32) error {
 			d.chunk.done.Remove(i)
 		}
 		d.chunk.mu.Unlock()
+
+		// Penalize peers that contributed blocks to this corrupt piece.
+		d.penalizePiecePeers(pieceIndex, false /* hash check failed */)
+
 		// Trigger reschedule for re-requesting this piece
 		d.notifyPeersToRequest()
 		return nil
@@ -458,6 +462,9 @@ func (d *Download) checkPiece(pieceIndex uint32) error {
 
 	// Mark piece as fully owned in the picker
 	d.picker.Load().WeHave(pieceIndex)
+
+	// Reward peers that contributed to this successful piece.
+	d.penalizePiecePeers(pieceIndex, true /* hash check passed */)
 
 	if notHave {
 		d.completed.Add(pieceSize)
@@ -471,6 +478,19 @@ func (d *Download) checkPiece(pieceIndex uint32) error {
 	}
 
 	return nil
+}
+
+// penalizePiecePeers iterates over all connected peers and calls
+// OnHashFailed or OnHashPassed for those that contributed blocks to this piece.
+func (d *Download) penalizePiecePeers(pieceIndex uint32, passed bool) {
+	d.peers.Range(func(_ uint64, p Peer) bool {
+		if passed {
+			p.OnHashPassed(pieceIndex)
+		} else {
+			p.OnHashFailed(pieceIndex)
+		}
+		return true
+	})
 }
 
 func (d *Download) checkDone() {

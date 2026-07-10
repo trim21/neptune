@@ -73,6 +73,22 @@ etc/
 - 状态机：Stopped / Downloading / Seeding / Checking / Moving / Error。
 - 支持 BEP 6 (Fast)、BEP 10 (Extension)、BEP 11 (PEX)。
 
+### Peer 类型双态（interface vs concrete）
+`Peer` 类型通过 build tag 在两种形态间切换：
+
+| Build | `Peer` 定义 | 文件 |
+|---|---|---|
+| `!release` (dev/test) | `type Peer = PeerInterface` | [peer_dev.go](../internal/download/peer_dev.go) |
+| `release` | `type Peer = *peerImpl` | [peer_release.go](../internal/download/peer_release.go) |
+
+**目的**：dev 模式用 interface 支持 mock 测试；release 模式用 concrete pointer 消除虚函数调用开销。
+
+**规则**：
+- 跨模块边界（如 `Download.peers`、`peerList`）统一用 `Peer` 类型，不在代码里硬编码 `*peerImpl` 或 `PeerInterface`。
+- 新增 peer 方法时，先加到 `PeerInterface`，再在 `*peerImpl` 和 `*mockPeer` 分别实现。
+- 禁止用类型断言 `p.(*peerImpl)` 绕过接口——这会在 release build 正常工作但违背设计意图，且 `go build -tags '!release'` 下也不安全。
+- `*mockPeer`（[mock_peer_test.go](../internal/download/mock_peer_test.go)）必须实现完整的 `PeerInterface`，新增方法加空实现即可。
+
 ## Build System
 - [taskfile.yaml](../taskfile.yaml) 定义 `lint` / `gen` / `test` / `build` / `release` 任务。
 - 静态链接，Go >= 1.22。

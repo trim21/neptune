@@ -117,6 +117,8 @@ func newPeer(
 
 		allowFast: bm.New(d.info.NumPieces),
 
+		contributedPieces: bm.New(d.info.NumPieces),
+
 		peerID: *atomic.NewPointer(&proto.PeerID{}),
 
 		rttAverage: sizedSlice[time.Duration]{limit: 2000},
@@ -161,6 +163,7 @@ type peerImpl struct {
 	w                 *bufio.Writer
 	r                 *bufio.Reader
 	pieceUploadRate   *flowrate.Monitor
+	contributedPieces *bm.Bitmap
 	Address           netip.AddrPort
 	lastPickResult    PickResult
 	requestQueue      []PieceBlock
@@ -177,6 +180,7 @@ type peerImpl struct {
 	ourChoking        atomic.Bool
 	preferred         atomic.Bool
 	peerChoking       atomic.Bool
+	hashFails         atomic.Uint32
 	rttMutex          sync.RWMutex
 	wm                sync.Mutex
 	rqMu              sync.Mutex
@@ -694,6 +698,8 @@ func (p *peerImpl) start(skipHandshake bool) {
 				// send response without myRequests
 				return
 			}
+
+			p.contributedPieces.Set(event.Res.PieceIndex)
 
 			// Request more blocks for this peer immediately (libtorrent
 			// calls request_a_block from incoming_piece).

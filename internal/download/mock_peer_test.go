@@ -325,3 +325,8 @@ func (m *mockPeer) SubExtensions() bool { return m.subExtension }
 func (m *mockPeer) PeerIDString() string { return m.peerIDString }
 func (m *mockPeer) UserAgent() string    { return m.userAgent }
 func (m *mockPeer) QueueLimit() uint32   { return m.queueLimit }
+
+// ── Hash-fail punishment ────────────────────────────────────────────
+
+func (m *mockPeer) OnHashFailed(pieceIndex uint32) {}
+func (m *mockPeer) OnHashPassed(pieceIndex uint32) {}

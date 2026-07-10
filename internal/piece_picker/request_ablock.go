@@ -82,9 +82,6 @@ func (pp *PiecePicker) RequestABlock(
 
 	m := 0
 	for _, bb := range last.BusyBlocks {
-		if pp.IsFinished(bb.PieceIndex, bb.BlockIndex) {
-			continue
-		}
 		if pp.completedBm.Contains(bb.PieceIndex) {
 			continue
 		}

@@ -135,3 +135,31 @@ func (p *peerImpl) SubExtensions() bool { return p.subExtensions }
 func (p *peerImpl) PeerIDString() string { return p.peerID.Load().AsString() }
 func (p *peerImpl) UserAgent() string    { return lo.FromPtrOr(p.userAgent.Load(), "") }
 func (p *peerImpl) QueueLimit() uint32   { return p.queueLimit.Load() }
+
+// ── Hash-fail punishment ────────────────────────────────────────────────
+
+const maxHashFails = 3
+
+// OnHashFailed increments the consecutive hash-fail counter for this peer.
+// If the counter exceeds maxHashFails, the peer is disconnected and marked
+// as failed so peerList increments failcount (preventing immediate reconnect).
+func (p *peerImpl) OnHashFailed(pieceIndex uint32) {
+	if !p.contributedPieces.Contains(pieceIndex) {
+		return
+	}
+	fails := p.hashFails.Add(1)
+	if fails >= maxHashFails {
+		p.closeErr = ErrPeerSendInvalidData
+		p.log.Warn().Uint32("hash_fails", fails).Msg("disconnecting peer: too many hash failures")
+		p.Close()
+	}
+}
+
+// OnHashPassed resets the hash-fail counter when this peer successfully
+// delivers data for a piece that passes hash verification.
+func (p *peerImpl) OnHashPassed(pieceIndex uint32) {
+	if !p.contributedPieces.Contains(pieceIndex) {
+		return
+	}
+	p.hashFails.Store(0)
+}

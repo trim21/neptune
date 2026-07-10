@@ -87,4 +87,8 @@ type PeerInterface interface {
 	PeerIDString() string
 	UserAgent() string
 	QueueLimit() uint32
+
+	// ── Hash-fail punishment ──────────────────────────────────────────
+	OnHashFailed(pieceIndex uint32)
+	OnHashPassed(pieceIndex uint32)
 }
