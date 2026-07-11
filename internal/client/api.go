@@ -58,6 +58,8 @@ type MainDataTorrent struct {
 	CompletedAt          int64             `json:"completed_at"`
 	ConnectedSeeding     int               `json:"connected_seeding"`
 	Corrupted            int64             `json:"corrupted"`
+	WastedStale          int64             `json:"wasted_stale"`
+	WastedDupe           int64             `json:"wasted_dupe"`
 	TotalSeeding         int               `json:"total_seeding"`
 	TotalDownloading     int               `json:"total_downloading"`
 	Private              bool              `json:"private"`
@@ -94,6 +96,8 @@ func (c *Client) GetTorrentList(keys []string) TorrentList {
 			DirectoryBase:        info.DownloadDir,
 			Private:              info.Private,
 			Corrupted:            info.Corrupted,
+			WastedStale:          info.WastedStale,
+			WastedDupe:           info.WastedDupe,
 			Tags:                 info.Tags,
 			Custom:               info.Custom,
 			ConnectionCount:      info.ConnectionCount,
@@ -468,35 +472,49 @@ func (c *Client) DebugHandlers() http.Handler {
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	})
 
-	router.Get("/{info_hash}", func(w http.ResponseWriter, r *http.Request) {
+	lookupDownload := func(w http.ResponseWriter, r *http.Request) (*download.Download, string, bool) {
 		h := r.PathValue("info_hash")
 		if len(h) != 40 {
 			http.Error(w, "invalid info_hash", http.StatusBadRequest)
-			return
+			return nil, "", false
 		}
-
 		hash, err := hex.DecodeString(h)
 		if err != nil {
 			http.Error(w, "invalid info_hash", http.StatusBadRequest)
-			return
+			return nil, "", false
 		}
-
 		infoHash := metainfo.Hash(hash)
-
 		c.m.RLock()
 		d, ok := c.downloadMap[infoHash]
 		c.m.RUnlock()
-
 		if !ok {
 			http.Error(w, "download not found", http.StatusNotFound)
+			return nil, "", false
+		}
+		return d, h, true
+	}
+
+	router.Get("/{info_hash}.json", func(w http.ResponseWriter, r *http.Request) {
+		d, h, ok := lookupDownload(w, r)
+		if !ok {
 			return
 		}
-
 		data := download.BuildDebugPageData(d, h, r.URL.Query().Get("mode") == "full")
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		if err := download.RenderDebugJSON(w, data); err != nil {
+			log.Error().Err(err).Msg("failed to render debug json")
+		}
+	})
 
+	router.Get("/{info_hash}", func(w http.ResponseWriter, r *http.Request) {
+		d, h, ok := lookupDownload(w, r)
+		if !ok {
+			return
+		}
+		data := download.BuildDebugPageData(d, h, r.URL.Query().Get("mode") == "full")
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
-
 		if err := download.RenderDebugPage(w, data); err != nil {
 			log.Error().Err(err).Msg("failed to render debug page")
 		}

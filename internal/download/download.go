@@ -153,6 +153,7 @@ func (d *Download) handleRes(submit chunkSubmit) {
 
 	// in endgame mode we may receive duplicated response, just ignore them
 	if d.completedBm.Contains(res.PieceIndex) {
+		d.wastedStale.Add(int64(len(res.Data)))
 		return
 	}
 
@@ -355,6 +356,8 @@ func (d *Download) handlePieceFromHeap(index uint32) {
 			if !seen[rel] {
 				seen[rel] = true
 				pendingChunks = append(pendingChunks, chunk.res)
+			} else {
+				d.wastedDupe.Add(int64(len(chunk.res.Data)))
 			}
 		}
 	}

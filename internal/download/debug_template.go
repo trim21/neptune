@@ -5,6 +5,7 @@ package download
 
 import (
 	"embed"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"io"
@@ -30,100 +31,102 @@ var debugTemplateFS embed.FS
 var debugTmpl = template.Must(template.ParseFS(debugTemplateFS, "debug.html"))
 
 type debugPageData struct {
-	InfoHash          string
-	Name              string
-	DownloadRate      string
-	NetRate           string
-	UploadRate        string
-	Progress          string
-	TotalSize         string
-	SelectedSize      string
-	Downloaded        string
-	Completed         string
-	Waste             string
-	Corrupted         string
-	ErrorMsg          string
-	FailingPieces     []debugFailingPiece
-	Trackers          []debugTracker
-	Peers             []debugPeer
-	PickerText        string
-	DownloadingPieces []debugDownloadingPiece
-	Files             []debugFile
-	PieceRanges       []debugPieceRange
-	PendingPeers      []debugPendingPeer
-	FullMode          bool
+	InfoHash          string                  `json:"info_hash"`
+	Name              string                  `json:"name"`
+	DownloadRate      string                  `json:"download_rate"`
+	NetRate           string                  `json:"net_rate"`
+	UploadRate        string                  `json:"upload_rate"`
+	Progress          string                  `json:"progress"`
+	TotalSize         string                  `json:"total_size"`
+	SelectedSize      string                  `json:"selected_size"`
+	Downloaded        string                  `json:"downloaded"`
+	Completed         string                  `json:"completed"`
+	Waste             string                  `json:"waste"`
+	WasteStale        string                  `json:"waste_stale"`
+	WasteDupe         string                  `json:"waste_dupe"`
+	Corrupted         string                  `json:"corrupted"`
+	ErrorMsg          string                  `json:"error_msg"`
+	FailingPieces     []debugFailingPiece     `json:"failing_pieces,omitempty"`
+	Trackers          []debugTracker          `json:"trackers,omitempty"`
+	Peers             []debugPeer             `json:"peers,omitempty"`
+	PickerText        string                  `json:"picker_text"`
+	DownloadingPieces []debugDownloadingPiece `json:"downloading_pieces,omitempty"`
+	Files             []debugFile             `json:"files,omitempty"`
+	PieceRanges       []debugPieceRange       `json:"piece_ranges,omitempty"`
+	PendingPeers      []debugPendingPeer      `json:"pending_peers,omitempty"`
+	FullMode          bool                    `json:"full_mode"`
 }
 
 type debugPendingPeer struct {
-	Address     string
-	LastSeen    string
-	LastError   string
-	Failcount   uint8
-	HadTrans    bool
-	Connectable bool
+	Address     string `json:"address"`
+	LastSeen    string `json:"last_seen"`
+	LastError   string `json:"last_error"`
+	Failcount   uint8  `json:"failcount"`
+	HadTrans    bool   `json:"had_trans"`
+	Connectable bool   `json:"connectable"`
 }
 
 type debugFailingPiece struct {
-	Index     uint32
-	Count     int
-	BlockedBy int
+	Index     uint32 `json:"index"`
+	Count     int    `json:"count"`
+	BlockedBy int    `json:"blocked_by"`
 }
 
 type debugDownloadingPiece struct {
-	Blocks     int
-	Responded  int
-	Requested  int
-	Free       int
-	Index      uint32
-	HashPassed bool
-	Locked     bool
+	Blocks     int    `json:"blocks"`
+	Responded  int    `json:"responded"`
+	Requested  int    `json:"requested"`
+	Free       int    `json:"free"`
+	Index      uint32 `json:"index"`
+	HashPassed bool   `json:"hash_passed"`
+	Locked     bool   `json:"locked"`
 }
 
 type debugTracker struct {
-	URL          string
-	LastAnnounce string
-	Scheduled    string
-	Earliest     string
-	Message      string
-	Error        string
-	Tier         int
-	Seeders      int
-	Leechers     int
-	PeerCount    int
+	URL          string `json:"url"`
+	LastAnnounce string `json:"last_announce"`
+	Scheduled    string `json:"scheduled"`
+	Earliest     string `json:"earliest"`
+	Message      string `json:"message"`
+	Error        string `json:"error"`
+	Tier         int    `json:"tier"`
+	Seeders      int    `json:"seeders"`
+	Leechers     int    `json:"leechers"`
+	PeerCount    int    `json:"peer_count"`
 }
 
 type debugPeer struct {
-	Address      string
-	DownRate     string
-	UpRate       string
-	Client       string
-	Progress     string
-	Fast         string
-	PeerID       string
-	LastPick     string
-	Direction    string
-	Encryption   string
-	OurReq       int
-	ReqQ         int
-	DesiredQ     int
-	PeerReq      int
-	Snubbed      bool
-	PeerChoke    bool
-	PeerInterest bool
-	OurChoke     bool
-	OurInterest  bool
+	Address      string `json:"address"`
+	DownRate     string `json:"down_rate"`
+	UpRate       string `json:"up_rate"`
+	Client       string `json:"client"`
+	Progress     string `json:"progress"`
+	Fast         string `json:"fast"`
+	PeerID       string `json:"peer_id"`
+	LastPick     string `json:"last_pick"`
+	Direction    string `json:"direction"`
+	Encryption   string `json:"encryption"`
+	OurReq       int    `json:"our_req"`
+	ReqQ         int    `json:"req_q"`
+	DesiredQ     int    `json:"desired_q"`
+	PeerReq      int    `json:"peer_req"`
+	Snubbed      bool   `json:"snubbed"`
+	PeerChoke    bool   `json:"peer_choke"`
+	PeerInterest bool   `json:"peer_interest"`
+	OurChoke     bool   `json:"our_choke"`
+	OurInterest  bool   `json:"our_interest"`
 }
 
 type debugFile struct {
-	Size     string
-	Progress string
-	Selected string
-	Path     string
-	Index    int
+	Size     string `json:"size"`
+	Progress string `json:"progress"`
+	Selected string `json:"selected"`
+	Path     string `json:"path"`
+	Index    int    `json:"index"`
 }
 
 type debugPieceRange struct {
-	Text string
+	Text string `json:"text"`
 }
 
 func RenderDebugPage(w io.Writer, data *debugPageData) error {
@@ -143,6 +146,8 @@ func BuildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 		Downloaded:   humanize.IBytes(uint64(d.downloaded.Load())),
 		Completed:    humanize.IBytes(uint64(d.completed.Load())),
 		Waste:        humanize.IBytes(uint64(d.downloaded.Load() - d.completed.Load())),
+		WasteStale:   humanize.IBytes(uint64(d.wastedStale.Load())),
+		WasteDupe:    humanize.IBytes(uint64(d.wastedDupe.Load())),
 		Corrupted:    humanize.IBytes(uint64(d.corrupted.Load())),
 		ErrorMsg:     d.ErrorMsg(),
 		FullMode:     fullMode,
@@ -463,4 +468,11 @@ func writePieceRanges(w io.Writer, label string, bits *bm.Bitmap) {
 		}
 	}
 	fmt.Fprintln(w)
+}
+
+// RenderDebugJSON writes the debug data as JSON.
+func RenderDebugJSON(w io.Writer, data *debugPageData) error {
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(data)
 }

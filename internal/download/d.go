@@ -165,6 +165,8 @@ type Download struct {
 	downloaded             atomic.Int64
 	corrupted              atomic.Int64
 	uploaded               atomic.Int64
+	wastedStale            atomic.Int64
+	wastedDupe             atomic.Int64
 	peerIDCounter          atomic.Uint64
 	notifyScheduled        atomic.Bool
 	unchokeSlotIdx         int

@@ -33,6 +33,8 @@ type TorrentInfo struct {
 	CompletedAt          int64
 	ConnectedSeeding     int
 	Corrupted            int64
+	WastedStale          int64
+	WastedDupe           int64
 	TotalSeeding         int
 	TotalDownloading     int
 	Private              bool
@@ -80,6 +82,8 @@ func (d *Download) Info(keys []string) TorrentInfo {
 		CompletedAt:          d.CompletedAt.Load(),
 		Private:              d.info.Private,
 		Corrupted:            d.corrupted.Load(),
+		WastedStale:          d.wastedStale.Load(),
+		WastedDupe:           d.wastedDupe.Load(),
 		TotalSeeding:         totalSeeding,
 		TotalDownloading:     totalDownloading,
 		ConnectedSeeding:     connectedSeeding,
