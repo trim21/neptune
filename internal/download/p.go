@@ -88,6 +88,7 @@ func newPeer(
 		pieceUploadRate:   flowrate.New(time.Second, 5*time.Second),
 		pieceDownloadRate: flowrate.New(time.Second, 5*time.Second),
 		Address:           addr,
+		connectedAt:       time.Now(),
 		id:                d.peerIDCounter.Add(1),
 		queueLimit:        *atomic.NewUint32(2000),
 		incoming:          skipReadHandshake,
@@ -171,6 +172,7 @@ type peerImpl struct {
 	suspectPieces          *bm.Bitmap
 	blockedPieceTimestamps *xsync.Map[uint32, time.Time]
 	Address                netip.AddrPort
+	connectedAt            time.Time
 	lastPickResult         PickResult
 	requestQueue           []PieceBlock
 	rttAverage             sizedSlice[time.Duration]

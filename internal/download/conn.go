@@ -161,7 +161,7 @@ func (d *Download) recordDisconnect(p Peer) {
 	d.notifyPeersToRequest()
 }
 
-// peerTurnover disconnects slow peers to make room for fresh candidates.
+// peerTurnover disconnects least useful peers to make room for fresh candidates.
 // Mirrors libtorrent's optimistic disconnect (~2% per round).
 func (d *Download) peerTurnover() {
 	const turnoverFraction = 50 // 1/50 = 2%
@@ -178,7 +178,8 @@ func (d *Download) peerTurnover() {
 		return
 	}
 
-	toDisconnect := d.peerList.peerTurnover(disconnectN)
+	weAreSeed := d.HasState(Seeding)
+	toDisconnect := d.peerList.peerTurnover(disconnectN, weAreSeed)
 	for _, p := range toDisconnect {
 		p.Close()
 	}

@@ -54,6 +54,7 @@ func (p *peerImpl) SwapOurInterested(oldVal, newVal bool) bool {
 
 // ── Timing ───────────────────────────────────────────────────────────────
 
+func (p *peerImpl) ConnectedAt() time.Time       { return p.connectedAt }
 func (p *peerImpl) LastUnchokeAt() time.Time     { return p.lastUnchokeAt.Load() }
 func (p *peerImpl) SetLastUnchokeAt(t time.Time) { p.lastUnchokeAt.Store(t) }
 

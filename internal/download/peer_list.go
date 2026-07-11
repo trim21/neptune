@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"slices"
 	"sync"
+	"time"
 
 	"neptune/internal/client/tracker"
 )
@@ -530,31 +531,70 @@ func (pl *peerList) count() int {
 	return len(pl.peers)
 }
 
-// peerTurnover disconnects up to 'count' slow peers to make room for new ones.
-// Mirrors libtorrent's disconnect_peers with optimistic_disconnect.
-func (pl *peerList) peerTurnover(count int) []Peer {
+// peerDisconnectScore calculates a disconnect priority score for a peer.
+// Lower scores mean higher priority to disconnect.
+func peerDisconnectScore(p Peer, weAreSeed bool) int64 {
+	// Both sides are seeding — no value in staying connected.
+	if weAreSeed && p.IsSeed() {
+		return 0
+	}
+	// New connection grace period — give fresh peers time to ramp up.
+	if time.Since(p.ConnectedAt()) < 30*time.Second {
+		return 200
+	}
+
+	// We have no interest in this peer's pieces.
+	if !p.IsOurInterested() {
+		return 1
+	}
+
+	// Peer is choking us and never gave us data.
+	if p.IsChoking() && !p.HadTransfer() {
+		return 2
+	}
+
+	// Peer is choking us but used to give data (might be temporary).
+	if p.IsChoking() {
+		return 50
+	}
+
+	// Peer is snubbed (repeated request timeouts).
+	if p.IsSnubbed() {
+		return 60
+	}
+
+	// Active connection — score by transfer rates.
+	// Higher rates = higher score = less likely to disconnect.
+	score := int64(100)
+	score += p.DownloadRate() / 1024   // +1 per KB/s download
+	score += p.UploadRate() / 1024 / 2 // +0.5 per KB/s upload (reciprocity)
+	return score
+}
+
+// peerTurnover disconnects up to 'count' least useful peers to make room for new ones.
+func (pl *peerList) peerTurnover(count int, weAreSeed bool) []Peer {
 	pl.mu.Lock()
 	defer pl.mu.Unlock()
 
 	type connectedPeer struct {
-		p          *persistentPeer
-		uploadRate int64
+		pp    *persistentPeer
+		score int64
 	}
 	var connected []connectedPeer
 	for _, pp := range pl.peers {
 		if pp.connection != nil && !pp.connection.Closed() {
 			connected = append(connected, connectedPeer{
-				p:          pp,
-				uploadRate: pp.connection.UploadRate(),
+				pp:    pp,
+				score: peerDisconnectScore(pp.connection, weAreSeed),
 			})
 		}
 	}
 
 	slices.SortFunc(connected, func(a, b connectedPeer) int {
-		if a.uploadRate < b.uploadRate {
+		if a.score < b.score {
 			return -1
 		}
-		if a.uploadRate > b.uploadRate {
+		if a.score > b.score {
 			return 1
 		}
 		return 0
@@ -562,7 +602,7 @@ func (pl *peerList) peerTurnover(count int) []Peer {
 
 	toDisconnect := make([]Peer, 0, min(count, len(connected)))
 	for i := range min(count, len(connected)) {
-		toDisconnect = append(toDisconnect, connected[i].p.connection)
+		toDisconnect = append(toDisconnect, connected[i].pp.connection)
 	}
 
 	return toDisconnect

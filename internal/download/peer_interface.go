@@ -52,6 +52,7 @@ type PeerInterface interface {
 	SwapOurInterested(oldVal, newVal bool) bool
 
 	// ── Timing ───────────────────────────────────────────────────────
+	ConnectedAt() time.Time
 	LastUnchokeAt() time.Time
 	SetLastUnchokeAt(t time.Time)
 

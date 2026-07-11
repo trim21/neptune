@@ -22,20 +22,20 @@ import (
 // mockPeer is a controllable Peer implementation for testing download scheduling.
 // Default values produce a sane, usable peer (not closed, not choking, empty bitmap).
 type mockPeer struct {
+	connectedAt            time.Time
 	closeErr               error
-	preferred              *atomic.Bool
-	inQueueMap             map[proto.ChunkRequest]bool
-	disconnecting          *atomic.Bool
+	closed                 *atomic.Bool
+	blockedPieces          *bm.Bitmap
 	isSeed                 *atomic.Bool
 	snubbed                *atomic.Bool
 	peerInterested         *atomic.Bool
 	ourChoking             *atomic.Bool
 	ourInterested          *atomic.Bool
 	peerChoking            *atomic.Bool
-	closed                 *atomic.Bool
+	inQueueMap             map[proto.ChunkRequest]bool
 	fastBitmap             *bm.Bitmap
 	bitmap                 *bm.Bitmap
-	blockedPieces          *bm.Bitmap
+	disconnecting          *atomic.Bool
 	suspectPieces          *bm.Bitmap
 	blockedPieceTimestamps map[uint32]time.Time
 	lastUnchokeAt          *atomic.Time
@@ -43,10 +43,11 @@ type mockPeer struct {
 	responseFunc           func(res *proto.ChunkResponse) bool
 	resChan                chan chunkSubmit
 	dl                     *Download
+	preferred              *atomic.Bool
 	addr                   netip.AddrPort
-	lastPickDebug          string
-	peerIDString           string
 	userAgent              string
+	peerIDString           string
+	lastPickDebug          string
 	lastPickRes            PickResult
 	queued                 []PieceBlock
 	enqueuedBlocks         []PieceBlock
@@ -58,7 +59,7 @@ type mockPeer struct {
 	downloadTotal          int64
 	sendBlockCalled        int
 	mu                     sync.Mutex
-	reqMu                  sync.Mutex // protects requestABlock against concurrent calls
+	reqMu                  sync.Mutex
 	desiredSize            int32
 	outstanding            int32
 	queueLimit             uint32
@@ -75,6 +76,7 @@ func newMockPeer() *mockPeer {
 	return &mockPeer{
 		peerID:                 1,
 		addr:                   netip.MustParseAddrPort("127.0.0.1:6881"),
+		connectedAt:            time.Now(),
 		closed:                 atomic.NewBool(false),
 		disconnecting:          atomic.NewBool(false),
 		isSeed:                 atomic.NewBool(false),
@@ -175,6 +177,7 @@ func (m *mockPeer) SwapOurInterested(oldVal, newVal bool) bool {
 
 // ── Timing ──────────────────────────────────────────────────────────
 
+func (m *mockPeer) ConnectedAt() time.Time       { return m.connectedAt }
 func (m *mockPeer) LastUnchokeAt() time.Time     { return m.lastUnchokeAt.Load() }
 func (m *mockPeer) SetLastUnchokeAt(t time.Time) { m.lastUnchokeAt.Store(t) }
 
