@@ -69,6 +69,8 @@ func newTestEnv(t *testing.T, numPieces, blocksPerPiece uint32, failPieces []uin
 	completedBm := bm.New(info.NumPieces)
 	wantedBm := bm.New(info.NumPieces)
 	wantedBm.Fill()
+	missingBm := bm.NewLockFreeBitmap(info.NumPieces)
+	missingBm.Fill()
 	normalChunkLen := (info.PieceLength + defaultBlockSize - 1) / defaultBlockSize
 	stateCond := gsync.NewCond(&sync.RWMutex{})
 
@@ -109,9 +111,10 @@ func newTestEnv(t *testing.T, numPieces, blocksPerPiece uint32, failPieces []uin
 	d.session.PieceDownloadRate = flowrate.New(time.Second, 5*time.Second)
 
 	d.completedBm = completedBm
+	d.missingBm = missingBm
 	d.wantedBm = wantedBm
 	d.peerList = newPeerList(d)
-	d.picker.Store(NewPiecePicker(info, completedBm, wantedBm, nil, nil))
+	d.picker.Store(NewPiecePicker(info, missingBm, nil, nil))
 	d.state.Store(uint32(Downloading))
 
 	return &testEnv{t: t, d: d, env: memStore.(*piece_store.MemStore)}

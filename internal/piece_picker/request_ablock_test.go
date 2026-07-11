@@ -13,7 +13,7 @@ import (
 
 func TestRequestABlock_AllCompleted(t *testing.T) {
 	pp := newTestPicker(3, 4)
-	pp.completedBm.Fill()
+	pp.missingBm.Clear()
 
 	result := pp.RequestABlock(PickResult{}, 8, 0, 0, false, nil, nil, bm.NewLockFreeBitmap(3))
 

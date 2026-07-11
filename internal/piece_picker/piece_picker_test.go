@@ -22,7 +22,7 @@ func TestResetPieceIntoCandidates(t *testing.T) {
 		pp.MarkAsRequesting(1, i)
 		pp.MarkAsResponded(1, i)
 	}
-	pp.completedBm.Set(1)
+	pp.missingBm.Unset(1)
 	pp.WeHave(1)
 
 	// Download piece 0: all blocks requested and responded.

@@ -488,6 +488,7 @@ func (d *Download) checkPiece(pieceIndex uint32) error {
 		return nil
 	}
 
+	d.missingBm.Unset(pieceIndex)
 	notHave := d.completedBm.SetX(pieceIndex)
 
 	// Mark piece as fully owned in the picker
@@ -632,6 +633,7 @@ func (d *Download) recheckAfterComplete() {
 		return
 	}
 	d.completedBm.Clear()
+	d.setMissingFromWantedSync()
 	d.picker.Load().ResetAll()
 	d.completed.Store(0)
 	d.stateCond.Broadcast()

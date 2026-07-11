@@ -21,7 +21,7 @@ func TestEndgameAllBlocksResponded_EmptyResult(t *testing.T) {
 	// Piece 0: completed.
 	pp.MarkAsRequesting(0, 0)
 	pp.MarkAsResponded(0, 0)
-	pp.completedBm.Set(0)
+	pp.missingBm.Unset(0)
 	pp.WeHave(0)
 
 	// Piece 1: all blocks responded, hash check pending.
@@ -36,7 +36,7 @@ func TestEndgameAllBlocksResponded_EmptyResult(t *testing.T) {
 		pp.MarkAsRequesting(2, bi)
 		pp.MarkAsResponded(2, bi)
 	}
-	pp.completedBm.Set(2)
+	pp.missingBm.Unset(2)
 	pp.WeHave(2)
 
 	peerBitfield := bm.New(pp.info.NumPieces)
@@ -61,11 +61,11 @@ func TestResetPieceRestoresPiece(t *testing.T) {
 	pp := newTestPicker(3, 4)
 
 	// Piece 0: completed.
-	pp.completedBm.Set(0)
+	pp.missingBm.Unset(0)
 	pp.WeHave(0)
 
 	// Piece 2: completed.
-	pp.completedBm.Set(2)
+	pp.missingBm.Unset(2)
 	pp.WeHave(2)
 
 	// Piece 1: all blocks responded, then hash check fails.

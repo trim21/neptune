@@ -4,6 +4,7 @@
 package bm
 
 import (
+	"math/bits"
 	"sync/atomic"
 )
 
@@ -43,4 +44,43 @@ func (b *LockFreeBitmap) Unset(i uint32) {
 	word := i / 64
 	bit := i % 64
 	b.words[word].And(^(uint64(1) << bit))
+}
+
+// Fill sets all bits in [0, size).
+func (b *LockFreeBitmap) Fill() {
+	fullWords := b.size / 64
+	remainder := b.size % 64
+
+	for i := range fullWords {
+		b.words[i].Store(^uint64(0))
+	}
+
+	if remainder > 0 {
+		b.words[fullWords].Store(^uint64(0) >> (64 - remainder))
+	}
+}
+
+// Clear clears all bits.
+func (b *LockFreeBitmap) Clear() {
+	for i := range b.words {
+		b.words[i].Store(0)
+	}
+}
+
+// Count returns the number of set bits.
+func (b *LockFreeBitmap) Count() int {
+	if len(b.words) == 0 {
+		return 0
+	}
+	n := 0
+	for i := range b.words[:len(b.words)-1] {
+		n += bits.OnesCount64(b.words[i].Load())
+	}
+	last := b.words[len(b.words)-1].Load()
+	remainder := b.size % 64
+	if remainder > 0 {
+		last &= ^uint64(0) >> (64 - remainder)
+	}
+	n += bits.OnesCount64(last)
+	return n
 }

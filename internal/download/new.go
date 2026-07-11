@@ -122,9 +122,18 @@ func New(sess *session.Session, m *metainfo.MetaInfo, info meta.Info, basePath s
 	d.wantedBm = bm.New(info.NumPieces)
 	d.buildSelectedPiecesBmUnsafe()
 
+	// missingBm = wantedBm & ~completedBm. Download owns and maintains it.
+	missingBm := bm.NewLockFreeBitmap(info.NumPieces)
+	d.wantedBm.Range(func(i uint32) {
+		if !d.completedBm.Contains(i) {
+			missingBm.Set(i)
+		}
+	})
+	d.missingBm = missingBm
+
 	strategy := defaultStrategy(sess.Config.App.PiecePickStrategy)
 	d.piecePickStrategy.Store(uint32(strategy))
-	d.picker.Store(NewPiecePicker(info, completedBm, d.wantedBm, nil, &d.piecePickStrategy))
+	d.picker.Store(NewPiecePicker(info, missingBm, nil, &d.piecePickStrategy))
 
 	d.peerList.d = d
 

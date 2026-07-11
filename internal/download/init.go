@@ -86,6 +86,7 @@ func (d *Download) initCheck() error {
 		sha1Sum = sum.Sum(sha1Sum[:0])
 		if [sha1.Size]byte(sha1Sum[:sha1.Size]) == d.info.Pieces[pieceIndex] {
 			d.completedBm.Set(pieceIndex)
+			d.missingBm.Unset(pieceIndex)
 			d.picker.Load().WeHave(pieceIndex)
 			d.completed.Add(d.info.PieceLen(pieceIndex))
 		}
@@ -209,6 +210,7 @@ func (d *Download) check(resumed bool, skipHashCheck bool) {
 			}
 		} else if !resumed {
 			d.completedBm.Fill()
+			d.missingBm.Clear()
 			for i := range d.info.NumPieces {
 				d.picker.Load().WeHave(i)
 			}
@@ -223,6 +225,7 @@ func (d *Download) check(resumed bool, skipHashCheck bool) {
 	if !resumed {
 		d.s.mu.RLock()
 		d.markUnselectedPiecesDoneUnsafe()
+		d.setMissingFromWantedSync()
 		d.completed.Store(d.computeCompletedUnsafe())
 		d.s.mu.RUnlock()
 		d.pieceDownloadRate.Reset()

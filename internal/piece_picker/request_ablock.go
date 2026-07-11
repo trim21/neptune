@@ -35,7 +35,7 @@ func (pp *PiecePicker) RequestABlock(
 	last.FreeBlocks = last.FreeBlocks[:0]
 	last.BusyBlocks = last.BusyBlocks[:0]
 
-	if pp.completedBm.Count() == pp.info.NumPieces {
+	if pp.missingBm.Count() == 0 {
 		return last
 	}
 

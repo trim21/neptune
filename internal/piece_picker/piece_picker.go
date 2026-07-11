@@ -104,8 +104,7 @@ const priorityFactor = 3
 //
 // All public methods are safe for concurrent use.
 type PiecePicker struct {
-	completedBm        *bm.Bitmap
-	wantedBm           *bm.Bitmap
+	missingBm          *bm.LockFreeBitmap
 	strategy           *atomic.Uint32
 	chunkDoneBm        *bm.Bitmap
 	piecePriorities    []uint32
@@ -125,10 +124,9 @@ type PiecePicker struct {
 }
 
 // NewPiecePicker creates a new piece picker for the given torrent info.
-// completedBm is the Download's completed bitmap — the picker reads it directly
-// instead of maintaining its own copy.
-// wantedBm is the Download's wanted bitmap — tracks which pieces are selected.
-func NewPiecePicker(info meta.Info, completedBm *bm.Bitmap, wantedBm *bm.Bitmap, chunkDoneBm *bm.Bitmap, strategy *atomic.Uint32) *PiecePicker {
+// missingBm is the Download's missing bitmap (wantedBm & ~completedBm) — the
+// picker uses it for lock-free reads in the hot path.
+func NewPiecePicker(info meta.Info, missingBm *bm.LockFreeBitmap, chunkDoneBm *bm.Bitmap, strategy *atomic.Uint32) *PiecePicker {
 	numPieces := info.NumPieces
 	blocksPerPiece := uint32((info.PieceLength + meta.DefaultBlockSize - 1) / meta.DefaultBlockSize)
 
@@ -140,10 +138,9 @@ func NewPiecePicker(info meta.Info, completedBm *bm.Bitmap, wantedBm *bm.Bitmap,
 		availability:    make([]uint16, numPieces),
 		piecePriorities: make([]uint32, numPieces),
 		pieces:          make([]uint32, numPieces),
-		completedBm:     completedBm,
+		missingBm:       missingBm,
 		chunkDoneBm:     chunkDoneBm,
 		strategy:        strategy,
-		wantedBm:        wantedBm,
 		dirty:           true,
 		blockInfos:      newBlockStates(int(numPieces) * int(blocksPerPiece)),
 	}
@@ -343,14 +340,14 @@ func (pp *PiecePicker) rebuildPriorities(strategy PiecePickStrategy) {
 		return
 	}
 
-	available := pp.wantedBm.WithAndNot(pp.completedBm)
-	// Filter out pieces where all blocks are already finished (pending hash check).
+	var pieces = make([]uint32, 0, pp.numPieces)
+	// Filter to pieces that are wanted, not completed, and not awaiting hash check.
 	for pi := range pp.numPieces {
-		if available.Contains(pi) && pp.allBlocksResponded(pi) {
-			available.Unset(pi)
+		if !pp.missingBm.Contains(pi) || pp.allBlocksResponded(pi) {
+			continue
 		}
+		pieces = append(pieces, pi)
 	}
-	pieces := available.ToArray()
 
 	if strategy == StrategySequential {
 		// Sequential: pieces from ToArray() are already in ascending order.
@@ -478,7 +475,7 @@ func (pp *PiecePicker) PickPieces(
 	var partials []partialInfo
 
 	for _, dp := range pp.downloadingPieces {
-		if pp.completedBm.Contains(dp.index) {
+		if !pp.missingBm.Contains(dp.index) {
 			continue
 		}
 		if !bitfield.Contains(dp.index) {
@@ -564,7 +561,7 @@ func (pp *PiecePicker) PickPieces(
 	// Pieces with free>0 were already handled in the partials loop above.
 	if numBlocks > 0 && pp.numWantLeft == 0 {
 		for _, dp := range pp.downloadingPieces {
-			if pp.completedBm.Contains(dp.index) {
+			if !pp.missingBm.Contains(dp.index) {
 				continue
 			}
 			if !bitfield.Contains(dp.index) {
@@ -618,7 +615,7 @@ func (pp *PiecePicker) PickPieces(
 	for cursor := 0; numBlocks > 0 && cursor < len(pp.pieces); cursor++ {
 		pi := pp.pieces[cursor]
 
-		if pp.completedBm.Contains(pi) || pp.allBlocksResponded(pi) {
+		if !pp.missingBm.Contains(pi) || pp.allBlocksResponded(pi) {
 			continue
 		}
 		if !bitfield.Contains(pi) {
@@ -1006,8 +1003,7 @@ func (pp *PiecePicker) debugDumpUnsafe() string {
 
 	fmt.Fprintf(&buf, "--- all pieces by block state ---\n")
 	for pi := range pp.numPieces {
-		if pp.completedBm.Contains(pi) {
-			fmt.Fprintf(&buf, "  %d COMPLETE\n", pi)
+		if !pp.missingBm.Contains(pi) {
 			continue
 		}
 		idx := pp.blockInfoIdx(pi)

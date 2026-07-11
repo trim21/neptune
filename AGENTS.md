@@ -121,15 +121,13 @@ etc/
 
 ## Conventions
 - 错误用 `trim21/errgo`。
-- 禁止 `sync/atomic`，用 `uber/atomic`。
 - import 顺序：标准库 → 第三方 → 本地模块。
 - 测试：`-tags assert`。
-- 文件命名：`c_*.go` Client、`d_*.go` Download、`p_*.go` Peer。
 
 ## Version
 - [internal/version](../internal/version) 通过 ldflags 注入版本号，`-v` 输出。
 
 ## 其他
-- DHT、MSE 暂未实装。
+- DHT 暂未实装。
 - **Python SDK** ([sdk/python/](../sdk/python/))：同步 JSON-RPC 客户端，新增 RPC 需同步更新 models/client。
 - **TypeScript SDK** ([sdk/typescript/](../sdk/typescript/))：异步 JSON-RPC 客户端，新增 RPC 需同步更新 types/client。

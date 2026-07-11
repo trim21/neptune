@@ -135,6 +135,7 @@ func TestRequestABlock_CompletedPieceSkipped(t *testing.T) {
 	// Mark piece 0 as complete — blocks for piece 0 should be skipped.
 	d, p := newRequestABlockFixture(t, 3)
 	d.completedBm.Set(0)
+	d.missingBm.Unset(0)
 	d.picker.Load().WeHave(0)
 
 	// Only pieces 1, 2 are available in picker now.
@@ -184,6 +185,7 @@ func TestRequestABlock_EndgameBusyBlocks(t *testing.T) {
 func TestRequestABlock_AllPiecesCompleted(t *testing.T) {
 	d, p := newRequestABlockFixture(t, 3)
 	d.completedBm.Fill() // all pieces done
+	d.missingBm.Clear()
 
 	p.requestABlock()
 

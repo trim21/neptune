@@ -76,6 +76,7 @@ func ResumeFromData(sess *session.Session, data []byte) (*Download, error) {
 	// anything else (including historical raw State values from old resume
 	// files) is treated as active.
 	d.markUnselectedPiecesDoneUnsafe()
+	d.setMissingFromWantedSync()
 	d.completed.Store(d.computeCompletedUnsafe())
 
 	if r.State == ResumeStopped {

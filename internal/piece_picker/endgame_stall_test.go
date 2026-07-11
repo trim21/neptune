@@ -25,7 +25,7 @@ func TestEndgameNoFreeBlocks(t *testing.T) {
 			pp.MarkAsRequesting(pi, bi)
 			pp.MarkAsResponded(pi, bi)
 		}
-		pp.completedBm.Set(pi)
+		pp.missingBm.Unset(pi)
 		pp.WeHave(pi)
 	}
 

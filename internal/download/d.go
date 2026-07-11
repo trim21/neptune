@@ -152,6 +152,7 @@ type Download struct {
 	pendingPeersSignal     chan empty.Empty
 	tracker                *tracker.Trackers
 	completedBm            *bm.Bitmap
+	missingBm              *bm.LockFreeBitmap
 	wantedBm               *bm.Bitmap
 	s                      downloadState
 	chunk                  chunkState
@@ -363,6 +364,18 @@ func (d *Download) markUnselectedPiecesDoneUnsafe() {
 
 	unwanted.Range(func(i uint32) {
 		d.picker.Load().WeHave(i)
+	})
+}
+
+// setMissingFromWantedSync syncs missingBm to wantedBm & ~completedBm.
+// Must be called after any bulk change to completedBm or wantedBm that isn't
+// covered by individual Set/Unset calls (e.g. OR, Fill, Clear, or wantedBm changes).
+func (d *Download) setMissingFromWantedSync() {
+	d.missingBm.Clear()
+	d.wantedBm.Range(func(i uint32) {
+		if !d.completedBm.Contains(i) {
+			d.missingBm.Set(i)
+		}
 	})
 }
 

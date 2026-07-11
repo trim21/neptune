@@ -28,7 +28,7 @@ func FuzzPiecePicker(f *testing.F) {
 		initPieces := randomPieces(rng, int(numPieces), initComplete)
 		for _, pi := range initPieces {
 			setPieceResponded(pp, pi, int(blocksPerPiece))
-			pp.completedBm.Set(pi)
+			pp.missingBm.Unset(pi)
 			pp.WeHave(pi)
 		}
 
@@ -90,7 +90,7 @@ func FuzzPiecePicker(f *testing.F) {
 				pieceDone[fb.PieceIndex]++
 
 				if pieceDone[fb.PieceIndex] == int(blocksPerPiece) {
-					pp.completedBm.Set(fb.PieceIndex)
+					pp.missingBm.Unset(fb.PieceIndex)
 					pp.WeHave(fb.PieceIndex)
 					completed.Set(fb.PieceIndex)
 				}

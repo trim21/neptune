@@ -100,16 +100,20 @@ func newTestDownload(t testing.TB, numPieces uint32, blocksPerPiece uint32, newS
 	}
 	wantedBm := bm.New(info.NumPieces)
 	wantedBm.Fill()
+	missingBm := bm.NewLockFreeBitmap(info.NumPieces)
+	missingBm.Fill()
 	d.completedBm = completedBm
+	d.missingBm = missingBm
 	d.wantedBm = wantedBm
 	d.peerList = newPeerList(d)
-	d.picker.Store(NewPiecePicker(info, completedBm, wantedBm, nil, nil))
+	d.picker.Store(NewPiecePicker(info, missingBm, nil, nil))
 	d.state.Store(uint32(Downloading))
 	return d
 }
 
 func resetDownload(d *Download) {
 	d.completedBm.Clear()
+	d.missingBm.Fill()
 	d.picker.Load().ResetAll()
 	d.completed.Store(0)
 	d.downloaded.Store(0)

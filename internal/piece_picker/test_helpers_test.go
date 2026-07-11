@@ -25,10 +25,9 @@ func testInfo(numPieces, blocksPerPiece uint32) meta.Info {
 // All pieces are wanted, none completed.
 func newTestPicker(numPieces, blocksPerPiece uint32) *PiecePicker {
 	info := testInfo(numPieces, blocksPerPiece)
-	completedBm := bm.New(info.NumPieces)
-	wantedBm := bm.New(info.NumPieces)
-	wantedBm.Fill()
+	missingBm := bm.NewLockFreeBitmap(info.NumPieces)
+	missingBm.Fill()
 	chunkDoneBm := bm.New(info.NumPieces * blocksPerPiece)
 
-	return NewPiecePicker(info, completedBm, wantedBm, chunkDoneBm, new(atomic.Uint32))
+	return NewPiecePicker(info, missingBm, chunkDoneBm, new(atomic.Uint32))
 }

@@ -19,7 +19,7 @@ func TestStallZombiePiece(t *testing.T) {
 	// Complete piece 1 to avoid startup mode.
 	pp.MarkAsRequesting(1, 0)
 	pp.MarkAsResponded(1, 0)
-	pp.completedBm.Set(1)
+	pp.missingBm.Unset(1)
 	pp.WeHave(1)
 
 	// Piece 0 fully received, all blocks responded, hash check pending.
@@ -66,8 +66,8 @@ func TestStallCompletedBmRace(t *testing.T) {
 	pp.MarkAsRequesting(0, 1)
 	pp.AddDownloadingPiece(0)
 
-	// Simulate the race: completedBm.SetX runs but weHave hasn't removed from downloadingPieces yet.
-	pp.completedBm.SetX(0)
+	// Simulate the race: SetX runs but weHave hasn't removed from downloadingPieces yet.
+	pp.missingBm.Unset(0)
 
 	result := PickResult{}
 	result = pp.PickPieces(peerBitfield, false, nil, bm.NewLockFreeBitmap(pp.info.NumPieces), 4, 0, nil, result)
@@ -96,14 +96,14 @@ func TestStall_NewPickerDoesntInheritDownloadingPieces(t *testing.T) {
 		oldPicker.MarkAsResponded(0, bi)
 	}
 	oldPicker.AddDownloadingPiece(0)
-	oldPicker.completedBm.SetX(0)
+	oldPicker.missingBm.Unset(0)
 
 	// Create NEW picker.
 	newPicker := newTestPicker(10, 4)
-	newPicker.completedBm = oldPicker.completedBm // share completedBm
+	newPicker.missingBm = oldPicker.missingBm // share missingBm
 	newPicker.MarkAsRequesting(1, 0)
 	newPicker.MarkAsResponded(1, 0)
-	newPicker.completedBm.Set(1)
+	newPicker.missingBm.Unset(1)
 	newPicker.WeHave(1)
 	newPicker.WeHave(0) // piece 0 not in newPicker's downloadingPieces → no-op
 
@@ -135,7 +135,7 @@ func TestStallEndgamePicksFreeZeroPieces(t *testing.T) {
 	// Complete piece 0 to avoid startup mode.
 	pp.MarkAsRequesting(0, 0)
 	pp.MarkAsResponded(0, 0)
-	pp.completedBm.Set(0)
+	pp.missingBm.Unset(0)
 	pp.WeHave(0)
 
 	// Piece 1: 0 free, 1 requested, 3 responded (stalled near completion).
@@ -150,7 +150,7 @@ func TestStallEndgamePicksFreeZeroPieces(t *testing.T) {
 		pp.MarkAsRequesting(2, bi)
 		pp.MarkAsResponded(2, bi)
 	}
-	pp.completedBm.Set(2)
+	pp.missingBm.Unset(2)
 	pp.WeHave(2)
 
 	peerBitfield := bm.New(pp.info.NumPieces)
