@@ -44,6 +44,7 @@ type debugPageData struct {
 	Waste             string                  `json:"waste"`
 	WasteStale        string                  `json:"waste_stale"`
 	WasteDupe         string                  `json:"waste_dupe"`
+	Pending           string                  `json:"pending"`
 	Corrupted         string                  `json:"corrupted"`
 	ErrorMsg          string                  `json:"error_msg"`
 	FailingPieces     []debugFailingPiece     `json:"failing_pieces,omitempty"`
@@ -249,6 +250,11 @@ func BuildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 	})
 	dlRate := d.pieceDownloadRate.Status().CurRate
 	dlTotal := d.pieceDownloadRate.Status().Total
+
+	// Pending blocks: blocks received but not yet flushed to disk (piece not complete).
+	d.chunk.mu.RLock()
+	data.Pending = humanize.IBytes(uint64(d.chunk.pending.Count()) * defaultBlockSize)
+	d.chunk.mu.RUnlock()
 
 	// Picker stats
 	st := d.picker.Load().DebugStats()
