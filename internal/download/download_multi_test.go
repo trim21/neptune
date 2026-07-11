@@ -117,7 +117,7 @@ func FuzzDownloadMultiPeer_Async(f *testing.F) {
 						" alivePeer=%d unchoked=%d interested=%d\n%s",
 						d.completedBm.Count(), numPieces, seed,
 						peersAlive, peersUnchoked, peersInterested,
-						dumpState(d))
+						dumpState(d, nil))
 				}
 				return
 

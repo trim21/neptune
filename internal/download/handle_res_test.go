@@ -17,7 +17,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kelindar/bitmap"
 	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/rs/zerolog"
 	"golang.org/x/sync/semaphore"
@@ -63,7 +62,8 @@ func newTestDownload(t testing.TB, numPieces uint32, blocksPerPiece uint32, newS
 	t.Cleanup(cancel)
 
 	completedBm := bm.New(info.NumPieces)
-	normalChunkLen := (info.PieceLength + defaultBlockSize - 1) / defaultBlockSize
+	normalChunkLen := info.BlocksPerPiece()
+	totalBlocks := info.TotalBlockCount()
 	stateCond := gsync.NewCond(&sync.RWMutex{})
 
 	d := &Download{
@@ -79,11 +79,9 @@ func newTestDownload(t testing.TB, numPieces uint32, blocksPerPiece uint32, newS
 		log:            zerolog.New(zerolog.Nop()),
 		info:           info,
 		store:          newStore(info),
-		normalChunkLen: uint32(normalChunkLen),
-		chunk: chunkState{
-			done: make(bitmap.Bitmap, (int64(info.NumPieces)*(normalChunkLen)+63)/64),
-			mu:   sync.RWMutex{},
-		},
+		normalChunkLen: normalChunkLen,
+		done:           bm.NewLockFreeBitmap(totalBlocks),
+		pending:        bm.NewLockFreeBitmap(totalBlocks),
 
 		pieceDownloadRate:      flowrate.New(time.Second, 5*time.Second),
 		ioDownloadRate:         flowrate.New(time.Second, 5*time.Second),
@@ -117,11 +115,8 @@ func resetDownload(d *Download) {
 	d.picker.Load().ResetAll()
 	d.completed.Store(0)
 	d.downloaded.Store(0)
-	d.chunk.heap = heap.Heap[responseChunk]{}
-	d.chunk.pending = nil
-	for i := range d.chunk.done {
-		d.chunk.done[i] = 0
-	}
+	d.pending.Clear()
+	d.done.Clear()
 	d.state.Store(uint32(Downloading))
 	d.corruptedPiecesMu.Lock()
 	d.corruptedPieces = make(map[uint32]int)
@@ -135,25 +130,26 @@ type chunkDesc struct {
 	pi         uint32
 }
 
-func dumpState(d *Download) string {
+func dumpState(d *Download, h *heap.Heap[responseChunk]) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "\n=== State ===\n")
-	fmt.Fprintf(&sb, "pieces=%d chunkLen=%d heap=%d\n",
-		d.info.NumPieces, d.normalChunkLen, d.chunk.heap.Len())
+	fmt.Fprintf(&sb, "pieces=%d chunkLen=%d", d.info.NumPieces, d.normalChunkLen)
+	if h != nil {
+		fmt.Fprintf(&sb, " heap=%d", h.Len())
+	}
+	sb.WriteByte('\n')
 
-	d.chunk.mu.RLock()
 	pending := make([]uint32, 0)
 	done := make([]uint32, 0)
 	totalChunks := d.info.NumPieces * d.normalChunkLen
 	for i := range totalChunks {
-		if d.chunk.pending.Contains(i) {
+		if d.pending.Contains(i) {
 			pending = append(pending, i)
 		}
-		if d.chunk.done.Contains(i) {
+		if d.done.Contains(i) {
 			done = append(done, i)
 		}
 	}
-	d.chunk.mu.RUnlock()
 	fmt.Fprintf(&sb, "pending=%v\n", pending)
 	fmt.Fprintf(&sb, "done=%v\n", done)
 	for pi := range d.info.NumPieces {
@@ -162,16 +158,14 @@ func dumpState(d *Download) string {
 		end := start + uint32(total)
 		p := 0
 		dd := 0
-		d.chunk.mu.RLock()
 		for i := start; i < end; i++ {
-			if d.chunk.pending.Contains(i) {
+			if d.pending.Contains(i) {
 				p++
 			}
-			if d.chunk.done.Contains(i) {
+			if d.done.Contains(i) {
 				dd++
 			}
 		}
-		d.chunk.mu.RUnlock()
 		fmt.Fprintf(&sb, "  piece %d: total=%d pending=%d done=%d\n", pi, total, p, dd)
 	}
 	return sb.String()
@@ -183,13 +177,11 @@ func allDone(d *Download) bool {
 		done := 0
 		start := pi * d.normalChunkLen
 		end := start + uint32(total)
-		d.chunk.mu.RLock()
 		for i := start; i < end; i++ {
-			if d.chunk.done.Contains(i) {
+			if d.done.Contains(i) {
 				done++
 			}
 		}
-		d.chunk.mu.RUnlock()
 		if done != total {
 			return false
 		}
@@ -274,8 +266,10 @@ func TestHandleResOrder(t *testing.T) {
 			// Fresh download per subtest to avoid async checkPiece
 			// goroutines leaking from one test to another.
 			d := newTestDownload(t, numPieces, blocksPerPiece, piece_store.NewMemStore)
+			var h heap.Heap[responseChunk]
+			pc := &peerContributors{m: make(map[uint32]map[uint64]empty.Empty)}
 			for _, c := range order {
-				d.handleRes(chunkSubmit{
+				handleRes(d, &h, pc, chunkSubmit{
 					res: &proto.ChunkResponse{
 						PieceIndex: c.pieceIndex, Begin: c.begin,
 						Data: make([]byte, c.length),
@@ -283,8 +277,8 @@ func TestHandleResOrder(t *testing.T) {
 					peerID: 0,
 				})
 			}
-			if h := d.chunk.heap.Len(); h != 0 || !allDone(d) {
-				t.Errorf("FAIL %s: heap=%d\n%s", name, h, dumpState(d))
+			if h.Len() != 0 || !allDone(d) {
+				t.Errorf("FAIL %s: heap=%d\n%s", name, h.Len(), dumpState(d, &h))
 			} else {
 				t.Logf("PASS %s", name)
 			}
@@ -297,6 +291,9 @@ func TestHandleResLargePiece(t *testing.T) {
 	const blocksPerPiece = 256
 
 	d := newTestDownload(t, numPieces, blocksPerPiece, piece_store.NewMemStore)
+
+	var h heap.Heap[responseChunk]
+	pc := &peerContributors{m: make(map[uint32]map[uint64]empty.Empty)}
 
 	var all []chunkDesc
 	for pi := range uint32(numPieces) {
@@ -332,14 +329,14 @@ func TestHandleResLargePiece(t *testing.T) {
 	}
 
 	for _, c := range order {
-		d.handleRes(chunkSubmit{peerID: 0, res: &proto.ChunkResponse{
+		handleRes(d, &h, pc, chunkSubmit{peerID: 0, res: &proto.ChunkResponse{
 			PieceIndex: c.pieceIndex, Begin: c.begin,
 			Data: make([]byte, c.length),
 		}})
 	}
 
-	if h := d.chunk.heap.Len(); h != 0 || !allDone(d) {
-		t.Errorf("FAIL large: heap=%d\n%s", h, dumpState(d))
+	if h.Len() != 0 || !allDone(d) {
+		t.Errorf("FAIL large: heap=%d\n%s", h.Len(), dumpState(d, &h))
 	} else {
 		t.Logf("PASS large (%d chunks)", len(order))
 	}
@@ -460,7 +457,7 @@ func waitDownloadDone(t *testing.T, d *Download, numPieces uint32, seed int64) {
 		case <-deadline:
 			d.cancel()
 			time.Sleep(10 * time.Millisecond)
-			t.Errorf("seed=%d timeout\n%s", seed, dumpState(d))
+			t.Errorf("seed=%d timeout\n%s", seed, dumpState(d, nil))
 			return
 		case <-ticker.C:
 			if d.completedBm.Count() == numPieces {

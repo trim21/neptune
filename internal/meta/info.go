@@ -63,6 +63,23 @@ func (info *Info) PieceBlockCount(index uint32) int {
 	return int((length + DefaultBlockSize - 1) / DefaultBlockSize)
 }
 
+// TotalBlockCount returns the total number of default-block-size blocks
+// across all pieces.
+func (info *Info) TotalBlockCount() uint32 {
+	blocksPer := info.BlocksPerPiece()
+	if info.NumPieces <= 1 {
+		return uint32((info.LastPieceSize + DefaultBlockSize - 1) / DefaultBlockSize)
+	}
+	lastBlocks := uint32((info.LastPieceSize + DefaultBlockSize - 1) / DefaultBlockSize)
+	return (info.NumPieces-1)*blocksPer + lastBlocks
+}
+
+// BlocksPerPiece returns the number of default-block-size blocks in a
+// non-final piece.
+func (info *Info) BlocksPerPiece() uint32 {
+	return uint32((info.PieceLength + DefaultBlockSize - 1) / DefaultBlockSize)
+}
+
 // FileChunks returns an iterator over contiguous byte ranges within [start, end).
 // Zero allocations; the FileChunkInfo struct is passed on the stack.
 func (info *Info) FileChunks(start, end int64) iter.Seq[FileChunkInfo] {

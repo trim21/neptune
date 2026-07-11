@@ -12,7 +12,6 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/kelindar/bitmap"
 	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/rs/zerolog"
 	"go.uber.org/atomic"
@@ -24,7 +23,6 @@ import (
 	"neptune/internal/pkg/empty"
 	"neptune/internal/pkg/flowrate"
 	"neptune/internal/pkg/gsync"
-	"neptune/internal/pkg/heap"
 	"neptune/internal/pkg/ratelimit"
 	"neptune/internal/proto"
 	"neptune/internal/session"
@@ -155,7 +153,8 @@ type Download struct {
 	missingBm              *bm.LockFreeBitmap
 	wantedBm               *bm.Bitmap
 	s                      downloadState
-	chunk                  chunkState
+	done                   *bm.LockFreeBitmap
+	pending                *bm.LockFreeBitmap
 	info                   meta.Info
 	backgroundWg           sync.WaitGroup
 	uploadAtStart          int64
@@ -190,14 +189,6 @@ type Download struct {
 type chunkSubmit struct {
 	res    *proto.ChunkResponse
 	peerID uint64
-}
-
-type chunkState struct {
-	pieceContributors map[uint32]map[uint64]empty.Empty
-	heap              heap.Heap[responseChunk]
-	done              bitmap.Bitmap
-	pending           bitmap.Bitmap
-	mu                sync.RWMutex
 }
 
 // downloadState groups mutable fields that must be accessed under s.mu.

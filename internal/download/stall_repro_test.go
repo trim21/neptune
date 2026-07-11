@@ -12,6 +12,8 @@ import (
 
 	"neptune/internal/piece_store"
 	"neptune/internal/pkg/bm"
+	"neptune/internal/pkg/empty"
+	"neptune/internal/pkg/heap"
 	"neptune/internal/proto"
 )
 
@@ -20,13 +22,16 @@ import (
 func TestStallEndgameBusyLoop(t *testing.T) {
 	d := newTestDownload(t, 10, 4, piece_store.NewMemStore)
 
+	var h heap.Heap[responseChunk]
+	pc := &peerContributors{m: make(map[uint32]map[uint64]empty.Empty)}
+
 	// Complete pieces 2-9 (80% done).
 	for pi := range uint32(10) {
 		if pi <= 1 {
 			continue
 		}
 		for bi := range d.info.PieceBlockCount(pi) {
-			d.handleRes(chunkSubmit{peerID: 0, res: &proto.ChunkResponse{
+			handleRes(d, &h, pc, chunkSubmit{peerID: 0, res: &proto.ChunkResponse{
 				PieceIndex: pi,
 				Begin:      uint32(bi) * defaultBlockSize,
 				Data:       make([]byte, defaultBlockSize),
@@ -46,12 +51,12 @@ func TestStallEndgameBusyLoop(t *testing.T) {
 		if bi == 0 {
 			continue
 		}
-		d.handleRes(chunkSubmit{peerID: 0, res: &proto.ChunkResponse{
+		handleRes(d, &h, pc, chunkSubmit{peerID: 0, res: &proto.ChunkResponse{
 			PieceIndex: 1, Begin: uint32(bi) * defaultBlockSize,
 			Data: make([]byte, defaultBlockSize),
 		}})
 	}
-	d.handleRes(chunkSubmit{peerID: 0, res: &proto.ChunkResponse{
+	handleRes(d, &h, pc, chunkSubmit{peerID: 0, res: &proto.ChunkResponse{
 		PieceIndex: 1, Begin: 0,
 		Data: make([]byte, defaultBlockSize),
 	}})

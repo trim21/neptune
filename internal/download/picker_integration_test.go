@@ -12,6 +12,8 @@ import (
 
 	"neptune/internal/piece_store"
 	"neptune/internal/pkg/bm"
+	"neptune/internal/pkg/empty"
+	"neptune/internal/pkg/heap"
 	"neptune/internal/proto"
 )
 
@@ -57,6 +59,9 @@ func runIntegration(t *testing.T, numPieces, blocksPerPiece uint32, seed uint64)
 	}
 	pieceDone := make([]int, numPieces)
 
+	var h heap.Heap[responseChunk]
+	pc := &peerContributors{m: make(map[uint32]map[uint64]empty.Empty)}
+
 	// Feed chunks until picker returns nothing or we run out of iterations.
 	const maxIters = 5000
 	for iter := 0; iter < maxIters && d.completedBm.Count() < numPieces; iter++ {
@@ -89,7 +94,7 @@ func runIntegration(t *testing.T, numPieces, blocksPerPiece uint32, seed uint64)
 				}
 			}
 
-			d.handleRes(chunkSubmit{peerID: 0, res: &proto.ChunkResponse{
+			handleRes(d, &h, pc, chunkSubmit{peerID: 0, res: &proto.ChunkResponse{
 				PieceIndex: fb.PieceIndex,
 				Begin:      uint32(fb.BlockIndex) * uint32(defaultBlockSize),
 				Data:       make([]byte, chunkSize),

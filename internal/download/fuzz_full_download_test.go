@@ -200,8 +200,8 @@ func FuzzFullDownload(f *testing.F) {
 								missing = append(missing, pi)
 							}
 						}
-						t.Errorf("seed=%d stalled: %d/%d missing=%v heap=%d\nDUMP:\n%s",
-							seed, count, numPieces, missing, d.chunk.heap.Len(), dump)
+						t.Errorf("seed=%d stalled: %d/%d missing=%v\nDUMP:\n%s",
+							seed, count, numPieces, missing, dump)
 						return
 					}
 				} else {

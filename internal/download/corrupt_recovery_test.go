@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kelindar/bitmap"
 	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/rs/zerolog"
 	"golang.org/x/sync/semaphore"
@@ -23,8 +22,10 @@ import (
 	"neptune/internal/metainfo"
 	"neptune/internal/piece_store"
 	"neptune/internal/pkg/bm"
+	"neptune/internal/pkg/empty"
 	"neptune/internal/pkg/flowrate"
 	"neptune/internal/pkg/gsync"
+	"neptune/internal/pkg/heap"
 	"neptune/internal/pkg/ratelimit"
 	"neptune/internal/proto"
 	"neptune/internal/session"
@@ -71,7 +72,8 @@ func newTestEnv(t *testing.T, numPieces, blocksPerPiece uint32, failPieces []uin
 	wantedBm.Fill()
 	missingBm := bm.NewLockFreeBitmap(info.NumPieces)
 	missingBm.Fill()
-	normalChunkLen := (info.PieceLength + defaultBlockSize - 1) / defaultBlockSize
+	normalChunkLen := info.BlocksPerPiece()
+	totalBlocks := info.TotalBlockCount()
 	stateCond := gsync.NewCond(&sync.RWMutex{})
 
 	memStore := piece_store.NewMemStore(info)
@@ -89,16 +91,14 @@ func newTestEnv(t *testing.T, numPieces, blocksPerPiece uint32, failPieces []uin
 		session: &session.Session{
 			ConnSem: semaphore.NewWeighted(200),
 		},
-		chunk: chunkState{
-			done: make(bitmap.Bitmap, (int64(info.NumPieces)*(normalChunkLen)+63)/64),
-			mu:   sync.RWMutex{},
-		},
+		done:              bm.NewLockFreeBitmap(totalBlocks),
+		pending:           bm.NewLockFreeBitmap(totalBlocks),
 		pieceDownloadRate: flowrate.New(time.Second, 5*time.Second),
 		ioDownloadRate:    flowrate.New(time.Second, 5*time.Second),
 		pieceUploadRate:   flowrate.New(time.Second, 5*time.Second),
 		uploadLimiter:     ratelimit.New(0),
 		downloadLimiter:   ratelimit.New(0),
-		normalChunkLen:    uint32(normalChunkLen),
+		normalChunkLen:    normalChunkLen,
 		peers:             xsync.NewMap[uint64, Peer](),
 		connectedAddrs:    xsync.NewMap[netip.AddrPort, Peer](),
 		stateCond:         stateCond,
@@ -124,10 +124,12 @@ func newTestEnv(t *testing.T, numPieces, blocksPerPiece uint32, failPieces []uin
 func (env *testEnv) sendPiece(pieceIndex uint32) {
 	env.t.Helper()
 	d := env.d
+	var h heap.Heap[responseChunk]
+	pc := &peerContributors{m: make(map[uint32]map[uint64]empty.Empty)}
 	data := make([]byte, d.info.PieceLength)
 	for bi := range d.info.PieceBlockCount(pieceIndex) {
 		ci := pieceChunk(d.info, pieceIndex, bi)
-		d.handleRes(chunkSubmit{peerID: 0, res: &proto.ChunkResponse{
+		handleRes(d, &h, pc, chunkSubmit{peerID: 0, res: &proto.ChunkResponse{
 			PieceIndex: pieceIndex, Begin: ci.Begin,
 			Data: data[ci.Begin : ci.Begin+ci.Length],
 		}})

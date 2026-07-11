@@ -8,7 +8,6 @@ import (
 	"net/netip"
 	"time"
 
-	"github.com/kelindar/bitmap"
 	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/rs/zerolog/log"
 	"go.uber.org/atomic"
@@ -17,7 +16,6 @@ import (
 	"neptune/internal/meta"
 	"neptune/internal/metainfo"
 	"neptune/internal/piece_store"
-	"neptune/internal/pkg/as"
 	"neptune/internal/pkg/bm"
 	"neptune/internal/pkg/empty"
 	"neptune/internal/pkg/flowrate"
@@ -51,6 +49,9 @@ func New(sess *session.Session, m *metainfo.MetaInfo, info meta.Info, basePath s
 
 	completedBm := bm.New(info.NumPieces)
 
+	totalBlocks := info.TotalBlockCount()
+	normalChunkLen := info.BlocksPerPiece()
+
 	store := piece_store.NewFileStore(info, basePath, sess.FilePool, sess.IOContext)
 
 	d := &Download{
@@ -69,7 +70,7 @@ func New(sess *session.Session, m *metainfo.MetaInfo, info meta.Info, basePath s
 			downloadDir: basePath,
 		},
 
-		normalChunkLen: as.Uint32((info.PieceLength + defaultBlockSize - 1) / defaultBlockSize),
+		normalChunkLen: normalChunkLen,
 
 		AddAt: time.Now().Unix(),
 
@@ -90,9 +91,8 @@ func New(sess *session.Session, m *metainfo.MetaInfo, info meta.Info, basePath s
 
 		store: store,
 
-		chunk: chunkState{
-			done: make(bitmap.Bitmap, (int64(info.NumPieces)*((info.PieceLength+defaultBlockSize-1)/defaultBlockSize)+63)/64),
-		},
+		done:    bm.NewLockFreeBitmap(totalBlocks),
+		pending: bm.NewLockFreeBitmap(totalBlocks),
 
 		private: info.Private,
 
