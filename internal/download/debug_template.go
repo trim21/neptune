@@ -41,7 +41,7 @@ type debugPageData struct {
 	SelectedSize      string                  `json:"selected_size"`
 	Downloaded        string                  `json:"downloaded"`
 	Completed         string                  `json:"completed"`
-	Waste             string                  `json:"waste"`
+	Extra             string                  `json:"extra"`
 	WasteStale        string                  `json:"waste_stale"`
 	WasteDupe         string                  `json:"waste_dupe"`
 	Pending           string                  `json:"pending"`
@@ -146,7 +146,7 @@ func BuildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 		SelectedSize: humanize.IBytes(uint64(d.SelectedSize())),
 		Downloaded:   humanize.IBytes(uint64(d.downloaded.Load())),
 		Completed:    humanize.IBytes(uint64(d.completed.Load())),
-		Waste:        humanize.IBytes(uint64(d.downloaded.Load() - d.completed.Load())),
+		Extra:        humanize.IBytes(uint64(d.downloaded.Load() - d.completed.Load())),
 		WasteStale:   humanize.IBytes(uint64(d.wastedStale.Load())),
 		WasteDupe:    humanize.IBytes(uint64(d.wastedDupe.Load())),
 		Corrupted:    humanize.IBytes(uint64(d.corrupted.Load())),
