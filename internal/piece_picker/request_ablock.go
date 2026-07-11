@@ -64,17 +64,10 @@ func (pp *PiecePicker) RequestABlock(
 		return last
 	}
 
-	// In-place filter: keep only blocks that are not finished, not completed,
-	// not chunk-done, and not from blocked pieces.
+	// In-place filter: keep only blocks that are not finished, not chunk-done.
 	n := 0
 	for _, fb := range last.FreeBlocks {
 		if pp.IsFinished(fb.PieceIndex, fb.BlockIndex) {
-			continue
-		}
-		if pp.completedBm.Contains(fb.PieceIndex) {
-			continue
-		}
-		if blockedPieces.Contains(fb.PieceIndex) {
 			continue
 		}
 		chunkPi := fb.PieceIndex*pp.blocksPerPiece + uint32(fb.BlockIndex)
@@ -88,12 +81,6 @@ func (pp *PiecePicker) RequestABlock(
 
 	m := 0
 	for _, bb := range last.BusyBlocks {
-		if pp.completedBm.Contains(bb.PieceIndex) {
-			continue
-		}
-		if blockedPieces.Contains(bb.PieceIndex) {
-			continue
-		}
 		chunkPi := bb.PieceIndex*pp.blocksPerPiece + uint32(bb.BlockIndex)
 		if pp.chunkDoneBm != nil && pp.chunkDoneBm.Contains(chunkPi) {
 			continue
