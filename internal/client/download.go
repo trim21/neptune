@@ -27,9 +27,9 @@ func (c *Client) UnmarshalResume(data []byte, totalDownloads int) error {
 	if err != nil {
 		return err
 	}
-	// Only stagger incomplete downloads; seeds don't need delay
-	// because they already have all pieces and just need to announce presence.
-	if !d.HasState(download.Seeding) {
+	// Only stagger seeding and stopped torrents on resume;
+	// actively downloading (or queued) torrents need to announce immediately.
+	if !d.IsDownloading() {
 		d.TrkStagger(totalDownloads)
 	}
 
