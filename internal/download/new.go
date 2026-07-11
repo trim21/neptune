@@ -49,7 +49,6 @@ func New(sess *session.Session, m *metainfo.MetaInfo, info meta.Info, basePath s
 
 	completedBm := bm.New(info.NumPieces)
 
-	totalBlocks := info.TotalBlockCount()
 	normalChunkLen := info.BlocksPerPiece()
 
 	store := piece_store.NewFileStore(info, basePath, sess.FilePool, sess.IOContext)
@@ -90,9 +89,6 @@ func New(sess *session.Session, m *metainfo.MetaInfo, info meta.Info, basePath s
 		corruptedPieces: make(map[uint32]int),
 
 		store: store,
-
-		done:    bm.NewLockFreeBitmap(totalBlocks),
-		pending: bm.NewLockFreeBitmap(totalBlocks),
 
 		private: info.Private,
 

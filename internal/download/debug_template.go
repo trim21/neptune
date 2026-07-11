@@ -252,7 +252,7 @@ func BuildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 	dlTotal := d.pieceDownloadRate.Status().Total
 
 	// Pending blocks: blocks received but not yet flushed to disk (piece not complete).
-	data.Pending = humanize.IBytes(uint64(d.pending.Count()) * defaultBlockSize)
+	data.Pending = humanize.IBytes(uint64(d.pendingBytes.Load()))
 
 	// Picker stats
 	st := d.picker.Load().DebugStats()

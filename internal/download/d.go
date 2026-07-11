@@ -153,8 +153,6 @@ type Download struct {
 	missingBm              *bm.LockFreeBitmap
 	wantedBm               *bm.Bitmap
 	s                      downloadState
-	done                   *bm.LockFreeBitmap
-	pending                *bm.LockFreeBitmap
 	info                   meta.Info
 	backgroundWg           sync.WaitGroup
 	uploadAtStart          int64
@@ -163,6 +161,7 @@ type Download struct {
 	CompletedAt            atomic.Int64
 	state                  atomic.Uint32
 	downloaded             atomic.Int64
+	pendingBytes           atomic.Int64
 	corrupted              atomic.Int64
 	uploaded               atomic.Int64
 	wastedStale            atomic.Int64

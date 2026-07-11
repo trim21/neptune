@@ -23,6 +23,8 @@ func TestStallEndgameBusyLoop(t *testing.T) {
 	d := newTestDownload(t, 10, 4, piece_store.NewMemStore)
 
 	var h heap.Heap[responseChunk]
+	doneBm := bm.NewNilSafeLockFreeBitmap(d.info.TotalBlockCount())
+	pendingBm := bm.NewNilSafeLockFreeBitmap(d.info.TotalBlockCount())
 	pc := &peerContributors{m: make(map[uint32]map[uint64]empty.Empty)}
 
 	// Complete pieces 2-9 (80% done).
@@ -31,7 +33,7 @@ func TestStallEndgameBusyLoop(t *testing.T) {
 			continue
 		}
 		for bi := range d.info.PieceBlockCount(pi) {
-			handleRes(d, &h, pc, chunkSubmit{peerID: 0, res: &proto.ChunkResponse{
+			handleRes(d, &h, pc, doneBm, pendingBm, chunkSubmit{peerID: 0, res: &proto.ChunkResponse{
 				PieceIndex: pi,
 				Begin:      uint32(bi) * defaultBlockSize,
 				Data:       make([]byte, defaultBlockSize),
@@ -51,12 +53,12 @@ func TestStallEndgameBusyLoop(t *testing.T) {
 		if bi == 0 {
 			continue
 		}
-		handleRes(d, &h, pc, chunkSubmit{peerID: 0, res: &proto.ChunkResponse{
+		handleRes(d, &h, pc, doneBm, pendingBm, chunkSubmit{peerID: 0, res: &proto.ChunkResponse{
 			PieceIndex: 1, Begin: uint32(bi) * defaultBlockSize,
 			Data: make([]byte, defaultBlockSize),
 		}})
 	}
-	handleRes(d, &h, pc, chunkSubmit{peerID: 0, res: &proto.ChunkResponse{
+	handleRes(d, &h, pc, doneBm, pendingBm, chunkSubmit{peerID: 0, res: &proto.ChunkResponse{
 		PieceIndex: 1, Begin: 0,
 		Data: make([]byte, defaultBlockSize),
 	}})

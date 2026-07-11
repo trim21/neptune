@@ -63,7 +63,6 @@ func newTestDownload(t testing.TB, numPieces uint32, blocksPerPiece uint32, newS
 
 	completedBm := bm.New(info.NumPieces)
 	normalChunkLen := info.BlocksPerPiece()
-	totalBlocks := info.TotalBlockCount()
 	stateCond := gsync.NewCond(&sync.RWMutex{})
 
 	d := &Download{
@@ -80,8 +79,6 @@ func newTestDownload(t testing.TB, numPieces uint32, blocksPerPiece uint32, newS
 		info:           info,
 		store:          newStore(info),
 		normalChunkLen: normalChunkLen,
-		done:           bm.NewLockFreeBitmap(totalBlocks),
-		pending:        bm.NewLockFreeBitmap(totalBlocks),
 
 		pieceDownloadRate:      flowrate.New(time.Second, 5*time.Second),
 		ioDownloadRate:         flowrate.New(time.Second, 5*time.Second),
@@ -109,14 +106,14 @@ func newTestDownload(t testing.TB, numPieces uint32, blocksPerPiece uint32, newS
 	return d
 }
 
-func resetDownload(d *Download) {
+func resetDownload(d *Download, done, pending *bm.NilSafeLockFreeBitmap) {
 	d.completedBm.Clear()
 	d.missingBm.Fill()
 	d.picker.Load().ResetAll()
 	d.completed.Store(0)
 	d.downloaded.Store(0)
-	d.pending.Clear()
-	d.done.Clear()
+	pending.Clear()
+	done.Clear()
 	d.state.Store(uint32(Downloading))
 	d.corruptedPiecesMu.Lock()
 	d.corruptedPieces = make(map[uint32]int)
@@ -130,7 +127,7 @@ type chunkDesc struct {
 	pi         uint32
 }
 
-func dumpState(d *Download, h *heap.Heap[responseChunk]) string {
+func dumpState(d *Download, h *heap.Heap[responseChunk], doneBm, pendingBm *bm.NilSafeLockFreeBitmap) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "\n=== State ===\n")
 	fmt.Fprintf(&sb, "pieces=%d chunkLen=%d", d.info.NumPieces, d.normalChunkLen)
@@ -139,19 +136,19 @@ func dumpState(d *Download, h *heap.Heap[responseChunk]) string {
 	}
 	sb.WriteByte('\n')
 
-	pending := make([]uint32, 0)
-	done := make([]uint32, 0)
+	pendingList := make([]uint32, 0)
+	doneList := make([]uint32, 0)
 	totalChunks := d.info.NumPieces * d.normalChunkLen
 	for i := range totalChunks {
-		if d.pending.Contains(i) {
-			pending = append(pending, i)
+		if pendingBm.Contains(i) {
+			pendingList = append(pendingList, i)
 		}
-		if d.done.Contains(i) {
-			done = append(done, i)
+		if doneBm.Contains(i) {
+			doneList = append(doneList, i)
 		}
 	}
-	fmt.Fprintf(&sb, "pending=%v\n", pending)
-	fmt.Fprintf(&sb, "done=%v\n", done)
+	fmt.Fprintf(&sb, "pending=%v\n", pendingList)
+	fmt.Fprintf(&sb, "done=%v\n", doneList)
 	for pi := range d.info.NumPieces {
 		total := d.info.PieceBlockCount(pi)
 		start := pi * d.normalChunkLen
@@ -159,10 +156,10 @@ func dumpState(d *Download, h *heap.Heap[responseChunk]) string {
 		p := 0
 		dd := 0
 		for i := start; i < end; i++ {
-			if d.pending.Contains(i) {
+			if pendingBm.Contains(i) {
 				p++
 			}
-			if d.done.Contains(i) {
+			if doneBm.Contains(i) {
 				dd++
 			}
 		}
@@ -171,14 +168,14 @@ func dumpState(d *Download, h *heap.Heap[responseChunk]) string {
 	return sb.String()
 }
 
-func allDone(d *Download) bool {
+func allDone(d *Download, doneBm *bm.NilSafeLockFreeBitmap) bool {
 	for pi := range d.info.NumPieces {
 		total := (d.info.PieceBlockCount(pi))
 		done := 0
 		start := pi * d.normalChunkLen
 		end := start + uint32(total)
 		for i := start; i < end; i++ {
-			if d.done.Contains(i) {
+			if doneBm.Contains(i) {
 				done++
 			}
 		}
@@ -267,9 +264,11 @@ func TestHandleResOrder(t *testing.T) {
 			// goroutines leaking from one test to another.
 			d := newTestDownload(t, numPieces, blocksPerPiece, piece_store.NewMemStore)
 			var h heap.Heap[responseChunk]
+			doneBm := bm.NewNilSafeLockFreeBitmap(d.info.TotalBlockCount())
+			pendingBm := bm.NewNilSafeLockFreeBitmap(d.info.TotalBlockCount())
 			pc := &peerContributors{m: make(map[uint32]map[uint64]empty.Empty)}
 			for _, c := range order {
-				handleRes(d, &h, pc, chunkSubmit{
+				handleRes(d, &h, pc, doneBm, pendingBm, chunkSubmit{
 					res: &proto.ChunkResponse{
 						PieceIndex: c.pieceIndex, Begin: c.begin,
 						Data: make([]byte, c.length),
@@ -277,8 +276,8 @@ func TestHandleResOrder(t *testing.T) {
 					peerID: 0,
 				})
 			}
-			if h.Len() != 0 || !allDone(d) {
-				t.Errorf("FAIL %s: heap=%d\n%s", name, h.Len(), dumpState(d, &h))
+			if h.Len() != 0 || !allDone(d, doneBm) {
+				t.Errorf("FAIL %s: heap=%d\n%s", name, h.Len(), dumpState(d, &h, doneBm, pendingBm))
 			} else {
 				t.Logf("PASS %s", name)
 			}
@@ -293,6 +292,8 @@ func TestHandleResLargePiece(t *testing.T) {
 	d := newTestDownload(t, numPieces, blocksPerPiece, piece_store.NewMemStore)
 
 	var h heap.Heap[responseChunk]
+	doneBm := bm.NewNilSafeLockFreeBitmap(d.info.TotalBlockCount())
+	pendingBm := bm.NewNilSafeLockFreeBitmap(d.info.TotalBlockCount())
 	pc := &peerContributors{m: make(map[uint32]map[uint64]empty.Empty)}
 
 	var all []chunkDesc
@@ -329,14 +330,14 @@ func TestHandleResLargePiece(t *testing.T) {
 	}
 
 	for _, c := range order {
-		handleRes(d, &h, pc, chunkSubmit{peerID: 0, res: &proto.ChunkResponse{
+		handleRes(d, &h, pc, doneBm, pendingBm, chunkSubmit{peerID: 0, res: &proto.ChunkResponse{
 			PieceIndex: c.pieceIndex, Begin: c.begin,
 			Data: make([]byte, c.length),
 		}})
 	}
 
-	if h.Len() != 0 || !allDone(d) {
-		t.Errorf("FAIL large: heap=%d\n%s", h.Len(), dumpState(d, &h))
+	if h.Len() != 0 || !allDone(d, doneBm) {
+		t.Errorf("FAIL large: heap=%d\n%s", h.Len(), dumpState(d, &h, doneBm, pendingBm))
 	} else {
 		t.Logf("PASS large (%d chunks)", len(order))
 	}
@@ -457,7 +458,7 @@ func waitDownloadDone(t *testing.T, d *Download, numPieces uint32, seed int64) {
 		case <-deadline:
 			d.cancel()
 			time.Sleep(10 * time.Millisecond)
-			t.Errorf("seed=%d timeout\n%s", seed, dumpState(d, nil))
+			t.Errorf("seed=%d timeout\n%s", seed, dumpState(d, nil, nil, nil))
 			return
 		case <-ticker.C:
 			if d.completedBm.Count() == numPieces {

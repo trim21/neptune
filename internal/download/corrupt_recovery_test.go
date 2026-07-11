@@ -73,7 +73,6 @@ func newTestEnv(t *testing.T, numPieces, blocksPerPiece uint32, failPieces []uin
 	missingBm := bm.NewLockFreeBitmap(info.NumPieces)
 	missingBm.Fill()
 	normalChunkLen := info.BlocksPerPiece()
-	totalBlocks := info.TotalBlockCount()
 	stateCond := gsync.NewCond(&sync.RWMutex{})
 
 	memStore := piece_store.NewMemStore(info)
@@ -91,14 +90,12 @@ func newTestEnv(t *testing.T, numPieces, blocksPerPiece uint32, failPieces []uin
 		session: &session.Session{
 			ConnSem: semaphore.NewWeighted(200),
 		},
-		done:              bm.NewLockFreeBitmap(totalBlocks),
-		pending:           bm.NewLockFreeBitmap(totalBlocks),
+		normalChunkLen:    normalChunkLen,
 		pieceDownloadRate: flowrate.New(time.Second, 5*time.Second),
 		ioDownloadRate:    flowrate.New(time.Second, 5*time.Second),
 		pieceUploadRate:   flowrate.New(time.Second, 5*time.Second),
 		uploadLimiter:     ratelimit.New(0),
 		downloadLimiter:   ratelimit.New(0),
-		normalChunkLen:    normalChunkLen,
 		peers:             xsync.NewMap[uint64, Peer](),
 		connectedAddrs:    xsync.NewMap[netip.AddrPort, Peer](),
 		stateCond:         stateCond,
@@ -125,11 +122,13 @@ func (env *testEnv) sendPiece(pieceIndex uint32) {
 	env.t.Helper()
 	d := env.d
 	var h heap.Heap[responseChunk]
+	doneBm := bm.NewNilSafeLockFreeBitmap(d.info.TotalBlockCount())
+	pendingBm := bm.NewNilSafeLockFreeBitmap(d.info.TotalBlockCount())
 	pc := &peerContributors{m: make(map[uint32]map[uint64]empty.Empty)}
 	data := make([]byte, d.info.PieceLength)
 	for bi := range d.info.PieceBlockCount(pieceIndex) {
 		ci := pieceChunk(d.info, pieceIndex, bi)
-		handleRes(d, &h, pc, chunkSubmit{peerID: 0, res: &proto.ChunkResponse{
+		handleRes(d, &h, pc, doneBm, pendingBm, chunkSubmit{peerID: 0, res: &proto.ChunkResponse{
 			PieceIndex: pieceIndex, Begin: ci.Begin,
 			Data: data[ci.Begin : ci.Begin+ci.Length],
 		}})
