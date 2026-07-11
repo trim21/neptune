@@ -340,12 +340,16 @@ func (m *mockPeer) QueueLimit() uint32   { return m.queueLimit }
 
 func (m *mockPeer) OnHashFailed(pieceIndex uint32) {
 	m.blockedPieces.Set(pieceIndex)
+	m.mu.Lock()
 	m.blockedPieceTimestamps[pieceIndex] = time.Now()
+	m.mu.Unlock()
 }
 func (m *mockPeer) OnHashPassed(pieceIndex uint32) {
 	m.blockedPieces.Unset(pieceIndex)
 	m.suspectPieces.Unset(pieceIndex)
+	m.mu.Lock()
 	delete(m.blockedPieceTimestamps, pieceIndex)
+	m.mu.Unlock()
 }
 func (m *mockPeer) IsBlocked(pieceIndex uint32) bool {
 	return m.blockedPieces.Contains(pieceIndex)
@@ -357,6 +361,8 @@ func (m *mockPeer) SetBadPiece(pieceIndex uint32) {
 	m.suspectPieces.Set(pieceIndex)
 }
 func (m *mockPeer) BlockedPieceTime(pieceIndex uint32) (time.Time, bool) {
+	m.mu.Lock()
 	t, ok := m.blockedPieceTimestamps[pieceIndex]
+	m.mu.Unlock()
 	return t, ok
 }
