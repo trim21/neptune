@@ -74,6 +74,100 @@ func (bs blockStates) get(idx int) blockState {
 	return blockState((bs.data[idx>>2] >> ((idx & 3) << 1)) & 0x3)
 }
 
+// countNone counts blockStateNone blocks in [startIdx, startIdx+count).
+// Reads one byte per 4 blocks for the bulk, avoiding repeated data[idx>>2] loads.
+//
+//nolint:dupl
+func (bs blockStates) countNone(startIdx, count int) int {
+	n := 0
+	// unaligned prefix: step one block at a time until aligned
+	for count > 0 && startIdx&3 != 0 {
+		if bs.get(startIdx) == blockStateNone {
+			n++
+		}
+		startIdx++
+		count--
+	}
+	if count == 0 {
+		return n
+	}
+	// aligned bulk: 4 blocks per byte
+	byteIdx := startIdx >> 2
+	fullBytes := count >> 2
+	for i := range fullBytes {
+		b := bs.data[byteIdx+i]
+		// fast path: all zero means all 4 blocks are None
+		if b == 0 {
+			n += 4
+			continue
+		}
+		if b&0x3 == 0 {
+			n++
+		}
+		if (b>>2)&0x3 == 0 {
+			n++
+		}
+		if (b>>4)&0x3 == 0 {
+			n++
+		}
+		if (b>>6)&0x3 == 0 {
+			n++
+		}
+	}
+	// unaligned suffix
+	for i := fullBytes * 4; i < count; i++ {
+		if bs.get(startIdx+i) == blockStateNone {
+			n++
+		}
+	}
+	return n
+}
+
+// countRequested counts blockStateRequested blocks in [startIdx, startIdx+count).
+//
+//nolint:dupl
+func (bs blockStates) countRequested(startIdx, count int) int {
+	n := 0
+	for count > 0 && startIdx&3 != 0 {
+		if bs.get(startIdx) == blockStateRequested {
+			n++
+		}
+		startIdx++
+		count--
+	}
+	if count == 0 {
+		return n
+	}
+	byteIdx := startIdx >> 2
+	fullBytes := count >> 2
+	for i := range fullBytes {
+		b := bs.data[byteIdx+i]
+		// fast path: all Requested is 0b01010101 = 0x55
+		if b == 0x55 {
+			n += 4
+			continue
+		}
+		if b&0x3 == 1 {
+			n++
+		}
+		if (b>>2)&0x3 == 1 {
+			n++
+		}
+		if (b>>4)&0x3 == 1 {
+			n++
+		}
+		if (b>>6)&0x3 == 1 {
+			n++
+		}
+	}
+	for i := fullBytes * 4; i < count; i++ {
+		if bs.get(startIdx+i) == blockStateRequested {
+			n++
+		}
+	}
+	return n
+}
+
 func (bs blockStates) set(idx int, s blockState) {
 	shift := (idx & 3) << 1
 	bs.data[idx>>2] = (bs.data[idx>>2] &^ (0x3 << shift)) | (byte(s) << shift)
@@ -163,6 +257,7 @@ func (pp *PiecePicker) SetStrategy(s PiecePickStrategy) {
 		pp.strategy.Store(uint32(s))
 	}
 }
+
 func (pp *PiecePicker) numBlocksInPiece(pieceIndex uint32) uint16 {
 	pieceSize := pp.info.PieceLength
 	if pieceIndex == pp.info.NumPieces-1 {
@@ -492,12 +587,7 @@ func (pp *PiecePicker) PickPieces(
 		}
 
 		idx := pp.blockInfoIdx(dp.index)
-		freeBlocks := 0
-		for i := range int(dp.blocksInPiece) {
-			if pp.blockInfos.get(idx+i) == blockStateNone {
-				freeBlocks++
-			}
-		}
+		freeBlocks := pp.blockInfos.countNone(idx, int(dp.blocksInPiece))
 		partials = append(partials, partialInfo{
 			pieceIndex:    dp.index,
 			blockCount:    freeBlocks,
@@ -566,14 +656,7 @@ func (pp *PiecePicker) PickPieces(
 				continue
 			}
 			idx := pp.blockInfoIdx(dp.index)
-			hasFree := false
-			for i := range int(dp.blocksInPiece) {
-				if pp.blockInfos.get(idx+i) == blockStateNone {
-					hasFree = true
-					break
-				}
-			}
-			if hasFree {
+			if pp.blockInfos.countNone(idx, int(dp.blocksInPiece)) > 0 {
 				continue // handled in partials loop
 			}
 			for i := range int(dp.blocksInPiece) {
@@ -692,11 +775,9 @@ func (pp *PiecePicker) pickBlocksFromPiece(
 	}
 
 	idx := pp.blockInfoIdx(pieceIndex)
-	nb := pp.numBlocksInPiece(pieceIndex)
-	blocksInPiece := int(nb)
+	count := int(pp.numBlocksInPiece(pieceIndex))
 
-	// find free blocks
-	for i := range blocksInPiece {
+	for i := range count {
 		switch pp.blockInfos.get(idx + i) {
 		case blockStateNone:
 			result.FreeBlocks = append(result.FreeBlocks, PieceBlock{pieceIndex, i})
@@ -803,14 +884,7 @@ func (pp *PiecePicker) CountBusyBlocks(pieceIndex uint32) int {
 	defer pp.mu.Unlock()
 
 	idx := pp.blockInfoIdx(pieceIndex)
-	nb := pp.numBlocksInPiece(pieceIndex)
-	count := 0
-	for i := range int(nb) {
-		if pp.blockInfos.get(idx+i) == blockStateRequested {
-			count++
-		}
-	}
-	return count
+	return pp.blockInfos.countRequested(idx, int(pp.numBlocksInPiece(pieceIndex)))
 }
 
 // PickerStats holds summary block-state counts for debug output.
