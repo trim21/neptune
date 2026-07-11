@@ -469,8 +469,11 @@ func (pp *PiecePicker) PickPieces(
 
 	// Phase 1: partial pieces (pieces in downloading state with some blocks finished)
 	type partialInfo struct {
-		pieceIndex uint32
-		blockCount int // number of blocks this peer can use from this piece
+		blockCount    int
+		blocksInPiece int
+		ratio         float64
+		pieceIndex    uint32
+		priority      uint32
 	}
 	var partials []partialInfo
 
@@ -495,32 +498,26 @@ func (pp *PiecePicker) PickPieces(
 				freeBlocks++
 			}
 		}
-		partials = append(partials, partialInfo{dp.index, freeBlocks})
+		partials = append(partials, partialInfo{
+			pieceIndex:    dp.index,
+			blockCount:    freeBlocks,
+			blocksInPiece: int(dp.blocksInPiece),
+			ratio:         float64(dp.responded) / float64(dp.blocksInPiece),
+			priority:      pp.piecePriorities[dp.index],
+		})
 	}
 
 	// Sort partials: highest completion ratio first (finish started pieces),
 	// then rarest-first on availability as tiebreaker.
 	slices.SortFunc(partials, func(a, b partialInfo) int {
-		dpA := pp.findDownloadingPiece(a.pieceIndex)
-		dpB := pp.findDownloadingPiece(b.pieceIndex)
-
-		// Primary: completion ratio (descending).
-		if dpA != nil && dpB != nil {
-			rA := float64(dpA.responded) / float64(dpA.blocksInPiece)
-			rB := float64(dpB.responded) / float64(dpB.blocksInPiece)
-			if rA != rB {
-				if rA > rB {
-					return -1
-				}
-				return 1
+		if a.ratio != b.ratio {
+			if a.ratio > b.ratio {
+				return -1
 			}
+			return 1
 		}
-
-		// Tiebreaker: rarest-first (higher priority = rarer).
-		pa := pp.piecePriorities[a.pieceIndex]
-		pb := pp.piecePriorities[b.pieceIndex]
-		if pa != pb {
-			if pa > pb {
+		if a.priority != b.priority {
+			if a.priority > b.priority {
 				return -1
 			}
 			return 1
@@ -534,12 +531,7 @@ func (pp *PiecePicker) PickPieces(
 			break
 		}
 		idx := pp.blockInfoIdx(p.pieceIndex)
-		dp := pp.findDownloadingPiece(p.pieceIndex)
-		if dp == nil {
-			continue
-		}
-		blocksInPiece := int(dp.blocksInPiece)
-		for i := range blocksInPiece {
+		for i := range p.blocksInPiece {
 			switch pp.blockInfos.get(idx + i) {
 			case blockStateNone:
 				if preferContiguous <= 0 && numBlocks > 0 {
@@ -719,12 +711,21 @@ func (pp *PiecePicker) pickBlocksFromPiece(
 }
 
 // findDownloadingPiece finds a downloading piece by index.
+// downloadingPieces must be kept sorted by index (AddDownloadingPiece does this).
 // Caller must hold pp.mu.
 func (pp *PiecePicker) findDownloadingPiece(pieceIndex uint32) *downloadingPiece {
-	for i := range pp.downloadingPieces {
-		if pp.downloadingPieces[i].index == pieceIndex {
-			return &pp.downloadingPieces[i]
-		}
+	i, found := slices.BinarySearchFunc(pp.downloadingPieces, pieceIndex,
+		func(dp downloadingPiece, idx uint32) int {
+			if dp.index < idx {
+				return -1
+			}
+			if dp.index > idx {
+				return 1
+			}
+			return 0
+		})
+	if found {
+		return &pp.downloadingPieces[i]
 	}
 	return nil
 }
