@@ -550,8 +550,10 @@ func (pp *PiecePicker) PickPieces(
 					numBlocks--
 				}
 			case blockStateRequested:
-				// busy block — only used in endgame
-				result.BusyBlocks = append(result.BusyBlocks, PieceBlock{p.pieceIndex, i})
+				// busy block — only used in endgame when no free blocks available
+				if numBlocks > 0 {
+					result.BusyBlocks = append(result.BusyBlocks, PieceBlock{p.pieceIndex, i})
+				}
 			}
 		}
 	}

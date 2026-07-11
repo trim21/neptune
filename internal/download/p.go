@@ -380,20 +380,22 @@ func (p *peerImpl) requestABlock() {
 
 	p.SendBlockRequests()
 
-	// Busy blocks (endgame): at most one to avoid burst.
-	for _, bb := range busy {
-		if p.IsInQueue(pieceChunk(p.d.info, bb.PieceIndex, bb.BlockIndex)) {
-			continue
+	// Busy blocks (endgame): only when no free blocks available, at most one to avoid burst.
+	if len(free) == 0 {
+		for _, bb := range busy {
+			if p.IsInQueue(pieceChunk(p.d.info, bb.PieceIndex, bb.BlockIndex)) {
+				continue
+			}
+			p.EnqueueBlock(bb.PieceIndex, bb.BlockIndex)
+			enqueueBlockDelay()
+			if p.closed.Load() {
+				continue
+			}
+			picker.MarkAsRequesting(bb.PieceIndex, bb.BlockIndex)
+			picker.AddDownloadingPiece(bb.PieceIndex)
+			p.SendBlockRequests()
+			return
 		}
-		p.EnqueueBlock(bb.PieceIndex, bb.BlockIndex)
-		enqueueBlockDelay()
-		if p.closed.Load() {
-			continue
-		}
-		picker.MarkAsRequesting(bb.PieceIndex, bb.BlockIndex)
-		picker.AddDownloadingPiece(bb.PieceIndex)
-		p.SendBlockRequests()
-		return
 	}
 }
 
