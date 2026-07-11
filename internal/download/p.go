@@ -119,7 +119,7 @@ func newPeer(
 		allowFast: bm.New(d.info.NumPieces),
 
 		contributedPieces:      bm.New(d.info.NumPieces),
-		blockedPieces:          bm.New(d.info.NumPieces),
+		blockedPieces:          bm.NewLockFreeBitmap(d.info.NumPieces),
 		suspectPieces:          bm.New(d.info.NumPieces),
 		blockedPieceTimestamps: xsync.NewMap[uint32, time.Time](),
 
@@ -168,7 +168,7 @@ type peerImpl struct {
 	r                      *bufio.Reader
 	pieceUploadRate        *flowrate.Monitor
 	contributedPieces      *bm.Bitmap
-	blockedPieces          *bm.Bitmap
+	blockedPieces          *bm.LockFreeBitmap
 	suspectPieces          *bm.Bitmap
 	blockedPieceTimestamps *xsync.Map[uint32, time.Time]
 	Address                netip.AddrPort

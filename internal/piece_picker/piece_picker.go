@@ -436,7 +436,7 @@ func (pp *PiecePicker) PickPieces(
 	bitfield *bm.Bitmap,
 	choked bool,
 	allowedFast *bm.Bitmap,
-	blockedPieces *bm.Bitmap,
+	blockedPieces *bm.LockFreeBitmap,
 	numBlocks int,
 	preferContiguous int,
 	suggestedPieces []uint32,

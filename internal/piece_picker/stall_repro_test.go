@@ -43,7 +43,7 @@ func TestStallZombiePiece(t *testing.T) {
 	peerBitfield.Fill()
 
 	result := PickResult{}
-	result = pp.PickPieces(peerBitfield, false, nil, bm.New(0), 100, 0, nil, result)
+	result = pp.PickPieces(peerBitfield, false, nil, bm.NewLockFreeBitmap(pp.info.NumPieces), 100, 0, nil, result)
 
 	for _, fb := range result.FreeBlocks {
 		if fb.PieceIndex == 0 {
@@ -70,7 +70,7 @@ func TestStallCompletedBmRace(t *testing.T) {
 	pp.completedBm.SetX(0)
 
 	result := PickResult{}
-	result = pp.PickPieces(peerBitfield, false, nil, bm.New(0), 4, 0, nil, result)
+	result = pp.PickPieces(peerBitfield, false, nil, bm.NewLockFreeBitmap(pp.info.NumPieces), 4, 0, nil, result)
 
 	badBlocks := 0
 	for _, fb := range result.FreeBlocks {
@@ -112,7 +112,7 @@ func TestStall_NewPickerDoesntInheritDownloadingPieces(t *testing.T) {
 	peerBitfield.Fill()
 
 	result := PickResult{}
-	result = oldPicker.PickPieces(peerBitfield, false, nil, bm.New(0), 100, 0, nil, result)
+	result = oldPicker.PickPieces(peerBitfield, false, nil, bm.NewLockFreeBitmap(oldPicker.info.NumPieces), 100, 0, nil, result)
 
 	for _, fb := range result.FreeBlocks {
 		if fb.PieceIndex == 0 {
@@ -157,7 +157,7 @@ func TestStallEndgamePicksFreeZeroPieces(t *testing.T) {
 	peerBitfield.Fill()
 
 	result := PickResult{}
-	result = pp.PickPieces(peerBitfield, false, nil, bm.New(0), 100, 0, nil, result)
+	result = pp.PickPieces(peerBitfield, false, nil, bm.NewLockFreeBitmap(pp.info.NumPieces), 100, 0, nil, result)
 
 	hasBusy := false
 	for _, bb := range result.BusyBlocks {
@@ -182,7 +182,7 @@ func TestPiecePickStrategy_Sequential(t *testing.T) {
 	var result PickResult
 
 	// Sequential: should always pick block 0 of piece 0 first.
-	result = pp.PickPieces(peerBitfield, false, nil, bm.New(0), 1, 0, nil, result)
+	result = pp.PickPieces(peerBitfield, false, nil, bm.NewLockFreeBitmap(pp.info.NumPieces), 1, 0, nil, result)
 	if len(result.FreeBlocks) != 1 {
 		t.Fatalf("expected 1 free block, got %d", len(result.FreeBlocks))
 	}
@@ -200,7 +200,7 @@ func TestPiecePickStrategy_Sequential(t *testing.T) {
 	// Next request: should be block 1 of piece 0 (still sequential).
 	result.FreeBlocks = result.FreeBlocks[:0]
 	result.BusyBlocks = result.BusyBlocks[:0]
-	result = pp.PickPieces(peerBitfield, false, nil, bm.New(0), 1, 0, nil, result)
+	result = pp.PickPieces(peerBitfield, false, nil, bm.NewLockFreeBitmap(pp.info.NumPieces), 1, 0, nil, result)
 	if len(result.FreeBlocks) != 1 {
 		t.Fatalf("expected 1 free block, got %d", len(result.FreeBlocks))
 	}
@@ -220,7 +220,7 @@ func TestPiecePickStrategy_Sequential(t *testing.T) {
 	// Next request: piece 1, block 0.
 	result.FreeBlocks = result.FreeBlocks[:0]
 	result.BusyBlocks = result.BusyBlocks[:0]
-	result = pp.PickPieces(peerBitfield, false, nil, bm.New(0), 1, 0, nil, result)
+	result = pp.PickPieces(peerBitfield, false, nil, bm.NewLockFreeBitmap(pp.info.NumPieces), 1, 0, nil, result)
 	if len(result.FreeBlocks) != 1 {
 		t.Fatalf("expected 1 free block, got %d", len(result.FreeBlocks))
 	}

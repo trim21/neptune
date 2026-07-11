@@ -25,7 +25,7 @@ type mockPeer struct {
 	connectedAt            time.Time
 	closeErr               error
 	closed                 *atomic.Bool
-	blockedPieces          *bm.Bitmap
+	blockedPieces          *bm.LockFreeBitmap
 	isSeed                 *atomic.Bool
 	snubbed                *atomic.Bool
 	peerInterested         *atomic.Bool
@@ -89,7 +89,7 @@ func newMockPeer() *mockPeer {
 		lastUnchokeAt:          atomic.NewTime(time.Now()),
 		bitmap:                 bm.New(0),
 		fastBitmap:             bm.New(0),
-		blockedPieces:          bm.New(0),
+		blockedPieces:          bm.NewLockFreeBitmap(0),
 		suspectPieces:          bm.New(0),
 		blockedPieceTimestamps: make(map[uint32]time.Time),
 		downloadRate:           *flowrate.New(time.Second, time.Second),
@@ -112,6 +112,7 @@ func (m *mockPeer) setDesiredSize(n int) { m.desiredSize = int32(n) }
 func (m *mockPeer) setNumPieces(n uint32) {
 	m.bitmap = bm.New(n)
 	m.fastBitmap = bm.New(n)
+	m.blockedPieces = bm.NewLockFreeBitmap(n)
 }
 
 func (m *mockPeer) addToQueue(chunk proto.ChunkRequest) {

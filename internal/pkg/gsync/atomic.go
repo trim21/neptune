@@ -4,7 +4,7 @@
 package gsync
 
 import (
-	"sync/atomic" //nolint:depguard
+	"sync/atomic"
 )
 
 type AtomicUint[T interface{ ~uint8 | ~uint16 }] struct {

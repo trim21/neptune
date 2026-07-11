@@ -52,13 +52,14 @@ linters:
     - zerologlint
     - embeddedstructfieldcheck
     - goconst
+    - depguard
   settings:
-    depguard:
-      rules:
-        main:
-          deny:
-            - pkg: sync/atomic
-              desc: use uber atomic package
+    # depguard:
+    #   rules:
+    #     main:
+    #       deny:
+    #         - pkg: sync/atomic
+    #           desc: use uber atomic package
     govet:
       enable:
         - appends

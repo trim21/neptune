@@ -63,7 +63,7 @@ func TestStallEndgameBusyLoop(t *testing.T) {
 
 	pp := d.picker.Load()
 	result := PickResult{}
-	result = pp.PickPieces(peerBitfield, false, nil, bm.New(0), 100, 0, nil, result)
+	result = pp.PickPieces(peerBitfield, false, nil, bm.NewLockFreeBitmap(d.info.NumPieces), 100, 0, nil, result)
 
 	completedFromResult := 0
 	for _, fb := range result.FreeBlocks {

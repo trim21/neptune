@@ -43,7 +43,7 @@ func TestEndgameAllBlocksResponded_EmptyResult(t *testing.T) {
 	peerBitfield.Fill()
 
 	result := PickResult{}
-	result = pp.PickPieces(peerBitfield, false, nil, bm.New(0), 4, 0, nil, result)
+	result = pp.PickPieces(peerBitfield, false, nil, bm.NewLockFreeBitmap(pp.info.NumPieces), 4, 0, nil, result)
 
 	// Current behavior: PickPieces returns empty when all blocks are responded.
 	// The download layer handles this via hash-fail punishment:
@@ -79,7 +79,7 @@ func TestResetPieceRestoresPiece(t *testing.T) {
 	peerBitfield := bm.New(pp.info.NumPieces)
 	peerBitfield.Fill()
 	result := PickResult{}
-	result = pp.PickPieces(peerBitfield, false, nil, bm.New(0), 4, 0, nil, result)
+	result = pp.PickPieces(peerBitfield, false, nil, bm.NewLockFreeBitmap(pp.info.NumPieces), 4, 0, nil, result)
 	hasPiece1 := false
 	for _, fb := range result.FreeBlocks {
 		if fb.PieceIndex == 1 {
@@ -96,7 +96,7 @@ func TestResetPieceRestoresPiece(t *testing.T) {
 	// Now piece 1 should be pickable with free blocks.
 	result.FreeBlocks = result.FreeBlocks[:0]
 	result.BusyBlocks = result.BusyBlocks[:0]
-	result = pp.PickPieces(peerBitfield, false, nil, bm.New(0), 4, 0, nil, result)
+	result = pp.PickPieces(peerBitfield, false, nil, bm.NewLockFreeBitmap(pp.info.NumPieces), 4, 0, nil, result)
 
 	freeBlocks := 0
 	for _, fb := range result.FreeBlocks {

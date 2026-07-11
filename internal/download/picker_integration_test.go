@@ -61,7 +61,7 @@ func runIntegration(t *testing.T, numPieces, blocksPerPiece uint32, seed uint64)
 	const maxIters = 5000
 	for iter := 0; iter < maxIters && d.completedBm.Count() < numPieces; iter++ {
 		desired := 4 + int(blocksPerPiece*2)
-		last = pp.RequestABlock(last, desired, 0, 0, false, peerBf, nil, bm.New(0))
+		last = pp.RequestABlock(last, desired, 0, 0, false, peerBf, nil, bm.NewLockFreeBitmap(numPieces))
 
 		if len(last.FreeBlocks) == 0 && len(last.BusyBlocks) == 0 {
 			time.Sleep(time.Millisecond)
