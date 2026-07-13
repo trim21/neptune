@@ -38,6 +38,8 @@ func (c *Client) UnmarshalResume(data []byte, totalDownloads int) error {
 	c.downloads = append(c.downloads, d)
 	c.downloadMap[d.InfoHash()] = d
 	c.infoHashes = lo.Keys(c.downloadMap)
+	keys := hashesToBytes(c.infoHashes)
+	c.mseKeys.Store(&keys)
 
 	d.Init(true, true)
 	return nil

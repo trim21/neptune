@@ -456,7 +456,7 @@ func (h *handshake) receiverSteps() (ret io.ReadWriter, chosen CryptoMethod, err
 	eachHash := sha1.New()
 	var sum, xored [sha1.Size]byte
 	err = ErrNoSecretKeyMatch
-	h.skeys(func(skey []byte) bool {
+	for _, skey := range h.skeys {
 		eachHash.Reset()
 		eachHash.Write(req2)
 		eachHash.Write(skey)
@@ -465,10 +465,9 @@ func (h *handshake) receiverSteps() (ret io.ReadWriter, chosen CryptoMethod, err
 		if bytes.Equal(xored[:], b[:]) {
 			h.skey = skey
 			err = nil
-			return false
+			break
 		}
-		return true
-	})
+	}
 	if err != nil {
 		return ret, chosen, err
 	}
@@ -620,6 +619,6 @@ func DefaultCryptoSelector(provided CryptoMethod) CryptoMethod {
 	return CryptoMethodRC4
 }
 
-type SecretKeyIter func(callback func(skey []byte) (more bool))
+type SecretKeyIter = [][]byte
 
 type CryptoSelector func(CryptoMethod) CryptoMethod

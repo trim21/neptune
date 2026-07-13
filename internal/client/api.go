@@ -182,6 +182,8 @@ func (c *Client) AddTorrent(raw []byte, m *metainfo.MetaInfo, info meta.Info, do
 
 	c.downloadMap[info.Hash] = d
 	c.infoHashes = lo.Keys(c.downloadMap)
+	keys := hashesToBytes(c.infoHashes)
+	c.mseKeys.Store(&keys)
 
 	// If download slots are configured, trigger a rebalance after a short
 	// delay so Init has time to set the initial state.
@@ -388,6 +390,9 @@ func (c *Client) RemoveTorrent(h metainfo.Hash, removeData bool) error {
 
 	delete(c.downloadMap, h)
 	c.downloads = gslice.Remove(c.downloads, d)
+	c.infoHashes = lo.Keys(c.downloadMap)
+	keys := hashesToBytes(c.infoHashes)
+	c.mseKeys.Store(&keys)
 	c.m.Unlock()
 
 	log.Info().Stringer("hash", h).Msg("torrent.remove: saving resume")

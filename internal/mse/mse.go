@@ -7,7 +7,6 @@ import (
 	"io"
 	"net"
 
-	"neptune/internal/metainfo"
 	"neptune/internal/mse/mse"
 )
 
@@ -40,18 +39,8 @@ func PreferCrypto(provided mse.CryptoMethod) mse.CryptoMethod {
 	return mse.CryptoMethodPlaintext
 }
 
-func keyMatcher(keys []metainfo.Hash) func(f func([]byte) bool) {
-	return func(f func([]byte) bool) {
-		for _, ih := range keys {
-			if !f(ih[:]) {
-				break
-			}
-		}
-	}
-}
-
-func NewAccept(conn net.Conn, keys []metainfo.Hash, selector mse.CryptoSelector) (net.Conn, CryptoMethod, error) {
-	rw, method, err := mse.ReceiveHandshake(conn, keyMatcher(keys), selector)
+func NewAccept(conn net.Conn, keys [][]byte, selector mse.CryptoSelector) (net.Conn, CryptoMethod, error) {
+	rw, method, err := mse.ReceiveHandshake(conn, keys, selector)
 	if err != nil {
 		_ = conn.Close()
 		return nil, 0, err

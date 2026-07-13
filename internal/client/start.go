@@ -153,10 +153,14 @@ func (c *Client) startListen() error {
 			c.session.ConnCount.Add(1)
 
 			go func() {
-				c.m.RLock()
-				keys := c.infoHashes
-				c.m.RUnlock()
-
+				keysPtr := c.mseKeys.Load()
+				if keysPtr == nil {
+					c.session.ConnSem.Release(1)
+					c.session.ConnCount.Sub(1)
+					_ = conn.Close()
+					return
+				}
+				keys := *keysPtr
 				rwc, method, err := mse.NewAccept(conn, keys, c.session.MSESelector)
 				if err != nil {
 					c.session.ConnSem.Release(1)

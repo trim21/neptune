@@ -57,6 +57,7 @@ type Client struct {
 	queueRebalanceCh  chan empty.Empty
 	downloads         []*Download
 	infoHashes        []metainfo.Hash
+	mseKeys           atomic.Pointer[[][]byte]
 	checkQueue        []metainfo.Hash
 	piecePickStrategy atomic.Uint32
 	m                 sync.RWMutex
@@ -108,4 +109,12 @@ func (c *Client) DownloadLimiter() *ratelimit.Limiter {
 // UploadLimiter is an adapter for JSON-RPC API.
 func (c *Client) UploadLimiter() *ratelimit.Limiter {
 	return c.session.UploadLimiter
+}
+
+func hashesToBytes(hashes []metainfo.Hash) [][]byte {
+	b := make([][]byte, len(hashes))
+	for i := range hashes {
+		b[i] = hashes[i][:]
+	}
+	return b
 }
