@@ -192,24 +192,33 @@ type downloadingPiece struct {
 // Higher score = more urgent. Mirrors libtorrent: (availability + 1) * priority_factor.
 const priorityFactor = 3
 
+type partialInfo struct {
+	blockCount    int
+	blocksInPiece int
+	ratio         float64
+	pieceIndex    uint32
+	priority      uint32
+}
+
 // PiecePicker is a global block-level piece picker, mirroring libtorrent's
 // piece_picker. It centralizes tracking of which blocks are requested/writing/
 // finished, and provides block-level selection for peers.
 //
 // All public methods are safe for concurrent use.
 type PiecePicker struct {
-	missingBm          *bm.LockFreeBitmap
 	strategy           *atomic.Uint32
 	chunkDoneBm        *bm.Bitmap
+	missingBm          *bm.LockFreeBitmap
+	partials           []partialInfo
 	piecePriorities    []uint32
 	downloadingPieces  []downloadingPiece
 	blockInfos         blockStates
 	pieces             []uint32
 	availability       []uint16
 	info               meta.Info
-	blockSize          int64
 	downloadQueueSize  int
 	numWantLeft        int
+	blockSize          int64
 	mu                 sync.Mutex
 	numCompletedPieces uint32
 	numPieces          uint32
@@ -563,14 +572,7 @@ func (pp *PiecePicker) PickPieces(
 	}
 
 	// Phase 1: partial pieces (pieces in downloading state with some blocks finished)
-	type partialInfo struct {
-		blockCount    int
-		blocksInPiece int
-		ratio         float64
-		pieceIndex    uint32
-		priority      uint32
-	}
-	var partials []partialInfo
+	pp.partials = pp.partials[:0]
 
 	for _, dp := range pp.downloadingPieces {
 		if !pp.missingBm.Contains(dp.index) {
@@ -588,7 +590,7 @@ func (pp *PiecePicker) PickPieces(
 
 		idx := pp.blockInfoIdx(dp.index)
 		freeBlocks := pp.blockInfos.countNone(idx, int(dp.blocksInPiece))
-		partials = append(partials, partialInfo{
+		pp.partials = append(pp.partials, partialInfo{
 			pieceIndex:    dp.index,
 			blockCount:    freeBlocks,
 			blocksInPiece: int(dp.blocksInPiece),
@@ -599,7 +601,7 @@ func (pp *PiecePicker) PickPieces(
 
 	// Sort partials: highest completion ratio first (finish started pieces),
 	// then rarest-first on availability as tiebreaker.
-	slices.SortFunc(partials, func(a, b partialInfo) int {
+	slices.SortFunc(pp.partials, func(a, b partialInfo) int {
 		if a.ratio != b.ratio {
 			if a.ratio > b.ratio {
 				return -1
@@ -616,7 +618,7 @@ func (pp *PiecePicker) PickPieces(
 	})
 
 	// Pick from partial pieces first
-	for _, p := range partials {
+	for _, p := range pp.partials {
 		if numBlocks <= 0 {
 			break
 		}
