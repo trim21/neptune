@@ -73,6 +73,26 @@ func waitDownload(t *testing.T, d *Download, numPieces uint32, timeout time.Dura
 	}
 }
 
+func waitForFailedPieces(t *testing.T, store *FailNPieceStore, count int, timeout time.Duration) bool {
+	t.Helper()
+	deadline := time.After(timeout)
+	ticker := time.NewTicker(5 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-deadline:
+			return false
+		case <-ticker.C:
+			store.mu.Lock()
+			failed := len(store.failed)
+			store.mu.Unlock()
+			if failed == count {
+				return true
+			}
+		}
+	}
+}
+
 // ── Scenario 1: full peers, no corruption ────────────────────────────
 
 func TestAsyncDownload_FullPeer(t *testing.T) {
@@ -116,10 +136,12 @@ func TestAsyncDownload_CorruptRecovery(t *testing.T) {
 		{"one fail", []uint32{3}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			var failStore *FailNPieceStore
 			d := newTestDownload(t, numPieces, blocksPerPiece,
 				func(info meta.Info) piece_store.PieceStore {
-					return NewFailNPieceStore(
+					failStore = NewFailNPieceStore(
 						piece_store.NewMemStore(info), tc.failPieces)
+					return failStore
 				})
 			cancel := asyncHelper(d)
 			defer cancel()
@@ -132,41 +154,23 @@ func TestAsyncDownload_CorruptRecovery(t *testing.T) {
 				d.picker.Load().IncRefcount(pi)
 			}
 
-			// Wait for first pass: some pieces complete, corrupt pieces fail hash.
-			// Once corrupt pieces are reset (back in pp.pieces), add a fresh peer
-			// that didn't contribute to the failed attempts.
-			timeout := 5 * time.Second
-			deadline := time.After(timeout)
-			ticker := time.NewTicker(5 * time.Millisecond)
-			defer ticker.Stop()
+			// Wait until the first peer has exercised every configured failure,
+			// then add a fresh peer that did not contribute to those attempts.
+			// The old fixed 500ms settling delay was scheduler-dependent under
+			// race/coverage instrumentation and did not express this invariant.
+			if !waitForFailedPieces(t, failStore, len(tc.failPieces), 5*time.Second) {
+				t.Fatalf("%s: timed out waiting for first hash-check pass", tc.name)
+			}
 
-			preAddSentinel := true
-			var firstCorruptAt time.Time
-		w1:
-			for {
-				select {
-				case <-deadline:
-					t.Fatalf("%s: timed out waiting for first download pass, only %d/%d completed", tc.name,
-						d.completedBm.Count(), numPieces)
-				case <-ticker.C:
-					// Once at least one hash failure occurs, wait 500ms for
-					// remaining in-flight blocks to settle, then add a clean peer.
-					if preAddSentinel && d.corrupted.Load() > 0 {
-						if firstCorruptAt.IsZero() {
-							firstCorruptAt = time.Now()
-						} else if time.Since(firstCorruptAt) > 500*time.Millisecond {
-							preAddSentinel = false
-							p2 := fullPeer(d, numPieces, 2)
-							d.peers.Store(p2.ID(), p2)
-							for pi := range numPieces {
-								d.picker.Load().IncRefcount(pi)
-							}
-						}
-					}
-					if d.completedBm.Count() == numPieces {
-						break w1
-					}
-				}
+			p2 := fullPeer(d, numPieces, 2)
+			d.peers.Store(p2.ID(), p2)
+			for pi := range numPieces {
+				d.picker.Load().IncRefcount(pi)
+			}
+
+			if !waitDownload(t, d, numPieces, 5*time.Second) {
+				t.Fatalf("%s: timed out waiting for recovery, only %d/%d completed", tc.name,
+					d.completedBm.Count(), numPieces)
 			}
 		})
 	}
