@@ -107,7 +107,7 @@ func newPeerList(d *Download) *peerList {
 	return &peerList{
 		d:                d,
 		candidateCache:   make([]candidateEntry, 0, candidateCount),
-		maxFailcount:     3,
+		maxFailcount:     10,
 		minReconnectTime: 60,
 	}
 }
