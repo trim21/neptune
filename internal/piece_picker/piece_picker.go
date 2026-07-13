@@ -444,20 +444,20 @@ func (pp *PiecePicker) rebuildPriorities(strategy PiecePickStrategy) {
 		return
 	}
 
-	var pieces = make([]uint32, 0, pp.numPieces)
+	pp.pieces = pp.pieces[:0]
 	// Filter to pieces that are wanted, not completed, and not awaiting hash check.
 	for pi := range pp.numPieces {
 		if !pp.missingBm.Contains(pi) || pp.allBlocksResponded(pi) {
 			continue
 		}
-		pieces = append(pieces, pi)
+		pp.pieces = append(pp.pieces, pi)
 	}
 
 	if strategy == StrategySequential {
 		// Sequential: pieces from ToArray() are already in ascending order.
 	} else {
 		// Rarest-first (default): sort by priority descending, then by piece index.
-		slices.SortFunc(pieces, func(a, b uint32) int {
+		slices.SortFunc(pp.pieces, func(a, b uint32) int {
 			pa := pp.piecePriorities[a]
 			pb := pp.piecePriorities[b]
 			if pa != pb {
@@ -473,8 +473,7 @@ func (pp *PiecePicker) rebuildPriorities(strategy PiecePickStrategy) {
 		})
 	}
 
-	pp.pieces = pieces
-	pp.numWantLeft = len(pieces)
+	pp.numWantLeft = len(pp.pieces)
 	pp.dirty = false
 }
 
