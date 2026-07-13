@@ -180,7 +180,8 @@ func newPeer(
 
 		userAgent: *atomic.NewPointer(&ua),
 
-		responseCond: gsync.NewCond(gsync.EmptyLock{}),
+		responseCond:          gsync.NewCond(gsync.EmptyLock{}),
+		scheduleRequestSignal: make(chan empty.Empty, 1),
 
 		//ResChan:   make(chan req.Response, 1),
 		myRequests:       xsync.NewMap[proto.ChunkRequest, time.Time](),
@@ -213,6 +214,7 @@ func newPeer(
 		p.peerID.Store(&h.PeerID)
 	}
 
+	go p.scheduleRequests()
 	go p.start(skipReadHandshake)
 	return p
 }
@@ -222,7 +224,7 @@ var ErrPeerSendInvalidData = errors.New("addrPort send invalid data")
 type peerImpl struct {
 	log                    zerolog.Logger
 	connectedAt            time.Time
-	closeErr               error
+	closeErr               atomic.Pointer[error]
 	ctx                    context.Context
 	Conn                   net.Conn
 	blockedPieceTimestamps *xsync.Map[uint32, time.Time]
@@ -240,6 +242,7 @@ type peerImpl struct {
 	pieceDownloadRate      *flowrate.Monitor
 	suspectPieces          *bm.Bitmap
 	responseCond           *gsync.Cond
+	scheduleRequestSignal  chan empty.Empty
 	peerID                 atomic.Pointer[proto.PeerID]
 	w                      *bufio.Writer
 	r                      *bufio.Reader
@@ -278,11 +281,11 @@ type peerImpl struct {
 	fastExtension          bool
 	dhtEnabled             bool
 	subExtensions          bool
-	hadTransfer            bool
+	hadTransfer            atomic.Bool
 }
 
 func (p *peerImpl) Response(res *proto.ChunkResponse) bool {
-	p.hadTransfer = true
+	p.hadTransfer.Store(true)
 	_, ok := p.peerRequests.LoadAndDelete(res.Request())
 	if !ok {
 		// Request might be canceled concurrently (Cancel) or already served.
@@ -431,8 +434,29 @@ func (p *peerImpl) requestBlocks() {
 	p.requestABlock()
 }
 
-// requestABlock picks blocks using the global piece picker.
+// requestABlock signals the peer's scheduler. The capacity-one channel
+// coalesces concurrent triggers without blocking their callers.
 func (p *peerImpl) requestABlock() {
+	select {
+	case p.scheduleRequestSignal <- empty.Empty{}:
+	default:
+	}
+}
+
+// scheduleRequests is the single per-peer scheduling goroutine. It serializes
+// picker access for this peer and exits with the peer context.
+func (p *peerImpl) scheduleRequests() {
+	for {
+		select {
+		case <-p.ctx.Done():
+			return
+		case <-p.scheduleRequestSignal:
+			p.requestABlockOnce()
+		}
+	}
+}
+
+func (p *peerImpl) requestABlockOnce() {
 	if p.closed.Load() || !p.peerCtx.IsDownloading() {
 		return
 	}
@@ -752,7 +776,7 @@ func (p *peerImpl) start(skipHandshake bool) {
 		err := p.decodeEvents(&event)
 		if err != nil {
 			p.log.Trace().Err(err).Msg("failed to decode event")
-			p.closeErr = err
+			p.closeErr.Store(&err)
 			return
 		}
 
@@ -802,7 +826,7 @@ func (p *peerImpl) start(skipHandshake bool) {
 			p.peerChoking.Store(false)
 			p.requestBlocks()
 		case proto.Piece:
-			p.hadTransfer = true
+			p.hadTransfer.Store(true)
 			if !p.resIsValid(event.Res) {
 				p.log.Trace().Msg("failed to validate response")
 				// send response without myRequests

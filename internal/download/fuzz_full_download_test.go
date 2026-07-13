@@ -6,16 +6,23 @@
 package download
 
 import (
-	"context"
+	"errors"
+	"fmt"
+	"io"
 	"math/rand/v2"
+	"net"
+	"net/netip"
 	"testing"
 	"time"
 
 	"neptune/internal/piece_store"
+	"neptune/internal/pkg/bm"
+	"neptune/internal/proto"
 )
 
-// FuzzFullDownload simulates a realistic download with multiple peers,
-// random bitfields, and random disconnects.
+// FuzzFullDownload drives the real peer and picker through BitTorrent wire
+// messages. The remote peers only know about their net.Pipe endpoint: the test
+// never asks a local peer to pick or submit a block directly.
 func FuzzFullDownload(f *testing.F) {
 	f.Add(uint32(5), uint32(4), int64(123))
 	f.Add(uint32(10), uint32(4), int64(456))
@@ -30,187 +37,109 @@ func FuzzFullDownload(f *testing.F) {
 
 		d := newTestDownload(t, numPieces, blocksPerPiece, piece_store.NewMemStore)
 		d.resChan = make(chan chunkSubmit, 100)
-		d.state.Store(uint32(Downloading))
 		go d.backgroundResHandler()
 
-		ctx, cancel := context.WithCancel(d.ctx)
-		defer cancel()
+		done := make(chan struct{})
+		defer close(done)
+		remoteErrors := make(chan error, 8)
 
-		schedulerDone := make(chan struct{})
-		go func() {
-			defer close(schedulerDone)
-			ticker := time.NewTicker(5 * time.Millisecond)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case <-ticker.C:
-				}
-				anyAlive := false
-				d.peers.Range(func(_ uint64, p Peer) bool {
-					if !p.Closed() {
-						anyAlive = true
-						p.(*mockPeer).requestABlock()
-					}
-					return true
-				})
-				if !anyAlive {
-					return
-				}
-			}
-		}()
-
-		numPeers := int(rng.Uint64()%6) + 1
-		type pd struct {
-			p          *mockPeer
-			disconnect time.Duration
-		}
-		peers := make([]pd, 0, numPeers)
-
+		// Keep one complete, reliable seed so random disconnects and rejects do
+		// not turn a scheduler failure into an expected coverage loss.
+		numPeers := int(rng.Uint64()%5) + 2
 		for i := range numPeers {
-			p := newMockPeer()
-			p.resChan = d.resChan
-			p.info = d.info
-			p.dl = d
-			p.peerID = uint64(i + 1)
-			p.setNumPieces(numPieces)
-
-			for pi := range numPieces {
-				if rng.Uint64()%10 < 7 {
-					p.bitmap.Set(pi)
+			pieces := bm.New(numPieces)
+			if i == 0 {
+				pieces.Fill()
+			} else {
+				for pieceIndex := range numPieces {
+					if rng.Uint64()%10 < 7 {
+						pieces.Set(pieceIndex)
+					}
 				}
-			}
-			if p.bitmap.Count() == 0 {
-				p.bitmap.Set(uint32(rng.Uint64() % uint64(numPieces)))
-			}
-			p.setDesiredSize(int(rng.Uint64()%8) + 2)
-
-			d.peers.Store(p.ID(), p)
-			for pi := range numPieces {
-				if p.bitmap.Contains(pi) {
-					d.picker.Load().IncRefcount(pi)
+				if pieces.Count() == 0 {
+					pieces.Set(uint32(rng.Uint64() % uint64(numPieces)))
 				}
 			}
 
-			var dc time.Duration
-			if rng.Uint64()%3 == 0 {
-				dc = time.Duration(rng.Uint64()%500+100) * time.Millisecond
+			var peerID proto.PeerID
+			copy(peerID[:], fmt.Sprintf("-NF%05d-%011d", i, uint64(seed)))
+			peerRNG := rand.New(rand.NewPCG(rng.Uint64(), rng.Uint64()))
+			addr := netip.AddrPortFrom(netip.MustParseAddr("127.0.0.1"), uint16(30000+i))
+			remote, _ := pipePeer(d, addr, pieces, peerID, peerRNG)
+
+			cfg := remoteConfig{maxLatency: time.Duration(rng.Uint64()%4) * time.Millisecond}
+			if i != 0 {
+				if rng.Uint64()%2 == 0 {
+					cfg.disconnectAfterRequests = uint32(rng.Uint64()%12) + 1
+				}
+				if rng.Uint64()%3 == 0 {
+					cfg.rejectEvery = uint32(rng.Uint64()%5) + 2
+				}
+				if rng.Uint64()%3 == 0 {
+					cfg.chokeAfter = time.Duration(rng.Uint64()%20+1) * time.Millisecond
+					cfg.unchokeAfter = time.Duration(rng.Uint64()%20+1) * time.Millisecond
+				}
 			}
-			peers = append(peers, pd{p: p, disconnect: dc})
+
+			go func() {
+				if err := remote.Run(cfg, done, d.info.PieceLength); !expectedRemoteClose(err) {
+					select {
+					case remoteErrors <- err:
+					case <-done:
+					}
+				}
+			}()
 		}
 
-		// Ensure every piece has at least one peer.
-		for pi := range numPieces {
-			covered := false
-			for _, pp := range peers {
-				if pp.p.bitmap.Contains(pi) {
-					covered = true
-					break
-				}
-			}
-			if !covered {
-				idx := int(rng.Uint64() % uint64(len(peers)))
-				peers[idx].p.bitmap.Set(pi)
-				d.picker.Load().IncRefcount(pi)
-			}
-		}
-
-		// Schedule disconnects.
-		for _, pi := range peers {
-			if pi.disconnect == 0 {
-				continue
-			}
-			go func(p *mockPeer, d time.Duration) {
-				timer := time.NewTimer(d)
-				defer timer.Stop()
-				select {
-				case <-ctx.Done():
-					return
-				case <-timer.C:
-					p.Close()
-				}
-			}(pi.p, pi.disconnect)
-		}
-
-		// Check for uncovered pieces: if any missing piece has no available peer,
-		// the download is dead (not a code bug, just peers all disconnected or
-		// the piece was only on a disconnected peer).
-		hasCoverageLoss := func() bool {
-			for pi := range numPieces {
-				if !d.completedBm.Contains(pi) && !d.picker.Load().PieceIsAvailable(pi) {
-					return true
-				}
-			}
-			return false
-		}
-
-		timer := time.NewTimer(10 * time.Second)
+		deadline := time.NewTimer(10 * time.Second)
 		tick := time.NewTicker(100 * time.Millisecond)
+		defer deadline.Stop()
 		defer tick.Stop()
-		defer timer.Stop()
 
 		lastCount := uint32(0)
-		stallStart := time.Time{}
-
+		stallStart := time.Now()
 		for {
 			select {
-			case <-timer.C:
-				count := d.completedBm.Count()
-				dump := d.picker.Load().DebugDump()
-				var missing []uint32
-				for pi := range numPieces {
-					if !d.completedBm.Contains(pi) {
-						missing = append(missing, pi)
-					}
-				}
-				if hasCoverageLoss() {
-					t.Logf("seed=%d uncovered after deadline: %d/%d missing=%v (peers lost coverage)",
-						seed, count, numPieces, missing)
-					return
-				}
-				t.Errorf("seed=%d deadline: %d/%d missing=%v\nDUMP:\n%s",
-					seed, count, numPieces, missing, dump)
-				return
+			case err := <-remoteErrors:
+				t.Fatalf("seed=%d: remote peer failed: %v", seed, err)
+			case <-deadline.C:
+				t.Fatalf("seed=%d: deadline: %s", seed, wireDownloadState(d, numPieces))
 			case <-tick.C:
 				count := d.completedBm.Count()
 				if count == numPieces {
 					return
 				}
-				if hasCoverageLoss() {
-					var missing []uint32
-					for pi := range numPieces {
-						if !d.completedBm.Contains(pi) {
-							missing = append(missing, pi)
-						}
-					}
-					t.Logf("seed=%d uncovered: %d/%d missing=%v (peers lost coverage, not a stall)",
-						seed, count, numPieces, missing)
-					return
-				}
-
-				if count == lastCount {
-					if stallStart.IsZero() {
-						stallStart = time.Now()
-					} else if time.Since(stallStart) > 6*time.Second {
-						dump := d.picker.Load().DebugDump()
-						var missing []uint32
-						for pi := range numPieces {
-							if !d.completedBm.Contains(pi) {
-								missing = append(missing, pi)
-							}
-						}
-						t.Errorf("seed=%d stalled: %d/%d missing=%v\nDUMP:\n%s",
-							seed, count, numPieces, missing, dump)
-						return
-					}
-				} else {
-					stallStart = time.Time{}
+				if count != lastCount {
 					lastCount = count
+					stallStart = time.Now()
+					continue
+				}
+				if time.Since(stallStart) > 6*time.Second {
+					t.Fatalf("seed=%d: stalled: %s", seed, wireDownloadState(d, numPieces))
 				}
 			}
 		}
 	})
 }
 
-var _ = context.Background
+func expectedRemoteClose(err error) bool {
+	return err == nil || errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) ||
+		errors.Is(err, io.ErrClosedPipe)
+}
+
+func wireDownloadState(d *Download, numPieces uint32) string {
+	missing := make([]uint32, 0, numPieces-d.completedBm.Count())
+	for pieceIndex := range numPieces {
+		if !d.completedBm.Contains(pieceIndex) {
+			missing = append(missing, pieceIndex)
+		}
+	}
+
+	picker := d.picker.Load()
+	if picker == nil {
+		return fmt.Sprintf("state=%s complete=%d/%d missing=%v peers=%d picker=released",
+			d.GetState(), d.completedBm.Count(), numPieces, missing, d.peers.Size())
+	}
+	return fmt.Sprintf("state=%s complete=%d/%d missing=%v peers=%d\n%s",
+		d.GetState(), d.completedBm.Count(), numPieces, missing, d.peers.Size(), picker.DebugDump())
+}

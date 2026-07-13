@@ -19,7 +19,7 @@ import (
 )
 
 type remotePeer struct {
-	r            io.Reader
+	r            io.ReadCloser
 	w            io.Writer
 	bm           *bm.Bitmap
 	rng          *rand.Rand
@@ -28,18 +28,28 @@ type remotePeer struct {
 	readBuf      [20]byte
 }
 
-func newRemotePeer(rw io.ReadWriter, pieces *bm.Bitmap, peerID proto.PeerID, rng *rand.Rand) *remotePeer {
+func newRemotePeer(rw io.ReadWriteCloser, pieces *bm.Bitmap, peerID proto.PeerID, rng *rand.Rand) *remotePeer {
 	return &remotePeer{r: rw, w: rw, bm: pieces, peerID: peerID, rng: rng}
 }
 
+func (rp *remotePeer) Close() error { return rp.r.Close() }
+
 type remoteConfig struct {
-	disconnectAfter time.Duration
-	chokeAfter      time.Duration
-	unchokeAfter    time.Duration
-	maxLatency      time.Duration
+	disconnectAfter         time.Duration
+	chokeAfter              time.Duration
+	unchokeAfter            time.Duration
+	maxLatency              time.Duration
+	disconnectAfterRequests uint32
+	rejectEvery             uint32
+}
+
+type remoteMessage struct {
+	payload     []byte
+	messageType byte
 }
 
 func (rp *remotePeer) Run(cfg remoteConfig, done <-chan struct{}, blockSize int64) error {
+	defer rp.Close()
 	if cfg.maxLatency > 0 {
 		rp.randomSleep(cfg.maxLatency)
 	}
@@ -109,9 +119,45 @@ func (rp *remotePeer) serveRequests(cfg remoteConfig, blockSize int64, done <-ch
 		defer chokeTimer.Stop()
 	}
 
+	// The local peer may pipeline requests while this goroutine is blocked
+	// writing a Piece response. Buffer decoded messages to avoid an artificial
+	// full-duplex deadlock caused by net.Pipe's zero-capacity writes.
+	messages := make(chan remoteMessage, maxRequestQueue)
+	readErr := make(chan error, 1)
+	go func() {
+		for {
+			msgType, payload, err := rp.readMessage()
+			if err != nil {
+				readErr <- err
+				return
+			}
+			select {
+			case messages <- remoteMessage{messageType: msgType, payload: payload}:
+			case <-done:
+				return
+			}
+		}
+	}()
+
 	zeroBlock := make([]byte, blockSize)
+	requestsSeen := uint32(0)
+	handleRequest := func(req proto.ChunkRequest) (bool, error) {
+		requestsSeen++
+		if cfg.disconnectAfterRequests > 0 && requestsSeen > cfg.disconnectAfterRequests {
+			return true, nil
+		}
+		if cfg.maxLatency > 0 {
+			rp.randomSleep(cfg.maxLatency)
+		}
+		if cfg.rejectEvery > 0 && requestsSeen%cfg.rejectEvery == 0 {
+			return false, proto.SendReject(rp.w, req)
+		}
+		return false, rp.sendPiece(req, zeroBlock)
+	}
+
 	for _, req := range rp.bufferedReqs {
-		if err := rp.sendPiece(req, zeroBlock); err != nil {
+		disconnect, err := handleRequest(req)
+		if err != nil || disconnect {
 			return err
 		}
 	}
@@ -125,8 +171,11 @@ func (rp *remotePeer) serveRequests(cfg remoteConfig, blockSize int64, done <-ch
 			return nil
 		case <-chokeChan:
 			if !choked {
-				proto.SendNoPayload(rp.w, proto.Choke)
+				if err := proto.SendNoPayload(rp.w, proto.Choke); err != nil {
+					return err
+				}
 				choked = true
+				chokeChan = nil
 				if cfg.unchokeAfter > 0 {
 					unchokeTimer = time.NewTimer(cfg.unchokeAfter)
 					unchokeChan = unchokeTimer.C
@@ -134,28 +183,26 @@ func (rp *remotePeer) serveRequests(cfg remoteConfig, blockSize int64, done <-ch
 			}
 		case <-unchokeChan:
 			if choked {
-				proto.SendNoPayload(rp.w, proto.Unchoke)
+				if err := proto.SendNoPayload(rp.w, proto.Unchoke); err != nil {
+					return err
+				}
 				choked = false
+				unchokeChan = nil
 			}
-		default:
-		}
-		msgType, payload, err := rp.readMessage()
-		if err != nil {
-			if err == io.EOF {
+		case err := <-readErr:
+			if err == io.EOF || errors.Is(err, net.ErrClosed) {
 				return nil
 			}
 			return err
-		}
-		if choked && msgType != byte(proto.Interested) {
-			continue
-		}
-		switch msgType {
-		case byte(proto.Request):
-			req := parseRequest(payload)
-			if cfg.maxLatency > 0 {
-				rp.randomSleep(cfg.maxLatency)
+		case msg := <-messages:
+			if choked && msg.messageType != byte(proto.Interested) {
+				continue
 			}
-			if err := rp.sendPiece(req, zeroBlock); err != nil {
+			if msg.messageType != byte(proto.Request) {
+				continue
+			}
+			disconnect, err := handleRequest(parseRequest(msg.payload))
+			if err != nil || disconnect {
 				return err
 			}
 		}

@@ -24,7 +24,12 @@ func (p *peerImpl) Incoming() bool       { return p.incoming }
 
 func (p *peerImpl) Closed() bool          { return p.closed.Load() }
 func (p *peerImpl) IsDisconnecting() bool { return p.disconnecting.Load() }
-func (p *peerImpl) CloseError() error     { return p.closeErr }
+func (p *peerImpl) CloseError() error {
+	if err := p.closeErr.Load(); err != nil {
+		return *err
+	}
+	return nil
+}
 
 // ── Piece availability ───────────────────────────────────────────────────
 
@@ -125,7 +130,7 @@ func (p *peerImpl) SendUnchoke() { p.sendEventX(Event{Event: proto.Unchoke}) }
 
 // ── Transfer tracking ────────────────────────────────────────────────────
 
-func (p *peerImpl) HadTransfer() bool { return p.hadTransfer }
+func (p *peerImpl) HadTransfer() bool { return p.hadTransfer.Load() }
 
 // ── Read-only metadata ───────────────────────────────────────────────────
 

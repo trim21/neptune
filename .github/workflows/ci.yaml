@@ -110,7 +110,7 @@ jobs:
           cache-namespace: fuzz
       - run: go test -race -fuzz=FuzzPickerDownloadIntegration -fuzztime=30s ./internal/download/
       - run: go test -race -fuzz=FuzzStaleRequest -fuzztime=30s ./internal/download/
-      - run: go test -race -fuzz=FuzzFullDownload -fuzztime=30s ./internal/download/
+      - run: go test -race -tags assert -fuzz=^FuzzFullDownload$ -fuzztime=30s ./internal/download/
 
   fuzz-piece-picker:
     runs-on: ubuntu-latest
