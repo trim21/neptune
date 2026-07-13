@@ -31,30 +31,33 @@ var debugTemplateFS embed.FS
 var debugTmpl = template.Must(template.ParseFS(debugTemplateFS, "debug.html"))
 
 type debugPageData struct {
-	InfoHash          string                  `json:"info_hash"`
-	Name              string                  `json:"name"`
+	Corrupted         string                  `json:"corrupted"`
+	Completed         string                  `json:"completed"`
 	DownloadRate      string                  `json:"download_rate"`
 	NetRate           string                  `json:"net_rate"`
-	UploadRate        string                  `json:"upload_rate"`
+	InfoHash          string                  `json:"info_hash"`
 	Progress          string                  `json:"progress"`
 	TotalSize         string                  `json:"total_size"`
 	SelectedSize      string                  `json:"selected_size"`
 	Downloaded        string                  `json:"downloaded"`
-	Completed         string                  `json:"completed"`
+	ErrorMsg          string                  `json:"error_msg"`
 	Extra             string                  `json:"extra"`
 	WasteStale        string                  `json:"waste_stale"`
+	Name              string                  `json:"name"`
 	WasteDupe         string                  `json:"waste_dupe"`
+	UploadRate        string                  `json:"upload_rate"`
 	Pending           string                  `json:"pending"`
-	Corrupted         string                  `json:"corrupted"`
-	ErrorMsg          string                  `json:"error_msg"`
+	PickerText        string                  `json:"picker_text"`
+	DownloadingPieces []debugDownloadingPiece `json:"downloading_pieces,omitempty"`
 	FailingPieces     []debugFailingPiece     `json:"failing_pieces,omitempty"`
 	Trackers          []debugTracker          `json:"trackers,omitempty"`
 	Peers             []debugPeer             `json:"peers,omitempty"`
-	PickerText        string                  `json:"picker_text"`
-	DownloadingPieces []debugDownloadingPiece `json:"downloading_pieces,omitempty"`
 	Files             []debugFile             `json:"files,omitempty"`
 	PieceRanges       []debugPieceRange       `json:"piece_ranges,omitempty"`
 	PendingPeers      []debugPendingPeer      `json:"pending_peers,omitempty"`
+	RemainingPieces   uint32                  `json:"remaining_pieces"`
+	CompletedPieces   uint32                  `json:"completed_pieces"`
+	TotalPieces       uint32                  `json:"total_pieces"`
 	FullMode          bool                    `json:"full_mode"`
 }
 
@@ -136,22 +139,25 @@ func RenderDebugPage(w io.Writer, data *debugPageData) error {
 
 func BuildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPageData {
 	data := &debugPageData{
-		InfoHash:     infoHashHex,
-		Name:         d.info.Name,
-		DownloadRate: humanizeHumanReadable(d.pieceDownloadRate),
-		NetRate:      humanizeHumanReadable(d.ioDownloadRate),
-		UploadRate:   humanizeHumanReadable(d.pieceUploadRate),
-		Progress:     fmt.Sprintf("%.2f%%", float64(d.completed.Load())/float64(d.SelectedSize())*100),
-		TotalSize:    humanize.IBytes(uint64(d.info.TotalLength)),
-		SelectedSize: humanize.IBytes(uint64(d.SelectedSize())),
-		Downloaded:   humanize.IBytes(uint64(d.downloaded.Load())),
-		Completed:    humanize.IBytes(uint64(d.completed.Load())),
-		Extra:        humanize.IBytes(uint64(d.downloaded.Load() - d.completed.Load())),
-		WasteStale:   humanize.IBytes(uint64(d.wastedStale.Load())),
-		WasteDupe:    humanize.IBytes(uint64(d.wastedDupe.Load())),
-		Corrupted:    humanize.IBytes(uint64(d.corrupted.Load())),
-		ErrorMsg:     d.ErrorMsg(),
-		FullMode:     fullMode,
+		InfoHash:        infoHashHex,
+		Name:            d.info.Name,
+		DownloadRate:    humanizeHumanReadable(d.pieceDownloadRate),
+		NetRate:         humanizeHumanReadable(d.ioDownloadRate),
+		UploadRate:      humanizeHumanReadable(d.pieceUploadRate),
+		Progress:        fmt.Sprintf("%.2f%%", float64(d.completed.Load())/float64(d.SelectedSize())*100),
+		TotalSize:       humanize.IBytes(uint64(d.info.TotalLength)),
+		SelectedSize:    humanize.IBytes(uint64(d.SelectedSize())),
+		Downloaded:      humanize.IBytes(uint64(d.downloaded.Load())),
+		Completed:       humanize.IBytes(uint64(d.completed.Load())),
+		Extra:           humanize.IBytes(uint64(d.downloaded.Load() - d.completed.Load())),
+		WasteStale:      humanize.IBytes(uint64(d.wastedStale.Load())),
+		WasteDupe:       humanize.IBytes(uint64(d.wastedDupe.Load())),
+		Corrupted:       humanize.IBytes(uint64(d.corrupted.Load())),
+		ErrorMsg:        d.ErrorMsg(),
+		TotalPieces:     d.info.NumPieces,
+		CompletedPieces: d.completedBm.Count(),
+		RemainingPieces: d.info.NumPieces - d.completedBm.Count(),
+		FullMode:        fullMode,
 	}
 
 	// Failing pieces
