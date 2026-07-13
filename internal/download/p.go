@@ -248,10 +248,10 @@ type peerImpl struct {
 	blockedPieces          *bm.LockFreeBitmap
 	Address                netip.AddrPort
 	lastPickResult         PickResult
-	requestQueue           pieceBlockQueue
 	rttAverage             sizedSlice[time.Duration]
-	lastUnchokeAt          atomic.Int64
-	desiredQueueSize       atomic.Int32
+	requestQueue           pieceBlockQueue
+	preferred              atomic.Bool
+	snubbed                atomic.Bool
 	id                     uint64
 	snubbedAt              atomic.Int64
 	disconnecting          atomic.Bool
@@ -259,16 +259,15 @@ type peerImpl struct {
 	queueLimit             atomic.Uint32
 	lastSend               atomic.Int64
 	ourInterested          atomic.Bool
-	snubbed                atomic.Bool
+	peerChoking            atomic.Bool
 	closed                 atomic.Bool
 	peerInterested         atomic.Bool
 	ourChoking             atomic.Bool
-	preferred              atomic.Bool
-	peerChoking            atomic.Bool
+	lastUnchokeAt          atomic.Int64
+	desiredQueueSize       atomic.Int32
 	rttMutex               sync.RWMutex
 	wm                     sync.Mutex
 	requestMu              sync.Mutex
-	rqMu                   sync.Mutex
 	lastPickResultMu       sync.Mutex
 	extDontHaveID          gsync.AtomicUint[proto.ExtensionMessage]
 	extPexID               gsync.AtomicUint[proto.ExtensionMessage]
@@ -308,8 +307,8 @@ func (p *peerImpl) Request(req proto.ChunkRequest) {
 }
 
 // reserveRequest records ownership of a picked block before it is removed from
-// requestQueue. The caller must hold requestMu; queue drains also hold rqMu while
-// transferring ownership so Close cannot miss or overbook the request.
+// requestQueue. The caller must hold requestMu so Close cannot miss the ownership
+// transfer and concurrent drains cannot overbook the request limit.
 func (p *peerImpl) reserveRequest(req proto.ChunkRequest) bool {
 	_, exist := p.myRequests.LoadOrStore(req, time.Now())
 	if exist {
@@ -355,7 +354,6 @@ func (p *peerImpl) Close() {
 	// Synchronize with queue-to-request ownership transfers, then abort every
 	// block that is still queued or in flight.
 	p.requestMu.Lock()
-	p.rqMu.Lock()
 	p.myRequests.Range(func(req proto.ChunkRequest, _ time.Time) bool {
 		bi := int(req.Begin / uint32(defaultBlockSize))
 		p.peerCtx.Picker().AbortDownload(req.PieceIndex, bi)
@@ -366,7 +364,6 @@ func (p *peerImpl) Close() {
 		return true
 	})
 	p.requestQueue.Clear()
-	p.rqMu.Unlock()
 	p.requestMu.Unlock()
 
 	// Shared state cleanup: recordDisconnect handles connectedAddrs,
@@ -382,11 +379,9 @@ func (p *peerImpl) sendBlockRequests() {
 
 	for {
 		p.requestMu.Lock()
-		p.rqMu.Lock()
 
 		if p.closed.Load() || p.isDisconnecting() ||
 			p.requestQueue.Len() == 0 || p.myRequests.Size() >= desiredSize {
-			p.rqMu.Unlock()
 			p.requestMu.Unlock()
 			return
 		}
@@ -397,23 +392,20 @@ func (p *peerImpl) sendBlockRequests() {
 		// Skip if peer is choking us (unless allowed fast).
 		if p.peerChoking.Load() && !p.allowFast.Contains(block.PieceIndex) {
 			p.requestQueue.Pop()
-			p.rqMu.Unlock()
-			p.peerCtx.Picker().AbortDownload(block.PieceIndex, block.BlockIndex)
 			p.requestMu.Unlock()
+			p.peerCtx.Picker().AbortDownload(block.PieceIndex, block.BlockIndex)
 			continue
 		}
 
-		// Reserve the request while the block is still protected by both locks.
-		// This keeps Close from missing it and serializes the queue-size check
+		// Reserve the request before removing it from the queue. Holding requestMu
+		// keeps Close from missing it and serializes the queue-size check
 		// across concurrent sendBlockRequests calls.
 		if !p.reserveRequest(chunk) {
 			p.requestQueue.Pop()
-			p.rqMu.Unlock()
 			p.requestMu.Unlock()
 			continue
 		}
 		p.requestQueue.Pop()
-		p.rqMu.Unlock()
 		p.requestMu.Unlock()
 
 		p.sendRequest(chunk)
@@ -545,19 +537,19 @@ func (p *peerImpl) updateDesiredQueueSize() int {
 
 // requestQueueLen returns the length of the request queue under lock.
 func (p *peerImpl) requestQueueLen() int {
-	p.rqMu.Lock()
-	defer p.rqMu.Unlock()
+	p.requestMu.Lock()
+	defer p.requestMu.Unlock()
 	return p.requestQueue.Len()
 }
 
 // isInQueue checks if a chunk is already in the peer's request queue or request set.
 func (p *peerImpl) IsInQueue(chunk proto.ChunkRequest) bool {
+	p.requestMu.Lock()
+	defer p.requestMu.Unlock()
+
 	if _, ok := p.myRequests.Load(chunk); ok {
 		return true
 	}
-
-	p.rqMu.Lock()
-	defer p.rqMu.Unlock()
 
 	found := false
 	p.requestQueue.Range(func(block PieceBlock) bool {
@@ -609,7 +601,9 @@ func (p *peerImpl) checkRequestTimeouts() {
 				for _, req := range timedOutReqs {
 					bi := int(req.Begin / uint32(defaultBlockSize))
 					p.peerCtx.Picker().AbortDownload(req.PieceIndex, bi)
+					p.requestMu.Lock()
 					p.myRequests.Delete(req)
+					p.requestMu.Unlock()
 				}
 
 				consecutiveTimeouts += len(timedOutReqs)
@@ -620,18 +614,16 @@ func (p *peerImpl) checkRequestTimeouts() {
 					p.snubbedAt.Store(now.Unix())
 					p.log.Trace().Int("consecutive", consecutiveTimeouts).Msg("peer snubbed: repeated timeouts")
 
-					// Clear all remaining in-flight requests on snub.
+					// Clear all remaining in-flight and queued requests on snub.
+					p.requestMu.Lock()
 					p.myRequests.Range(func(req proto.ChunkRequest, _ time.Time) bool {
 						bi := int(req.Begin / uint32(defaultBlockSize))
 						p.peerCtx.Picker().AbortDownload(req.PieceIndex, bi)
 						p.myRequests.Delete(req)
 						return true
 					})
-
-					// Clear requestQueue — stale blocks would be resent on un-snub.
-					p.rqMu.Lock()
 					p.requestQueue.Clear()
-					p.rqMu.Unlock()
+					p.requestMu.Unlock()
 				}
 
 				// Trigger reschedule so other peers can take over the freed blocks.
@@ -931,16 +923,14 @@ func (p *peerImpl) start(skipHandshake bool) {
 		case proto.Reject:
 			p.log.Trace().Msgf("reject %+v", event.Req)
 			p.Rejected.Store(event.Req, empty.Empty{})
+			bi := int(event.Req.Begin / uint32(defaultBlockSize))
+			p.requestMu.Lock()
 			p.myRequests.Delete(event.Req)
+			p.requestQueue.Remove(event.Req.PieceIndex, bi)
+			p.requestMu.Unlock()
 
 			// Abort in the picker so other peers can request this block.
-			bi := int(event.Req.Begin / uint32(defaultBlockSize))
 			p.peerCtx.Picker().AbortDownload(event.Req.PieceIndex, bi)
-
-			// Remove matching entry from requestQueue if present.
-			p.rqMu.Lock()
-			p.requestQueue.Remove(event.Req.PieceIndex, bi)
-			p.rqMu.Unlock()
 
 			// Libtorrent: request_a_block if queue is empty, then send_block_requests.
 			p.requestABlock()
@@ -1053,7 +1043,9 @@ func (p *peerImpl) resIsValid(res *proto.ChunkResponse) bool {
 		Length:     as.Uint32(len(res.Data)),
 	}
 
+	p.requestMu.Lock()
 	reqTime, ok := p.myRequests.LoadAndDelete(r)
+	p.requestMu.Unlock()
 	if ok {
 		p.rttMutex.Lock()
 		p.rttAverage.Push(time.Since(reqTime))

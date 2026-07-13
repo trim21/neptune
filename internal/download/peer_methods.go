@@ -72,12 +72,12 @@ func (p *peerImpl) OutstandingRequests() int { return p.myRequests.Size() }
 func (p *peerImpl) QueueLen() int            { return p.requestQueueLen() }
 
 func (p *peerImpl) EnqueueBlock(pieceIndex uint32, blockIndex int) {
-	p.rqMu.Lock()
+	p.requestMu.Lock()
 	if !p.requestQueue.Push(PieceBlock{PieceIndex: pieceIndex, BlockIndex: blockIndex}) {
-		p.rqMu.Unlock()
+		p.requestMu.Unlock()
 		panic("peer request queue overflow")
 	}
-	p.rqMu.Unlock()
+	p.requestMu.Unlock()
 }
 
 func (p *peerImpl) SendBlockRequests()    { p.sendBlockRequests() }
