@@ -32,15 +32,17 @@ type Event struct {
 	Ignored      bool
 }
 
-func (p *peerImpl) DecodeEvents() (Event, error) {
+func (p *peerImpl) decodeEvents(event *Event) error {
+	*event = Event{}
+
 	err := p.Conn.SetReadDeadline(time.Now().Add(time.Minute * 3))
 	if err != nil {
-		return Event{}, err
+		return err
 	}
 
 	n, err := io.ReadFull(p.r, p.readBuf[:])
 	if err != nil {
-		return Event{}, err
+		return err
 	}
 
 	assert.Equal(4, n)
@@ -48,56 +50,65 @@ func (p *peerImpl) DecodeEvents() (Event, error) {
 	size := binary.BigEndian.Uint32(p.readBuf[:])
 
 	if size >= units.MiB {
-		return Event{}, ErrPeerSendInvalidData
+		return ErrPeerSendInvalidData
 	}
 
 	// keep alive
 	if size == 0 {
-		// keep alive
-		return Event{keepAlive: true}, nil
+		event.keepAlive = true
+		return nil
 	}
 
 	n, err = io.ReadFull(p.r, p.readBuf[:1])
 	if err != nil {
-		return Event{}, err
+		return err
 	}
 
 	assert.Equal(n, 1)
 
-	var event Event
 	event.Event = proto.Message(p.readBuf[0])
-	// p.log.Trace().Msgf("try to decode message event %s", color.BlueString(event.Event.String()))
+	var ev Event
 	switch event.Event {
 	case proto.Choke, proto.Unchoke,
 		proto.Interested, proto.NotInterested,
 		proto.HaveAll, proto.HaveNone:
-		return event, nil
+		return nil
 	case proto.Bitfield:
-		return p.decodeBitfield(size)
+		ev, err = p.decodeBitfield(size)
+		*event = ev
+		return err
 	case proto.Request:
-		return p.decodeRequest()
+		ev, err = p.decodeRequest()
+		*event = ev
+		return err
 	case proto.Cancel:
-		return p.decodeCancel()
+		ev, err = p.decodeCancel()
+		*event = ev
+		return err
 	case proto.Piece:
-		return p.decodePiece(size - 1)
+		ev, err = p.decodePiece(size - 1)
+		*event = ev
+		return err
 	case proto.Port:
 		err = binary.Read(p.r, binary.BigEndian, &event.Port)
-		return event, err
+		return err
 	case proto.Have, proto.Suggest, proto.AllowedFast:
 		if _, err = io.ReadFull(p.r, p.readBuf[:]); err != nil {
-			return event, err
+			return err
 		}
 
 		event.Index = binary.BigEndian.Uint32(p.readBuf[:])
 
-		return event, nil
+		return nil
 	case proto.Reject:
-		return p.decodeReject()
+		ev, err = p.decodeReject()
+		*event = ev
+		return err
 	case proto.Extended:
 		var b byte
 		b, err = p.r.ReadByte()
 		if err != nil {
-			return event, err
+			return err
 		}
 
 		event.ExtensionID = proto.ExtensionMessage(b)
@@ -106,47 +117,35 @@ func (p *peerImpl) DecodeEvents() (Event, error) {
 			var raw = make([]byte, size-2)
 			_, err = io.ReadFull(p.r, raw)
 			if err != nil {
-				return event, err
+				return err
 			}
 
 			err = bencode.Unmarshal(raw, &event.ExtHandshake)
-			return event, err
+			return err
 		}
-
-		// if extMsgID == p.extDontHaveID.Load() {
-		//	assert.Equal(size, 6)
-		//
-		//	_, err = io.ReadFull(p.r, p.readBuf[:])
-		//	if err != nil {
-		//		return event, err
-		//	}
-		//
-		//	event.Index = binary.BigEndian.Uint32(p.readBuf[:])
-		//	return event, err
-		//}
 
 		if event.ExtensionID == ourPexExtID {
 			var raw = make([]byte, size-2)
 
 			_, err = io.ReadFull(p.r, raw)
 			if err != nil {
-				return event, err
+				return err
 			}
 
 			err = bencode.Unmarshal(raw, &event.ExtPex)
-			return event, err
+			return err
 		}
 
 		// unknown events
 		event.Ignored = true
 		_, err = p.r.Discard(int(size - 2))
-		return event, err
+		return err
 	case proto.BitCometExtension:
 	}
 
 	// unknown events
 	_, err = p.r.Discard(int(size - 1))
-	return event, err
+	return err
 }
 
 func (p *peerImpl) decodeBitfield(eventSize uint32) (Event, error) {

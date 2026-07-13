@@ -644,12 +644,15 @@ func (p *peerImpl) start(skipHandshake bool) {
 
 	go p.checkRequestTimeouts()
 
+	// for re-use
+	var event Event
+
 	for {
 		if p.ctx.Err() != nil {
 			return
 		}
 
-		event, err := p.DecodeEvents()
+		err := p.decodeEvents(&event)
 		if err != nil {
 			p.log.Trace().Err(err).Msg("failed to decode event")
 			p.closeErr = err
