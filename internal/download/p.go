@@ -126,7 +126,7 @@ func newPeer(
 		peerID: *atomic.NewPointer(&proto.PeerID{}),
 
 		rttAverage: sizedSlice[time.Duration]{limit: 2000},
-		lastSend:   *atomic.NewTime(time.Now()),
+		lastSend:   *atomic.NewInt64(time.Now().Unix()),
 	}
 
 	if h != nil {
@@ -144,12 +144,12 @@ var ErrPeerSendInvalidData = errors.New("addrPort send invalid data")
 
 type peerImpl struct {
 	log                    zerolog.Logger
+	connectedAt            time.Time
 	closeErr               error
 	ctx                    context.Context
 	Conn                   net.Conn
-	lastSend               atomic.Time
-	snubbedAt              atomic.Time
-	lastUnchokeAt          atomic.Time
+	blockedPieceTimestamps *xsync.Map[uint32, time.Time]
+	userAgent              atomic.Pointer[string]
 	d                      *Download
 	peerCtx                *PeerContext
 	cancel                 context.CancelFunc
@@ -161,7 +161,7 @@ type peerImpl struct {
 	allowFast              *bm.Bitmap
 	peerRequests           *xsync.Map[proto.ChunkRequest, empty.Empty]
 	pieceDownloadRate      *flowrate.Monitor
-	userAgent              atomic.Pointer[string]
+	suspectPieces          *bm.Bitmap
 	responseCond           *gsync.Cond
 	peerID                 atomic.Pointer[proto.PeerID]
 	w                      *bufio.Writer
@@ -169,18 +169,18 @@ type peerImpl struct {
 	pieceUploadRate        *flowrate.Monitor
 	contributedPieces      *bm.Bitmap
 	blockedPieces          *bm.LockFreeBitmap
-	suspectPieces          *bm.Bitmap
-	blockedPieceTimestamps *xsync.Map[uint32, time.Time]
 	Address                netip.AddrPort
-	connectedAt            time.Time
 	lastPickResult         PickResult
 	requestQueue           []PieceBlock
 	rttAverage             sizedSlice[time.Duration]
+	lastUnchokeAt          atomic.Int64
+	desiredQueueSize       atomic.Int32
 	id                     uint64
+	snubbedAt              atomic.Int64
 	disconnecting          atomic.Bool
 	isSeed                 atomic.Bool
 	queueLimit             atomic.Uint32
-	desiredQueueSize       atomic.Int32
+	lastSend               atomic.Int64
 	ourInterested          atomic.Bool
 	snubbed                atomic.Bool
 	closed                 atomic.Bool
@@ -512,7 +512,7 @@ func (p *peerImpl) checkRequestTimeouts() {
 				// Snub only after repeated consecutive timeouts (>= snubThreshold).
 				if consecutiveTimeouts >= snubThreshold && !p.snubbed.Load() {
 					p.snubbed.Store(true)
-					p.snubbedAt.Store(now)
+					p.snubbedAt.Store(now.Unix())
 					p.log.Trace().Int("consecutive", consecutiveTimeouts).Msg("peer snubbed: repeated timeouts")
 
 					// Clear all remaining in-flight requests on snub.
@@ -611,7 +611,7 @@ func (p *peerImpl) start(skipHandshake bool) {
 			case <-p.ctx.Done():
 				return
 			case <-timer.C:
-				if time.Since(p.lastSend.Load()) >= time.Minute {
+				if time.Now().Unix()-p.lastSend.Load() >= 60 {
 					p.sendEventX(Event{keepAlive: true})
 				}
 			}

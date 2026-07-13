@@ -76,7 +76,7 @@ func peerUploadScore(p Peer) (score uint32, isReciprocal bool) {
 //  4. Reserve one slot for optimistic unchoke (randomized, cycling).
 //  5. Rotate a fraction of slots each round to discover faster peers.
 func (d *Download) recalculateUnchokeSlots() {
-	now := time.Now()
+	now := time.Now().Unix()
 
 	type candidate struct {
 		peer        Peer
@@ -110,7 +110,7 @@ func (d *Download) recalculateUnchokeSlots() {
 		}
 
 		score, reciprocal := peerUploadScore(p)
-		recently := now.Sub(p.LastUnchokeAt()) < unchokeGracePeriod
+		recently := now-p.LastUnchokeAt() < int64(unchokeGracePeriod/time.Second)
 
 		candidates = append(candidates, candidate{
 			peer:        p,
@@ -194,7 +194,7 @@ func (d *Download) recalculateUnchokeSlots() {
 	// ── Apply ───────────────────────────────────────────────────────
 	for _, p := range unchokeSet {
 		if p.SwapOurChoking(true, false) {
-			p.SetLastUnchokeAt(now)
+			p.SetLastUnchokeAt(time.Now().Unix())
 			go p.SendUnchoke()
 		}
 	}
@@ -242,7 +242,7 @@ func (d *Download) onPeerInterested(p Peer) {
 
 	// Fast unchoke: new peer, slots available.
 	if p.SwapOurChoking(true, false) {
-		p.SetLastUnchokeAt(time.Now())
+		p.SetLastUnchokeAt(time.Now().Unix())
 		p.SendUnchoke()
 
 		select {

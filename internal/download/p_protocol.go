@@ -211,7 +211,7 @@ func (p *peerImpl) decodePiece(size uint32) (Event, error) {
 func (p *peerImpl) write(e Event) error {
 	_ = p.Conn.SetWriteDeadline(time.Now().Add(time.Minute * 3))
 
-	p.lastSend.Store(time.Now())
+	p.lastSend.Store(time.Now().Unix())
 
 	if e.keepAlive {
 		p.log.Trace().Msg("send keepalive")

@@ -53,8 +53,8 @@ type PeerInterface interface {
 
 	// ── Timing ───────────────────────────────────────────────────────
 	ConnectedAt() time.Time
-	LastUnchokeAt() time.Time
-	SetLastUnchokeAt(t time.Time)
+	LastUnchokeAt() int64
+	SetLastUnchokeAt(t int64)
 
 	// ── Rates ────────────────────────────────────────────────────────
 	DownloadRate() int64

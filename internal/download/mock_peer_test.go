@@ -38,7 +38,7 @@ type mockPeer struct {
 	disconnecting          *atomic.Bool
 	suspectPieces          *bm.Bitmap
 	blockedPieceTimestamps map[uint32]time.Time
-	lastUnchokeAt          *atomic.Time
+	lastUnchokeAt          *atomic.Int64
 	peerRequests           map[proto.ChunkRequest]empty.Empty
 	responseFunc           func(res *proto.ChunkResponse) bool
 	resChan                chan chunkSubmit
@@ -86,7 +86,7 @@ func newMockPeer() *mockPeer {
 		ourInterested:          atomic.NewBool(false),
 		peerChoking:            atomic.NewBool(false),
 		preferred:              atomic.NewBool(false),
-		lastUnchokeAt:          atomic.NewTime(time.Now()),
+		lastUnchokeAt:          atomic.NewInt64(time.Now().Unix()),
 		bitmap:                 bm.New(0),
 		fastBitmap:             bm.New(0),
 		blockedPieces:          bm.NewLockFreeBitmap(0),
@@ -178,9 +178,9 @@ func (m *mockPeer) SwapOurInterested(oldVal, newVal bool) bool {
 
 // ── Timing ──────────────────────────────────────────────────────────
 
-func (m *mockPeer) ConnectedAt() time.Time       { return m.connectedAt }
-func (m *mockPeer) LastUnchokeAt() time.Time     { return m.lastUnchokeAt.Load() }
-func (m *mockPeer) SetLastUnchokeAt(t time.Time) { m.lastUnchokeAt.Store(t) }
+func (m *mockPeer) ConnectedAt() time.Time   { return m.connectedAt }
+func (m *mockPeer) LastUnchokeAt() int64     { return m.lastUnchokeAt.Load() }
+func (m *mockPeer) SetLastUnchokeAt(t int64) { m.lastUnchokeAt.Store(t) }
 
 // ── Rates ───────────────────────────────────────────────────────────
 
