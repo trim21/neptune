@@ -73,7 +73,10 @@ func (p *peerImpl) QueueLen() int            { return p.requestQueueLen() }
 
 func (p *peerImpl) EnqueueBlock(pieceIndex uint32, blockIndex int) {
 	p.rqMu.Lock()
-	p.requestQueue = append(p.requestQueue, PieceBlock{PieceIndex: pieceIndex, BlockIndex: blockIndex})
+	if !p.requestQueue.Push(PieceBlock{PieceIndex: pieceIndex, BlockIndex: blockIndex}) {
+		p.rqMu.Unlock()
+		panic("peer request queue overflow")
+	}
 	p.rqMu.Unlock()
 }
 
