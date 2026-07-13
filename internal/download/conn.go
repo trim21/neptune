@@ -163,12 +163,26 @@ func (d *Download) recordDisconnect(p Peer) {
 
 // peerTurnover disconnects least useful peers to make room for fresh candidates.
 // Mirrors libtorrent's optimistic disconnect (~2% per round).
+// When the download is pending (queued), all peers are disconnected to free
+// global connection slots for active downloads.
 func (d *Download) peerTurnover() {
-	const turnoverFraction = 50 // 1/50 = 2%
 	peerCount := d.peers.Size()
 	if peerCount == 0 {
 		return
 	}
+
+	// Pending (queued) downloads don't need any peers — disconnect all to
+	// free global connection slots. Peers will be reconnected when the
+	// download is promoted back to Downloading.
+	if d.HasState(PendingDownloading) {
+		d.peers.Range(func(_ uint64, p Peer) bool {
+			p.Close()
+			return true
+		})
+		return
+	}
+
+	const turnoverFraction = 50 // 1/50 = 2%
 
 	disconnectN := max(peerCount/turnoverFraction, 1)
 	candidateN := d.peerList.numCandidates()
