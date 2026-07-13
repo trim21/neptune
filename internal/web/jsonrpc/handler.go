@@ -22,6 +22,9 @@ import (
 	"neptune/internal/pkg/mempool"
 )
 
+var rpcPool = mempool.New()
+var resPool = mempool.New()
+
 // ErrorCode is an JSON-RPC 2.0 error code.
 type ErrorCode int
 
@@ -174,7 +177,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		resp Response
 	)
 
-	data, err := readAllLimited(r.Body, h.MaxBodySize)
+	bodyBuf, err := readAllLimited(r.Body, h.MaxBodySize)
+	defer rpcPool.Put(bodyBuf)
 	if err != nil {
 		if errors.Is(err, errBodyTooLarge) {
 			h.fail(w, err, CodeParseError)
@@ -184,7 +188,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := sonic.ConfigFastest.Unmarshal(data, &req); err != nil {
+	if err := sonic.ConfigFastest.Unmarshal(bodyBuf.B, &req); err != nil {
 		h.fail(w, fmt.Errorf("failed to unmarshal request: %w", err), CodeParseError)
 		return
 	}
@@ -200,8 +204,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	h.invoke(ctx, req, &resp)
 
-	var buf = mempool.Get()
-	defer mempool.Put(buf)
+	var buf = resPool.Get()
+	defer resPool.Put(buf)
 
 	enc := sonic.ConfigFastest.NewEncoder(buf)
 	if err := enc.Encode(resp); err != nil {
@@ -330,16 +334,17 @@ func (h *Handler) fail(w http.ResponseWriter, err error, code ErrorCode) {
 		},
 	}
 
-	data, err := sonic.ConfigFastest.Marshal(resp)
-	if err != nil {
+	buf := resPool.Get()
+	defer resPool.Put(buf)
+
+	if err := sonic.ConfigFastest.NewEncoder(buf).Encode(resp); err != nil {
 		log.Error().Err(err).Msg("failed to marshal JSON-RPC error response")
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 
 		return
 	}
 
-	_, err = w.Write(data)
-	if err != nil {
+	if _, err := w.Write(buf.B); err != nil {
 		log.Error().Err(err).Msg("failed to write JSON-RPC error response")
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 
@@ -349,18 +354,21 @@ func (h *Handler) fail(w http.ResponseWriter, err error, code ErrorCode) {
 
 var errBodyTooLarge = errors.New("request body too large")
 
-func readAllLimited(r io.Reader, limit int64) ([]byte, error) {
+func readAllLimited(r io.Reader, limit int64) (*mempool.Buffer, error) {
 	if limit <= 0 {
-		return io.ReadAll(r)
+		buf := rpcPool.Get()
+		_, err := buf.ReadFrom(r)
+		return buf, err
 	}
 
-	buf := make([]byte, limit+1)
-	n, err := io.ReadFull(r, buf)
+	buf := mempool.GetWithCapFromPool(&rpcPool, int(limit)+1)
+	n, err := io.ReadFull(r, buf.B)
 	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) {
-		return nil, err
+		return buf, err
 	}
 	if int64(n) > limit {
-		return nil, errBodyTooLarge
+		return buf, errBodyTooLarge
 	}
-	return buf[:n], nil
+	buf.B = buf.B[:n]
+	return buf, nil
 }

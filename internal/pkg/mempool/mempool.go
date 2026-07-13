@@ -8,13 +8,26 @@ import (
 )
 
 type Buffer = bytebufferpool.ByteBuffer
+type Pool = bytebufferpool.Pool
 
-func New() bytebufferpool.Pool {
-	return bytebufferpool.Pool{}
+func New() Pool {
+	return Pool{}
 }
 
 func GetWithCap(size int) *Buffer {
 	buf := bytebufferpool.Get()
+
+	if cap(buf.B) < size {
+		buf.B = make([]byte, size)
+	} else {
+		buf.B = buf.B[:size]
+	}
+
+	return buf
+}
+
+func GetWithCapFromPool(p *Pool, size int) *Buffer {
+	buf := p.Get()
 
 	if cap(buf.B) < size {
 		buf.B = make([]byte, size)
