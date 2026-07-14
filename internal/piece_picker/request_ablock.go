@@ -27,6 +27,8 @@ func (pp *PiecePicker) RequestABlock(
 	peerBitfield *bm.Bitmap,
 	fastBitmap *bm.Bitmap,
 	blockedPieces *bm.LockFreeBitmap,
+	onParole bool,
+	peerID uint64,
 ) PickResult {
 	if pp == nil {
 		return last
@@ -57,6 +59,8 @@ func (pp *PiecePicker) RequestABlock(
 		numRequests,
 		0,
 		nil,
+		onParole,
+		peerID,
 		last,
 	)
 

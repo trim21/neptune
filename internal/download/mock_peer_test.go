@@ -28,6 +28,7 @@ type mockPeer struct {
 	blockedPieces          *bm.LockFreeBitmap
 	isSeed                 *atomic.Bool
 	snubbed                *atomic.Bool
+	onParole               *atomic.Bool
 	peerInterested         *atomic.Bool
 	ourChoking             *atomic.Bool
 	ourInterested          *atomic.Bool
@@ -55,14 +56,16 @@ type mockPeer struct {
 	info                   meta.Info
 	uploadRate             flowrate.Monitor
 	downloadRate           flowrate.Monitor
-	peerID                 uint64
 	downloadTotal          int64
+	trustPoints            atomic.Int32
+	peerID                 uint64
 	sendBlockCalled        int
-	mu                     sync.Mutex
 	reqMu                  sync.Mutex
+	mu                     sync.Mutex
+	queueLimit             uint32
 	desiredSize            int32
 	outstanding            int32
-	queueLimit             uint32
+	hashFails              int32
 	encrypted              bool
 	subExtension           bool
 	hadTrans               bool
@@ -81,6 +84,7 @@ func newMockPeer() *mockPeer {
 		disconnecting:          atomic.NewBool(false),
 		isSeed:                 atomic.NewBool(false),
 		snubbed:                atomic.NewBool(false),
+		onParole:               atomic.NewBool(false),
 		peerInterested:         atomic.NewBool(false),
 		ourChoking:             atomic.NewBool(false),
 		ourInterested:          atomic.NewBool(false),
@@ -144,6 +148,7 @@ func (m *mockPeer) Close() {
 		m.bitmap.Range(func(u uint32) {
 			m.dl.picker.Load().DecRefcount(u)
 		})
+		m.dl.picker.Load().ReleasePeerPieces(m.peerID)
 	}
 	m.closedCalled = true
 }
@@ -275,6 +280,8 @@ func (m *mockPeer) requestABlock() {
 		m.PeerBitmap(),
 		m.FastBitmap(),
 		m.blockedPieces,
+		m.onParole.Load(),
+		m.peerID,
 	)
 	m.SetLastPickResult(pickResult)
 	free := pickResult.FreeBlocks
@@ -369,4 +376,22 @@ func (m *mockPeer) BlockedPieceTime(pieceIndex uint32) (time.Time, bool) {
 	t, ok := m.blockedPieceTimestamps[pieceIndex]
 	m.mu.Unlock()
 	return t, ok
+}
+
+// ── Parole mode ──────────────────────────────────────────────────────────
+
+func (m *mockPeer) SetOnParole(v bool) { m.onParole.Store(v) }
+func (m *mockPeer) TrustPoints() int32 { return m.trustPoints.Load() }
+func (m *mockPeer) AddTrustPoints(delta int32) int32 {
+	for {
+		old := m.trustPoints.Load()
+		newVal := min(max(old+delta, -7), 8)
+		if m.trustPoints.CompareAndSwap(old, newVal) {
+			return newVal
+		}
+	}
+}
+func (m *mockPeer) IncHashFails() int32 {
+	m.hashFails++
+	return m.hashFails
 }

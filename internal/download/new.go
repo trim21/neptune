@@ -87,6 +87,7 @@ func New(sess *session.Session, m *metainfo.MetaInfo, info meta.Info, basePath s
 		connectedAddrs:  xsync.NewMap[netip.AddrPort, Peer](),
 		peerList:        newPeerList(nil), // d set below
 		corruptedPieces: make(map[uint32]int),
+		bannedAddrs:     make(map[netip.Addr]time.Time),
 
 		store: store,
 

@@ -19,11 +19,15 @@ import (
 
 const (
 	peerConnectTimeout = 15 * time.Second
+	addrBanDuration    = 24 * time.Hour
 )
 
 // AddConn adds an incoming connection from the listener.
-// The peer entry is created in newPeer via addOrUpdateIncoming.
 func (d *Download) AddConn(addr netip.AddrPort, conn net.Conn, h proto.Handshake, encrypted bool) {
+	if d.isAddrBanned(addr.Addr()) {
+		conn.Close()
+		return
+	}
 	NewIncomingPeer(conn, d, addr, h, encrypted)
 }
 
@@ -47,6 +51,10 @@ func (d *Download) connectToPeers(maxSlots int) int {
 				continue
 			}
 			if _, ok := d.connectedAddrs.Load(candidate.addrPort); ok {
+				d.peerList.clearDialing(candidate)
+				continue
+			}
+			if d.isAddrBanned(candidate.addrPort.Addr()) {
 				d.peerList.clearDialing(candidate)
 				continue
 			}
@@ -197,4 +205,27 @@ func (d *Download) peerTurnover() {
 	for _, p := range toDisconnect {
 		p.Close()
 	}
+}
+
+// isAddrBanned checks whether an address is currently banned for this torrent.
+func (d *Download) isAddrBanned(addr netip.Addr) bool {
+	d.bannedAddrsMu.Lock()
+	defer d.bannedAddrsMu.Unlock()
+
+	expires, ok := d.bannedAddrs[addr]
+	if !ok {
+		return false
+	}
+	if time.Now().After(expires) {
+		delete(d.bannedAddrs, addr)
+		return false
+	}
+	return true
+}
+
+// banAddr bans an address from connecting to this torrent for addrBanDuration.
+func (d *Download) banAddr(addr netip.Addr) {
+	d.bannedAddrsMu.Lock()
+	d.bannedAddrs[addr] = time.Now().Add(addrBanDuration)
+	d.bannedAddrsMu.Unlock()
 }

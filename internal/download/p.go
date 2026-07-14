@@ -255,8 +255,11 @@ type peerImpl struct {
 	requestQueue           pieceBlockQueue
 	preferred              atomic.Bool
 	snubbed                atomic.Bool
+	onParole               atomic.Bool
 	id                     uint64
 	snubbedAt              atomic.Int64
+	hashFails              atomic.Int32
+	trustPoints            atomic.Int32
 	disconnecting          atomic.Bool
 	isSeed                 atomic.Bool
 	queueLimit             atomic.Uint32
@@ -369,6 +372,9 @@ func (p *peerImpl) Close() {
 	p.requestQueue.Clear()
 	p.requestMu.Unlock()
 
+	// Release exclusive piece ownerships so parole peers can claim them.
+	p.d.picker.Load().ReleasePeerPieces(p.id)
+
 	// Shared state cleanup: recordDisconnect handles connectedAddrs,
 	// peerList, peer map, connection slot release, and re-request signal.
 	p.d.recordDisconnect(p)
@@ -475,6 +481,8 @@ func (p *peerImpl) requestABlockOnce() {
 		p.PeerBitmap(),
 		p.FastBitmap(),
 		p.blockedPieces,
+		p.onParole.Load(),
+		p.id,
 	)
 	p.SetLastPickResult(pickResult)
 	free := pickResult.FreeBlocks

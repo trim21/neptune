@@ -11,6 +11,7 @@ import (
 	"net/netip"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/rs/zerolog"
@@ -131,6 +132,7 @@ type Download struct {
 	ctx                    context.Context
 	store                  piece_store.PieceStore
 	corruptedPieces        map[uint32]int
+	bannedAddrs            map[netip.Addr]time.Time
 	downloadLimiter        *ratelimit.Limiter
 	session                *session.Session
 	pieceDownloadRate      *flowrate.Monitor
@@ -176,6 +178,7 @@ type Download struct {
 	selectedSize           atomic.Int64
 	unchokeCycleOffset     int
 	queueWeight            atomic.Int64
+	bannedAddrsMu          sync.Mutex
 	corruptedPiecesMu      sync.Mutex
 	normalChunkLen         uint32
 	bitfieldSize           uint32

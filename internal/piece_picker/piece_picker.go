@@ -215,6 +215,7 @@ type PiecePicker struct {
 	blockInfos         blockStates
 	pieces             []uint32
 	availability       []uint16
+	requestedBy        map[uint32]uint64 // piece → first peer to claim it (exclusive tracking)
 	info               meta.Info
 	downloadQueueSize  int
 	numWantLeft        int
@@ -241,6 +242,7 @@ func NewPiecePicker(info meta.Info, missingBm *bm.LockFreeBitmap, chunkDoneBm *b
 		availability:    make([]uint16, numPieces),
 		piecePriorities: make([]uint32, numPieces),
 		pieces:          make([]uint32, numPieces),
+		requestedBy:     make(map[uint32]uint64),
 		missingBm:       missingBm,
 		chunkDoneBm:     chunkDoneBm,
 		strategy:        strategy,
@@ -352,6 +354,7 @@ func (pp *PiecePicker) WeHave(pieceIndex uint32) {
 	}
 	pp.removeDownloadingPieceUnsafe(pieceIndex)
 	pp.numCompletedPieces++
+	delete(pp.requestedBy, pieceIndex)
 	pp.dirty = true
 }
 
@@ -540,6 +543,8 @@ func (pp *PiecePicker) PickPieces(
 	numBlocks int,
 	preferContiguous int,
 	suggestedPieces []uint32,
+	onParole bool,
+	peerID uint64,
 	// re-use the slice to avoid alloc
 	result PickResult,
 ) PickResult {
@@ -585,6 +590,19 @@ func (pp *PiecePicker) PickPieces(
 		}
 		if blockedPieces.Contains(dp.index) {
 			continue
+		}
+		if onParole {
+			owner, ok := pp.requestedBy[dp.index]
+			if ok && owner != peerID {
+				continue // piece claimed by another peer
+			}
+		} else {
+			// Non-parole peer joining a piece owned by someone else:
+			// clear ownership so the original parole peer sees it as contested.
+			owner, ok := pp.requestedBy[dp.index]
+			if ok && owner != peerID {
+				delete(pp.requestedBy, dp.index)
+			}
 		}
 
 		idx := pp.blockInfoIdx(dp.index)
@@ -682,7 +700,11 @@ func (pp *PiecePicker) PickPieces(
 		if blockedPieces.Contains(pi) {
 			continue
 		}
+		if onParole && pp.findDownloadingPiece(pi) != nil {
+			continue // parole peers only pick unclaimed pieces
+		}
 		pp.pickBlocksFromPiece(pi, &numBlocks, &result)
+		pp.requestedBy[pi] = peerID
 	}
 
 	// Phase 3: rarest-first via cursor scan — single pass over pre-sorted pieces.
@@ -711,6 +733,7 @@ func (pp *PiecePicker) PickPieces(
 		}
 
 		pp.pickBlocksFromPiece(pi, &numBlocks, &result)
+		pp.requestedBy[pi] = peerID
 	}
 	return result
 }
@@ -1005,6 +1028,9 @@ func (pp *PiecePicker) ResetPiece(pieceIndex uint32) {
 		pp.pieces = append(pp.pieces, pieceIndex)
 	}
 
+	// Clear exclusive ownership so the piece can be re-claimed.
+	delete(pp.requestedBy, pieceIndex)
+
 	pp.dirty = true
 }
 
@@ -1021,6 +1047,7 @@ func (pp *PiecePicker) ResetAll() {
 	pp.downloadingPieces = pp.downloadingPieces[:0]
 	pp.downloadQueueSize = 0
 	pp.numCompletedPieces = 0
+	pp.requestedBy = make(map[uint32]uint64)
 	pp.dirty = true
 }
 
@@ -1101,4 +1128,20 @@ func (pp *PiecePicker) debugDumpUnsafe() string {
 	}
 
 	return buf.String()
+}
+
+// ReleasePeerPieces clears requestedBy entries for a disconnecting peer,
+// allowing other peers (including parole) to claim those pieces.
+func (pp *PiecePicker) ReleasePeerPieces(peerID uint64) {
+	if pp == nil {
+		return
+	}
+	pp.mu.Lock()
+	defer pp.mu.Unlock()
+
+	for pi, owner := range pp.requestedBy {
+		if owner == peerID {
+			delete(pp.requestedBy, pi)
+		}
+	}
 }

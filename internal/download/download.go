@@ -538,6 +538,9 @@ func (d *Download) penalizePiecePeers(pieceIndex uint32, passed bool, pc *peerCo
 		}
 		if passed {
 			p.OnHashPassed(pieceIndex)
+			// Any successful piece proves the peer can deliver valid data — exit parole.
+			p.SetOnParole(false)
+			p.AddTrustPoints(1)
 		} else {
 			p.OnHashFailed(pieceIndex)
 
@@ -545,6 +548,20 @@ func (d *Download) penalizePiecePeers(pieceIndex uint32, passed bool, pc *peerCo
 			// the source of corrupt data for this piece.
 			if len(contributors) == 1 {
 				p.SetBadPiece(pieceIndex)
+			}
+
+			// Parole mode: restrict to exclusive pieces.
+			p.SetOnParole(true)
+			tp := p.AddTrustPoints(-2)
+
+			if tp <= -7 { // 4 consecutive hash-failed contributions
+				d.log.Info().
+					Uint64("peer_id", peerID).
+					Str("addr", p.Addr().String()).
+					Int32("trust_points", tp).
+					Msg("banning peer: too many corrupt pieces")
+				d.banAddr(p.Addr().Addr())
+				p.Close()
 			}
 		}
 	}

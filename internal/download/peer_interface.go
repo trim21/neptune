@@ -93,6 +93,16 @@ type PeerInterface interface {
 	OnHashFailed(pieceIndex uint32)
 	OnHashPassed(pieceIndex uint32)
 
+	// ── Parole mode (trust-based corruption tracking) ─────────────────
+	SetOnParole(v bool)
+	// TrustPoints returns the peer's trust score, range [-7, 8].
+	// A peer with <= -7 is banned.
+	TrustPoints() int32
+	// AddTrustPoints adjusts the trust score and returns the new value.
+	AddTrustPoints(delta int32) int32
+	// IncHashFails increments the hash-fail counter and returns the new value.
+	IncHashFails() int32
+
 	// ── Piece-level blocklist ─────────────────────────────────────────
 	// IsBlocked returns true when this piece should not be requested from
 	// this peer. This covers all reasons: the peer contributed to a

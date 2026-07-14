@@ -132,7 +132,7 @@ func TestAsyncDownload_CorruptRecovery(t *testing.T) {
 		failPieces []uint32
 	}{
 		{"half fail", []uint32{0, 2, 4, 6}},
-		{"all fail", []uint32{0, 1, 2, 3, 4, 5, 6, 7}},
+		{"all fail", []uint32{0, 1, 2, 3}},
 		{"one fail", []uint32{3}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -173,5 +173,49 @@ func TestAsyncDownload_CorruptRecovery(t *testing.T) {
 					d.completedBm.Count(), numPieces)
 			}
 		})
+	}
+}
+
+// ── Scenario 3: parole mode bans a peer after 4 hash-failed pieces ───
+
+func TestAsyncDownload_ParoleBan(t *testing.T) {
+	const numPieces uint32 = 8
+	const blocksPerPiece uint32 = 4
+
+	failPieces := []uint32{0, 1, 2, 3, 4, 5, 6, 7}
+
+	d := newTestDownload(t, numPieces, blocksPerPiece,
+		func(info meta.Info) piece_store.PieceStore {
+			return NewFailNPieceStore(piece_store.NewMemStore(info), failPieces)
+		})
+	cancel := asyncHelper(d)
+	defer cancel()
+
+	p1 := fullPeer(d, numPieces, 1)
+	d.peers.Store(p1.ID(), p1)
+	for pi := range numPieces {
+		d.picker.Load().IncRefcount(pi)
+	}
+
+	// After 4 failed pieces, trust_points reaches -7 and the peer is closed.
+	waitForClosed(t, p1, 5*time.Second)
+
+	if !p1.Closed() {
+		t.Error("peer should have been banned after 4+ hash-failed pieces")
+	}
+}
+
+func waitForClosed(t *testing.T, p *mockPeer, timeout time.Duration) {
+	t.Helper()
+	deadline := time.After(timeout)
+	for {
+		if p.Closed() {
+			return
+		}
+		select {
+		case <-deadline:
+			return
+		case <-time.After(10 * time.Millisecond):
+		}
 	}
 }
