@@ -20,8 +20,14 @@ tasks:
       FUZZ_TIME: '{{ default "15s" .FUZZ_TIME }}'
     cmds:
       - rm -rf internal/download/testdata
-      - go test -fuzz=FuzzHandleRes -fuzztime={{ .FUZZ_TIME }} -tags assert ./internal/download/
       - go test -fuzz=FuzzDownloadMultiPeer_Async -fuzztime={{ .FUZZ_TIME }} -tags assert ./internal/download/
+      - go test -fuzz=^FuzzHandleRes$ -fuzztime={{ .FUZZ_TIME }} -tags assert ./internal/download/
+      - go test -fuzz=^FuzzHandleResDuplicates$ -fuzztime={{ .FUZZ_TIME }} -tags assert ./internal/download/
+      - go test -fuzz=FuzzPickerDownloadIntegration -fuzztime={{ .FUZZ_TIME }} -tags assert ./internal/download/
+      - go test -fuzz=FuzzStaleRequest -fuzztime={{ .FUZZ_TIME }} -tags assert ./internal/download/
+      - go test -fuzz=^FuzzFullDownload$ -fuzztime={{ .FUZZ_TIME }} -tags assert ./internal/download/
+      - go test -fuzz=. -fuzztime={{ .FUZZ_TIME }} -tags assert ./internal/piece_picker/
+      - go test -fuzz=FuzzXORKeyStream -fuzztime={{ .FUZZ_TIME }} ./internal/pkg/rc4/
 
   mod-tidy:
     cmds:
