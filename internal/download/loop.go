@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"neptune/internal/client/tracker"
+	"neptune/internal/pkg/empty"
 )
 
 func (d *Download) Start() error {
@@ -54,6 +55,20 @@ func (d *Download) DemoteToQueued() {
 func (d *Download) PromoteFromQueued() {
 	if err := d.transition(Downloading); err != nil {
 		d.log.Error().Err(err).Msg("failed to promote from PendingDownloading")
+		return
+	}
+
+	// Bitfield/Have/Unchoke events received while queued do not schedule block
+	// requests. Wake existing peers after promotion so they can immediately fill
+	// their request queues instead of waiting for another protocol event.
+	d.stateCond.Broadcast()
+	d.notifyPeersToRequest()
+
+	// Also wake the connection loop so a promoted download does not have to wait
+	// for the next periodic connection tick.
+	select {
+	case d.pendingPeersSignal <- empty.Empty{}:
+	default:
 	}
 }
 

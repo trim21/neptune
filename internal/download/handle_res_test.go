@@ -93,6 +93,7 @@ func newTestDownload(t testing.TB, numPieces uint32, blocksPerPiece uint32, newS
 		bannedAddrs:            make(map[netip.Addr]time.Time),
 		tracker:                tracker.New(ctx, tracker.Config{}),
 		scheduleResponseSignal: make(chan empty.Empty, 1),
+		pendingPeersSignal:     make(chan empty.Empty, 1),
 	}
 	wantedBm := bm.New(info.NumPieces)
 	wantedBm.Fill()

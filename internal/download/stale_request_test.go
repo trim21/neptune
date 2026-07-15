@@ -15,8 +15,7 @@ import (
 
 // FuzzStaleRequest verifies that no block remains in "requested" state
 // after all peers are closed. A background goroutine aggressively closes
-// peers while requestABlock runs, exploiting the 1µs delay between
-// markAsRequesting and EnqueueBlock.
+// peers while requestABlock transfers picker ownership into peer queues.
 func FuzzStaleRequest(f *testing.F) {
 	f.Add(uint8(4), uint8(4), uint8(3), uint64(42))
 
@@ -51,9 +50,8 @@ func FuzzStaleRequest(f *testing.F) {
 		stop := make(chan struct{})
 		defer close(stop)
 
-		// Concurrent closer: starts 500µs after request loop, fires every
-		// 500µs — guaranteed to hit the 1ms window between markAsRequesting
-		// and EnqueueBlock for at least the first requestABlock call.
+		// Concurrent closer races continuously with picker-to-peer ownership
+		// transfers.
 		go func() {
 			time.Sleep(500 * time.Microsecond)
 			ticker := time.NewTicker(500 * time.Microsecond)
@@ -73,8 +71,7 @@ func FuzzStaleRequest(f *testing.F) {
 			}
 		}()
 
-		// Request loop: runs faster than closer to ensure markAsRequesting
-		// fires before Close() has a chance.
+		// Request loop runs faster than the closer to maximize contention.
 		deadline := time.After(3 * time.Second)
 		ticker := time.NewTicker(100 * time.Microsecond)
 		defer ticker.Stop()

@@ -139,11 +139,11 @@ func TestStallEndgamePicksFreeZeroPieces(t *testing.T) {
 	pp.WeHave(0)
 
 	// Piece 1: 0 free, 1 requested, 3 responded (stalled near completion).
-	for bi := range 4 {
+	pp.MarkAsRequesting(1, 0)
+	for bi := 1; bi < 4; bi++ {
 		pp.MarkAsRequesting(1, bi)
 		pp.MarkAsResponded(1, bi)
 	}
-	pp.MarkAsRequesting(1, 0) // re-mark as requesting (orphan)
 
 	// Piece 2: complete it so numWantLeft goes to 0 (triggers endgame).
 	for bi := range 4 {

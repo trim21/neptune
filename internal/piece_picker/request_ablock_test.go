@@ -82,6 +82,49 @@ func TestRequestABlock_UnchokedNormal(t *testing.T) {
 	require.NotEmpty(t, result.FreeBlocks, "unchoked peer should get free blocks")
 }
 
+func TestAbortDownloadDoesNotRollbackRespondedBlock(t *testing.T) {
+	pp := newTestPicker(1, 4)
+
+	require.True(t, pp.MarkAsRequesting(0, 0))
+	pp.MarkAsResponded(0, 0)
+	pp.AbortDownload(0, 0)
+
+	require.True(t, pp.IsFinished(0, 0), "late timeout must not turn a responded block back into free")
+	require.Equal(t, 0, pp.DebugStats().DownloadQueue)
+}
+
+func TestAbortDownloadKeepsOtherEndgameRequest(t *testing.T) {
+	pp := newTestPicker(1, 4)
+
+	require.True(t, pp.MarkAsRequesting(0, 0))
+	require.True(t, pp.TryMarkAsRequesting(0, 0, true))
+
+	pp.AbortDownload(0, 0)
+	stats := pp.DebugStats()
+	require.Equal(t, 1, stats.RequestedBlocks)
+	require.Equal(t, 1, stats.DownloadQueue)
+
+	pp.AbortDownload(0, 0)
+	stats = pp.DebugStats()
+	require.Equal(t, 0, stats.RequestedBlocks)
+	require.Equal(t, 0, stats.DownloadQueue)
+}
+
+func TestStalePickCannotRollbackRespondedBlock(t *testing.T) {
+	pp := newTestPicker(1, 4)
+	peerBitfield := bm.New(1)
+	peerBitfield.Fill()
+
+	result := pp.RequestABlock(PickResult{}, 1, 0, 0, false, peerBitfield, nil, bm.NewLockFreeBitmap(1), false, 1)
+	require.Len(t, result.FreeBlocks, 1)
+	block := result.FreeBlocks[0]
+
+	require.True(t, pp.TryMarkAsRequesting(block.PieceIndex, block.BlockIndex, false))
+	pp.MarkAsResponded(block.PieceIndex, block.BlockIndex)
+	require.False(t, pp.TryMarkAsRequesting(block.PieceIndex, block.BlockIndex, false))
+	require.True(t, pp.IsFinished(block.PieceIndex, block.BlockIndex))
+}
+
 func TestRequestABlock_LastPickResultReuse(t *testing.T) {
 	pp := newTestPicker(5, 4)
 

@@ -416,40 +416,52 @@ func (pp *PiecePicker) MarkAsResponded(pieceIndex uint32, blockIndex int) {
 	}
 }
 
-// MarkAsRequesting marks a block as requested from a peer.
-func (pp *PiecePicker) MarkAsRequesting(pieceIndex uint32, blockIndex int) {
+// MarkAsRequesting marks a free block as requested. It returns false if the
+// block changed state after it was picked.
+func (pp *PiecePicker) MarkAsRequesting(pieceIndex uint32, blockIndex int) bool {
+	return pp.TryMarkAsRequesting(pieceIndex, blockIndex, false)
+}
+
+// TryMarkAsRequesting atomically claims a block returned by PickPieces.
+// retry must be false for FreeBlocks and true for BusyBlocks. Requiring the
+// expected state prevents a stale pick result from changing a block that was
+// responded to or aborted while the caller was enqueueing it.
+func (pp *PiecePicker) TryMarkAsRequesting(pieceIndex uint32, blockIndex int, retry bool) bool {
 	if pp == nil {
-		return
+		return false
 	}
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
 
 	idx := pp.blockInfoIdx(pieceIndex) + blockIndex
 	oldState := pp.blockInfos.get(idx)
-	switch oldState {
-	case blockStateNone:
-		pp.downloadQueueSize++
-		pp.freeBlocks--
-	case blockStateRequested:
-		// Block already requested by another peer (BusyBlock retry).
-		// Increment retry counter to bound endgame fan-out.
-		chunkIdx := pp.chunkIndex(pieceIndex, blockIndex)
-		if pp.retriedBlocks[chunkIdx] < maxBlockRetries {
-			pp.retriedBlocks[chunkIdx]++
-		}
-	}
-	pp.blockInfos.set(idx, blockStateRequested)
+	chunkIdx := pp.chunkIndex(pieceIndex, blockIndex)
 
-	// Update downloadingPiece counters
-	if dp := pp.findDownloadingPiece(pieceIndex); dp != nil {
-		if oldState == blockStateNone {
-			dp.requested++
+	if retry {
+		if oldState != blockStateRequested || pp.retriedBlocks[chunkIdx] >= maxBlockRetries {
+			return false
 		}
+		pp.retriedBlocks[chunkIdx]++
+		return true
 	}
+
+	if oldState != blockStateNone {
+		return false
+	}
+
+	pp.blockInfos.set(idx, blockStateRequested)
+	pp.downloadQueueSize++
+	pp.freeBlocks--
+	pp.addDownloadingPieceUnsafe(pieceIndex)
+	if dp := pp.findDownloadingPiece(pieceIndex); dp != nil {
+		dp.requested++
+	}
+	return true
 }
 
-// AbortDownload releases a block that was requested but not received.
-// Called when a request is canceled or times out.
+// AbortDownload releases one outstanding request that was not received.
+// Duplicate endgame requests share one global block state, so aborting one
+// copy must not free the block while another copy is still in flight.
 func (pp *PiecePicker) AbortDownload(pieceIndex uint32, blockIndex int) {
 	if pp == nil {
 		return
@@ -458,14 +470,33 @@ func (pp *PiecePicker) AbortDownload(pieceIndex uint32, blockIndex int) {
 	defer pp.mu.Unlock()
 
 	idx := pp.blockInfoIdx(pieceIndex) + blockIndex
-	if pp.blockInfos.get(idx) == blockStateRequested {
-		pp.downloadQueueSize--
-		pp.freeBlocks++
+	if pp.blockInfos.get(idx) != blockStateRequested {
+		// A late timeout/cancel must never roll a responded block back to None.
+		return
 	}
-	pp.blockInfos.set(idx, blockStateNone)
 
-	// Clear retry tracking when block is freed — allows re-picking.
-	delete(pp.retriedBlocks, pp.chunkIndex(pieceIndex, blockIndex))
+	chunkIdx := pp.chunkIndex(pieceIndex, blockIndex)
+	if retries := pp.retriedBlocks[chunkIdx]; retries > 0 {
+		if retries == 1 {
+			delete(pp.retriedBlocks, chunkIdx)
+		} else {
+			pp.retriedBlocks[chunkIdx] = retries - 1
+		}
+		return
+	}
+
+	pp.blockInfos.set(idx, blockStateNone)
+	pp.downloadQueueSize--
+	pp.freeBlocks++
+	if dp := pp.findDownloadingPiece(pieceIndex); dp != nil {
+		if dp.requested > 0 {
+			dp.requested--
+		}
+		if dp.requested == 0 && dp.responded == 0 {
+			pp.removeDownloadingPieceUnsafe(pieceIndex)
+			delete(pp.requestedBy, pieceIndex)
+		}
+	}
 }
 
 // IsFinished returns true if the block is finished.
@@ -908,22 +939,20 @@ func (pp *PiecePicker) AddDownloadingPiece(pieceIndex uint32) {
 	}
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
+	pp.addDownloadingPieceUnsafe(pieceIndex)
+}
 
-	// check if already added
-	for i := range pp.downloadingPieces {
-		if pp.downloadingPieces[i].index == pieceIndex {
-			return
-		}
+// addDownloadingPieceUnsafe adds a piece while pp.mu is held.
+func (pp *PiecePicker) addDownloadingPieceUnsafe(pieceIndex uint32) {
+	if pp.findDownloadingPiece(pieceIndex) != nil {
+		return
 	}
 
-	nb := pp.numBlocksInPiece(pieceIndex)
-	dp := downloadingPiece{
+	pp.downloadingPieces = append(pp.downloadingPieces, downloadingPiece{
 		index:         pieceIndex,
 		infoIdx:       pp.blockInfoIdx(pieceIndex),
-		blocksInPiece: nb,
-	}
-
-	pp.downloadingPieces = append(pp.downloadingPieces, dp)
+		blocksInPiece: pp.numBlocksInPiece(pieceIndex),
+	})
 	// keep sorted by index for binary search
 	slices.SortFunc(pp.downloadingPieces, func(a, b downloadingPiece) int {
 		if a.index < b.index {

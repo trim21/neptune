@@ -70,6 +70,20 @@ func TestRequestABlock_UnchokedPeerEnqueuesBlocks(t *testing.T) {
 	require.Equal(t, 1, p.sendBlockCalled, "should call SendBlockRequests once")
 }
 
+func TestPromoteFromQueuedSchedulesExistingPeers(t *testing.T) {
+	d, p := newRequestABlockFixture(t, 5)
+	d.state.Store(uint32(PendingDownloading))
+	d.peers.Store(p.ID(), p)
+
+	p.requestABlock()
+	require.Empty(t, p.requestsSent, "queued download must not request blocks")
+
+	d.PromoteFromQueued()
+
+	require.Equal(t, Downloading, d.GetState())
+	require.NotEmpty(t, p.requestsSent, "promotion should schedule already-connected peers")
+}
+
 func TestRequestABlock_QueueFull(t *testing.T) {
 	_, p := newRequestABlockFixture(t, 5)
 	// desiredSize=8, already has 8 outstanding + 0 queued → numRequests=0

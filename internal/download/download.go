@@ -36,11 +36,7 @@ type scheduler interface {
 }
 
 func (d *Download) notifyPeersToRequest() {
-	if !d.notifyScheduled.CompareAndSwap(false, true) {
-		return
-	}
 	if !d.IsActiveDownloading() {
-		d.notifyScheduled.Store(false)
 		return
 	}
 	d.peers.Range(func(_ uint64, p Peer) bool {
@@ -52,7 +48,6 @@ func (d *Download) notifyPeersToRequest() {
 		}
 		return true
 	})
-	d.notifyScheduled.Store(false)
 }
 
 func (d *Download) have(index uint32) {
@@ -227,6 +222,11 @@ func handleRes(d *Download, h *heap.Heap[responseChunk], pc *peerContributors, d
 		handlePieceFromHeap(d, h, pc, done, pending, res.PieceIndex)
 		return
 	}
+
+	// Refill request queues only after the picker has observed this response.
+	// Scheduling from the peer read loop races ahead of MarkAsResponded and can
+	// see a full queue, leaving no later event to request the next block.
+	d.notifyPeersToRequest()
 
 	// Flush when heap is full or oldest chunk is older than maxChunkAge.
 	oldestAge := time.Since(h.Data[0].recvAt)

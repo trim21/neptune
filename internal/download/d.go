@@ -169,7 +169,6 @@ type Download struct {
 	wastedStale            atomic.Int64
 	wastedDupe             atomic.Int64
 	peerIDCounter          atomic.Uint64
-	notifyScheduled        atomic.Bool
 	unchokeSlotIdx         int
 	AddAt                  int64
 	peerLeechers           atomic.Int64

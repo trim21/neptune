@@ -96,7 +96,7 @@ func New(sess *session.Session, m *metainfo.MetaInfo, info meta.Info, basePath s
 		bitfieldSize: (info.NumPieces + 7) / 8,
 
 		scheduleResponseSignal: make(chan empty.Empty, 1),
-		pendingPeersSignal:     make(chan empty.Empty),
+		pendingPeersSignal:     make(chan empty.Empty, 1),
 
 		downloadLimiter: ratelimit.New(0),
 		uploadLimiter:   ratelimit.New(0),

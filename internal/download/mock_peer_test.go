@@ -295,12 +295,13 @@ func (m *mockPeer) requestABlock() {
 		if m.IsInQueue(pieceChunk(d.info, fb.PieceIndex, fb.BlockIndex)) {
 			continue
 		}
-		m.EnqueueBlock(fb.PieceIndex, fb.BlockIndex)
-		if m.closed.Load() {
+		if !d.picker.Load().TryMarkAsRequesting(fb.PieceIndex, fb.BlockIndex, false) {
 			continue
 		}
-		d.picker.Load().MarkAsRequesting(fb.PieceIndex, fb.BlockIndex)
-		d.picker.Load().AddDownloadingPiece(fb.PieceIndex)
+		m.EnqueueBlock(fb.PieceIndex, fb.BlockIndex)
+		if m.closed.Load() {
+			d.picker.Load().AbortDownload(fb.PieceIndex, fb.BlockIndex)
+		}
 	}
 	m.SendBlockRequests()
 
@@ -310,12 +311,14 @@ func (m *mockPeer) requestABlock() {
 			if m.IsInQueue(pieceChunk(d.info, bb.PieceIndex, bb.BlockIndex)) {
 				continue
 			}
-			m.EnqueueBlock(bb.PieceIndex, bb.BlockIndex)
-			if m.closed.Load() {
+			if !d.picker.Load().TryMarkAsRequesting(bb.PieceIndex, bb.BlockIndex, true) {
 				continue
 			}
-			d.picker.Load().MarkAsRequesting(bb.PieceIndex, bb.BlockIndex)
-			d.picker.Load().AddDownloadingPiece(bb.PieceIndex)
+			m.EnqueueBlock(bb.PieceIndex, bb.BlockIndex)
+			if m.closed.Load() {
+				d.picker.Load().AbortDownload(bb.PieceIndex, bb.BlockIndex)
+				continue
+			}
 			m.SendBlockRequests()
 			return
 		}

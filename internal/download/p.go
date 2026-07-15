@@ -452,12 +452,22 @@ func (p *peerImpl) requestABlock() {
 // scheduleRequests is the single per-peer scheduling goroutine. It serializes
 // picker access for this peer and exits with the peer context.
 func (p *peerImpl) scheduleRequests() {
+	// Protocol events provide the fast path. The periodic refill is a safety net
+	// for state transitions and concurrent queue updates whose signals may be
+	// coalesced while this scheduler is already running.
+	refillTicker := time.NewTicker(time.Second)
+	defer refillTicker.Stop()
+
 	for {
 		select {
 		case <-p.ctx.Done():
 			return
 		case <-p.scheduleRequestSignal:
 			p.requestABlockOnce()
+		case <-refillTicker.C:
+			if p.d.IsActiveDownloading() && (!p.IsChoking() || p.FastBitmap().Count() > 0) {
+				p.requestABlockOnce()
+			}
 		}
 	}
 }
@@ -497,18 +507,11 @@ func (p *peerImpl) requestABlockOnce() {
 		return
 	}
 
-	// Free blocks: enqueue and confirm.
+	// Free blocks: atomically transfer each picked block into this peer's
+	// request queue. The picker state and peer queue are updated while holding
+	// requestMu so Close cannot leave an orphaned Requested block behind.
 	for _, fb := range free {
-		if p.IsInQueue(pieceChunk(p.d.info, fb.PieceIndex, fb.BlockIndex)) {
-			continue
-		}
-		p.EnqueueBlock(fb.PieceIndex, fb.BlockIndex)
-		enqueueBlockDelay()
-		if p.closed.Load() {
-			continue
-		}
-		picker.MarkAsRequesting(fb.PieceIndex, fb.BlockIndex)
-		picker.AddDownloadingPiece(fb.PieceIndex)
+		p.tryEnqueuePickedBlock(picker, fb, false)
 	}
 
 	p.SendBlockRequests()
@@ -516,20 +519,44 @@ func (p *peerImpl) requestABlockOnce() {
 	// Busy blocks (endgame): only when no free blocks available, at most one to avoid burst.
 	if len(free) == 0 {
 		for _, bb := range busy {
-			if p.IsInQueue(pieceChunk(p.d.info, bb.PieceIndex, bb.BlockIndex)) {
+			if !p.tryEnqueuePickedBlock(picker, bb, true) {
 				continue
 			}
-			p.EnqueueBlock(bb.PieceIndex, bb.BlockIndex)
-			enqueueBlockDelay()
-			if p.closed.Load() {
-				continue
-			}
-			picker.MarkAsRequesting(bb.PieceIndex, bb.BlockIndex)
-			picker.AddDownloadingPiece(bb.PieceIndex)
 			p.SendBlockRequests()
 			return
 		}
 	}
+}
+
+func (p *peerImpl) tryEnqueuePickedBlock(picker *PiecePicker, block PieceBlock, retry bool) bool {
+	p.requestMu.Lock()
+	defer p.requestMu.Unlock()
+
+	if p.closed.Load() || p.isDisconnecting() {
+		return false
+	}
+
+	chunk := pieceChunk(p.d.info, block.PieceIndex, block.BlockIndex)
+	if _, ok := p.myRequests.Load(chunk); ok {
+		return false
+	}
+	alreadyQueued := false
+	p.requestQueue.Range(func(queued PieceBlock) bool {
+		alreadyQueued = queued == block
+		return !alreadyQueued
+	})
+	if alreadyQueued {
+		return false
+	}
+
+	if !picker.TryMarkAsRequesting(block.PieceIndex, block.BlockIndex, retry) {
+		return false
+	}
+	if !p.requestQueue.Push(block) {
+		picker.AbortDownload(block.PieceIndex, block.BlockIndex)
+		return false
+	}
+	return true
 }
 
 // updateDesiredQueueSize computes the desired number of outstanding requests
@@ -842,11 +869,6 @@ func (p *peerImpl) start(skipHandshake bool) {
 			}
 
 			p.contributedPieces.Set(event.Res.PieceIndex)
-
-			// Request more blocks for this peer immediately (libtorrent
-			// calls request_a_block from incoming_piece).
-			p.requestBlocks()
-
 			p.responseCond.Signal()
 			p.pieceDownloadRate.Update(len(event.Res.Data))
 
