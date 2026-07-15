@@ -180,6 +180,7 @@ func handleRes(d *Download, h *heap.Heap[responseChunk], pc *peerContributors, d
 	// (endgame race). Overwriting would replace the first peer's data.
 	cPi := res.Begin/defaultBlockSize + res.PieceIndex*d.normalChunkLen
 	if done.Contains(cPi) {
+		d.wastedDupe.Add(int64(len(res.Data)))
 		proto.PiecePool.Put(res)
 		return
 	}
