@@ -151,18 +151,17 @@ func TestRequestABlock_CompletedPieceSkipped(t *testing.T) {
 func TestRequestABlock_EndgameBusyBlocks(t *testing.T) {
 	d, p := newRequestABlockFixture(t, 5)
 
-	// First call: startup mode — enters one piece into downloadingPieces.
-	p.requestABlock()
-	firstPiece := p.enqueuedBlocks[0].PieceIndex
-
-	// Add a DIFFERENT piece (piece 0) to downloading, then mark blocks 1-3
-	// as requested. Block 0 stays free → this piece has 1 free + 3 busy blocks.
-	// (If startup picked piece 0, use piece 4 instead.)
-	busyPiece := uint32(0)
-	if firstPiece == 0 {
-		busyPiece = 4
-	}
+	// Mark 4 pieces as complete so only 1 remains → triggers endgame
+	// (endgame threshold = 2 for a 5-piece torrent).
 	picker := d.picker.Load()
+	for i := range uint32(4) {
+		d.completedBm.Set(i)
+		d.missingBm.Unset(i)
+		picker.WeHave(i)
+	}
+	// Remaining candidate piece is 4. Add it to downloading with blocks 1-3
+	// as requested. Block 0 stays free → 1 free + 3 busy blocks.
+	busyPiece := uint32(4)
 	picker.AddDownloadingPiece(busyPiece)
 	nb := d.info.PieceBlockCount(busyPiece)
 	for bi := 1; bi < nb; bi++ {
@@ -172,14 +171,25 @@ func TestRequestABlock_EndgameBusyBlocks(t *testing.T) {
 	// Reset tracking
 	p.enqueuedBlocks = p.enqueuedBlocks[:0]
 	p.queued = p.queued[:0]
+	p.setDesiredSize(1) // request only 1 block to force free=0 after picking the free block
+
+	p.requestABlock()
+
+	// In endgame, the mixed piece (1 free + 3 busy) returns BusyBlocks.
+	require.Empty(t, p.lastPickRes.BusyBlocks,
+		"BusyBlocks only with isEndgame; here free blocks exist so busy not needed yet")
+	// The free block should be enqueued.
+	require.NotEmpty(t, p.enqueuedBlocks, "should enqueue the free block")
+
+	// Now free=0 for the piece. Next call should pick busy blocks.
+	p.enqueuedBlocks = p.enqueuedBlocks[:0]
+	p.queued = p.queued[:0]
 	p.setDesiredSize(100)
 
 	p.requestABlock()
 
-	// Piece with 1 free + 3 busy blocks should appear in partial pieces path.
-	require.NotEmpty(t, p.lastPickRes.BusyBlocks, "should have busy blocks from mixed piece")
-	// One busy block is enqueued per endgame call.
-	require.NotEmpty(t, p.enqueuedBlocks, "should enqueue at least 1 busy block in endgame")
+	require.NotEmpty(t, p.lastPickRes.BusyBlocks, "should have busy blocks in endgame")
+	require.NotEmpty(t, p.enqueuedBlocks, "should enqueue busy block in endgame")
 }
 
 func TestRequestABlock_AllPiecesCompleted(t *testing.T) {

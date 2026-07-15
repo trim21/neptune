@@ -285,8 +285,9 @@ func (m *mockPeer) requestABlock() {
 	)
 	m.SetLastPickResult(pickResult)
 	free := pickResult.FreeBlocks
+	busy := pickResult.BusyBlocks
 
-	if len(free) == 0 {
+	if len(free) == 0 && len(busy) == 0 {
 		return
 	}
 
@@ -302,6 +303,23 @@ func (m *mockPeer) requestABlock() {
 		d.picker.Load().AddDownloadingPiece(fb.PieceIndex)
 	}
 	m.SendBlockRequests()
+
+	// Busy blocks (endgame): only when no free blocks available, at most one.
+	if len(free) == 0 {
+		for _, bb := range busy {
+			if m.IsInQueue(pieceChunk(d.info, bb.PieceIndex, bb.BlockIndex)) {
+				continue
+			}
+			m.EnqueueBlock(bb.PieceIndex, bb.BlockIndex)
+			if m.closed.Load() {
+				continue
+			}
+			d.picker.Load().MarkAsRequesting(bb.PieceIndex, bb.BlockIndex)
+			d.picker.Load().AddDownloadingPiece(bb.PieceIndex)
+			m.SendBlockRequests()
+			return
+		}
+	}
 }
 
 // ── Peer requests (upload side) ─────────────────────────────────────
