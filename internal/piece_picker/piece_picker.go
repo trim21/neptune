@@ -15,7 +15,6 @@ import (
 
 	"neptune/internal/meta"
 	"neptune/internal/pkg/bm"
-	"neptune/internal/pkg/empty"
 )
 
 // PiecePickStrategy controls the piece selection order.
@@ -193,6 +192,11 @@ type downloadingPiece struct {
 // Higher score = more urgent. Mirrors libtorrent: (availability + 1) * priority_factor.
 const priorityFactor = 3
 
+// maxBlockRetries caps how many extra peers may concurrently request a block
+// that is already requested by another peer. In endgame, this bounds waste_dupe
+// while still providing enough redundancy for tail-block completion.
+const maxBlockRetries = 2
+
 type partialInfo struct {
 	blockCount    int
 	blocksInPiece int
@@ -216,12 +220,12 @@ type PiecePicker struct {
 	blockInfos         blockStates
 	pieces             []uint32
 	availability       []uint16
-	requestedBy        map[uint32]uint64      // piece → first peer to claim it (exclusive tracking)
-	retriedBlocks      map[uint32]empty.Empty // chunk indices already retried as BusyBlock
+	requestedBy        map[uint32]uint64 // piece → first peer to claim it (exclusive tracking)
+	retriedBlocks      map[uint32]uint8  // chunk index → retry count (capped at maxBlockRetries)
 	info               meta.Info
 	downloadQueueSize  int
+	freeBlocks         int // blocks in None state across wanted pieces
 	numWantLeft        int
-	endgameSize        int // pieces remaining threshold to enter endgame mode
 	blockSize          int64
 	mu                 sync.Mutex
 	numCompletedPieces uint32
@@ -237,25 +241,25 @@ func NewPiecePicker(info meta.Info, missingBm *bm.LockFreeBitmap, chunkDoneBm *b
 	numPieces := info.NumPieces
 	blocksPerPiece := uint32((info.PieceLength + meta.DefaultBlockSize - 1) / meta.DefaultBlockSize)
 
-	// Endgame threshold: ~1% of total pieces, clamped to [2, 20].
-	// Once only this many pieces remain, peers may request already-requested
-	// blocks (busy blocks) to reduce tail latency.
-	endgameSize := max(2, min(20, int(numPieces)/100))
+	// Total blocks across all pieces; we start with everything free.
+	fullPieceBlocks := int(blocksPerPiece) * (int(numPieces) - 1)
+	lastPieceBlocks := int((info.LastPieceSize + meta.DefaultBlockSize - 1) / meta.DefaultBlockSize)
+	freeBlocks := fullPieceBlocks + lastPieceBlocks
 
 	pp := &PiecePicker{
 		info:            info,
 		numPieces:       numPieces,
 		blocksPerPiece:  blocksPerPiece,
+		freeBlocks:      freeBlocks,
 		blockSize:       meta.DefaultBlockSize,
 		availability:    make([]uint16, numPieces),
 		piecePriorities: make([]uint32, numPieces),
 		pieces:          make([]uint32, numPieces),
 		requestedBy:     make(map[uint32]uint64),
-		retriedBlocks:   make(map[uint32]empty.Empty),
+		retriedBlocks:   make(map[uint32]uint8),
 		missingBm:       missingBm,
 		chunkDoneBm:     chunkDoneBm,
 		strategy:        strategy,
-		endgameSize:     endgameSize,
 		dirty:           true,
 		blockInfos:      newBlockStates(int(numPieces) * int(blocksPerPiece)),
 	}
@@ -362,8 +366,12 @@ func (pp *PiecePicker) WeHave(pieceIndex uint32) {
 	idx := pp.blockInfoIdx(pieceIndex)
 	nb := pp.numBlocksInPiece(pieceIndex)
 	for i := range int(nb) {
-		if pp.blockInfos.get(idx+i) == blockStateRequested {
+		oldState := pp.blockInfos.get(idx + i)
+		switch oldState {
+		case blockStateRequested:
 			pp.downloadQueueSize--
+		case blockStateNone:
+			pp.freeBlocks--
 		}
 		pp.blockInfos.set(idx+i, blockStateResponded)
 	}
@@ -421,10 +429,14 @@ func (pp *PiecePicker) MarkAsRequesting(pieceIndex uint32, blockIndex int) {
 	switch oldState {
 	case blockStateNone:
 		pp.downloadQueueSize++
+		pp.freeBlocks--
 	case blockStateRequested:
 		// Block already requested by another peer (BusyBlock retry).
-		// Track it to prevent further duplicates.
-		pp.retriedBlocks[pp.chunkIndex(pieceIndex, blockIndex)] = empty.Empty{}
+		// Increment retry counter to bound endgame fan-out.
+		chunkIdx := pp.chunkIndex(pieceIndex, blockIndex)
+		if pp.retriedBlocks[chunkIdx] < maxBlockRetries {
+			pp.retriedBlocks[chunkIdx]++
+		}
 	}
 	pp.blockInfos.set(idx, blockStateRequested)
 
@@ -448,6 +460,7 @@ func (pp *PiecePicker) AbortDownload(pieceIndex uint32, blockIndex int) {
 	idx := pp.blockInfoIdx(pieceIndex) + blockIndex
 	if pp.blockInfos.get(idx) == blockStateRequested {
 		pp.downloadQueueSize--
+		pp.freeBlocks++
 	}
 	pp.blockInfos.set(idx, blockStateNone)
 
@@ -592,7 +605,11 @@ func (pp *PiecePicker) PickPieces(
 	}
 
 	pp.rebuildPriorities(strategy)
-	isEndgame := pp.numWantLeft <= pp.endgameSize
+	// Enter endgame whenever no truly free (None) blocks remain, regardless
+	// of how many pieces still appear open. This correctly handles orphaned
+	// Requested blocks (from disconnected peers) that would otherwise prevent
+	// endgame from activating.
+	isEndgame := pp.freeBlocks == 0
 
 	// Reuse slices from previous call.
 	result.FreeBlocks = result.FreeBlocks[:0]
@@ -684,7 +701,7 @@ func (pp *PiecePicker) PickPieces(
 				// busy block — only replicate in endgame, and skip already-retried blocks
 				// to prevent cascading duplicate requests across many peers.
 				if isEndgame && numBlocks > 0 {
-					if _, retried := pp.retriedBlocks[pp.chunkIndex(p.pieceIndex, i)]; !retried {
+					if pp.retriedBlocks[pp.chunkIndex(p.pieceIndex, i)] < maxBlockRetries {
 						result.BusyBlocks = append(result.BusyBlocks, PieceBlock{p.pieceIndex, i})
 					}
 				}
@@ -716,7 +733,7 @@ func (pp *PiecePicker) PickPieces(
 			}
 			for i := range int(dp.blocksInPiece) {
 				if pp.blockInfos.get(idx+i) == blockStateRequested {
-					if _, retried := pp.retriedBlocks[pp.chunkIndex(dp.index, i)]; !retried {
+					if pp.retriedBlocks[pp.chunkIndex(dp.index, i)] < maxBlockRetries {
 						result.BusyBlocks = append(result.BusyBlocks, PieceBlock{dp.index, i})
 					}
 				}
@@ -1043,6 +1060,11 @@ func (pp *PiecePicker) ResetPiece(pieceIndex uint32) {
 
 	idx := pp.blockInfoIdx(pieceIndex)
 	nb := pp.numBlocksInPiece(pieceIndex)
+
+	// Count before reset: blocks that were NOT None get added to freeBlocks.
+	noneBefore := pp.blockInfos.countNone(idx, int(nb))
+	pp.freeBlocks += int(nb) - noneBefore
+
 	for i := range int(nb) {
 		if pp.blockInfos.get(idx+i) == blockStateRequested {
 			pp.downloadQueueSize--
@@ -1089,9 +1111,10 @@ func (pp *PiecePicker) ResetAll() {
 	pp.blockInfos.resetAll()
 	pp.downloadingPieces = pp.downloadingPieces[:0]
 	pp.downloadQueueSize = 0
+	pp.freeBlocks = int(pp.blocksPerPiece)*int(pp.numPieces-1) + int(pp.numBlocksInPiece(pp.numPieces-1))
 	pp.numCompletedPieces = 0
 	pp.requestedBy = make(map[uint32]uint64)
-	pp.retriedBlocks = make(map[uint32]empty.Empty)
+	pp.retriedBlocks = make(map[uint32]uint8)
 	pp.dirty = true
 }
 
