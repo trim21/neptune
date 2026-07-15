@@ -116,10 +116,11 @@ func (c *Client) GetTorrentList(keys []string) TorrentList {
 }
 
 type TransferSummary struct {
-	DownloadRate  int64 `json:"download_rate"`
-	DownloadTotal int64 `json:"download_total"`
-	UploadRate    int64 `json:"upload_rate"`
-	UploadTotal   int64 `json:"upload_total"`
+	DownloadRate    int64  `json:"download_rate"`
+	DownloadTotal   int64  `json:"download_total"`
+	UploadRate      int64  `json:"upload_rate"`
+	UploadTotal     int64  `json:"upload_total"`
+	ConnectionCount uint32 `json:"connection_count"`
 }
 
 func (c *Client) GetTransferSummary() TransferSummary {
@@ -127,10 +128,11 @@ func (c *Client) GetTransferSummary() TransferSummary {
 	up := c.PieceUploadRate().Status()
 
 	return TransferSummary{
-		DownloadRate:  down.CurRate,
-		DownloadTotal: down.Total,
-		UploadRate:    up.CurRate,
-		UploadTotal:   up.Total,
+		DownloadRate:    down.CurRate,
+		DownloadTotal:   down.Total,
+		UploadRate:      up.CurRate,
+		UploadTotal:     up.Total,
+		ConnectionCount: c.session.ConnCount.Load(),
 	}
 }
 

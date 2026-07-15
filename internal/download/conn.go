@@ -28,6 +28,10 @@ func (d *Download) AddConn(addr netip.AddrPort, conn net.Conn, h proto.Handshake
 		conn.Close()
 		return
 	}
+	if d.peers.Size() >= d.maxConnections() {
+		conn.Close()
+		return
+	}
 	NewIncomingPeer(conn, d, addr, h, encrypted)
 }
 

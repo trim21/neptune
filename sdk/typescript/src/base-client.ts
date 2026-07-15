@@ -7,6 +7,7 @@ import type {
   GetDownloadSlotsResult,
   GetRecheckOnCompleteResult,
   GetSlowDownloadSpeedThresholdResult,
+  GetTorrentConnectionLimitResult,
   GlobalSpeedLimitParams,
   InfoHashParams,
   ListTorrentParams,
@@ -20,6 +21,7 @@ import type {
   SetQueueWeightParams,
   SetRecheckOnCompleteParams,
   SetSlowDownloadSpeedThresholdParams,
+  SetTorrentConnectionLimitParams,
   SpeedLimitParams,
   TagsParams,
   TorrentFiles,
@@ -86,6 +88,8 @@ export interface NeptuneMethodMap {
   'client.get_transfer_config': { params: Record<string, never>; result: TransferConfig; };
   'client.set_recheck_on_complete': { params: SetRecheckOnCompleteParams; result: void; };
   'client.get_recheck_on_complete': { params: Record<string, never>; result: GetRecheckOnCompleteResult; };
+  'client.set_torrent_connection_limit': { params: SetTorrentConnectionLimitParams; result: void; };
+  'client.get_torrent_connection_limit': { params: Record<string, never>; result: GetTorrentConnectionLimitResult; };
 }
 
 /** Union of all method name strings. */

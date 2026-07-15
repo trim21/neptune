@@ -58,6 +58,7 @@ class TransferSummary:
     download_total: int
     upload_rate: int
     upload_total: int
+    connection_count: int = 0
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -323,3 +324,17 @@ class TorrentTrackersResponse:
     """Response for torrent.trackers."""
 
     trackers: list[Tracker]
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SetTorrentConnectionLimitRequest:
+    """Parameters for client.set_torrent_connection_limit."""
+
+    limit: int = 0
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class GetTorrentConnectionLimitResponse:
+    """Response for client.get_torrent_connection_limit."""
+
+    limit: int = 0

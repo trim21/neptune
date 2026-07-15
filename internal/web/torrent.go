@@ -192,7 +192,7 @@ type getTransferSummaryResponse struct {
 }
 
 func getTransferSummary(h *jsonrpc.Handler, c *client.Client) {
-	u := usecase.NewInteractor[*getTransferSummaryRequest, getTransferSummaryResponse](
+	u := usecase.NewInteractor(
 		func(ctx context.Context, req *getTransferSummaryRequest, res *getTransferSummaryResponse) error {
 			res.TransferSummary = c.GetTransferSummary()
 			return nil

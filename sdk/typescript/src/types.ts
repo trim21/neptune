@@ -47,6 +47,7 @@ export interface TransferSummary {
   download_total: number;
   upload_rate: number;
   upload_total: number;
+  connection_count: number;
 }
 
 /** A single file inside a torrent. */
@@ -179,6 +180,15 @@ export interface SetSlowDownloadSpeedThresholdParams {
 
 export interface GetSlowDownloadSpeedThresholdResult {
   threshold: number;
+}
+
+export interface SetTorrentConnectionLimitParams {
+  /** Max connections per torrent. */
+  limit: number;
+}
+
+export interface GetTorrentConnectionLimitResult {
+  limit: number;
 }
 
 /** Response for client.get_transfer_config. */

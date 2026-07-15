@@ -21,6 +21,7 @@ from .models import (
     GetDownloadSlotsResponse,
     GetRecheckOnCompleteResponse,
     GetSlowDownloadSpeedThresholdResponse,
+    GetTorrentConnectionLimitResponse,
     InfoHashRequest,
     ListTorrentRequest,
     MoveTorrentRequest,
@@ -35,6 +36,7 @@ from .models import (
     SetRecheckOnCompleteRequest,
     SetSlowDownloadSpeedThresholdRequest,
     SetSpeedLimitRequest,
+    SetTorrentConnectionLimitRequest,
     TagsRequest,
     TorrentFilesResponse,
     TorrentInfo,
@@ -367,6 +369,20 @@ class NeptuneClient:
         return _validate(
             GetRecheckOnCompleteResponse,
             self._call("client.get_recheck_on_complete"),
+        )
+
+    def client_set_torrent_connection_limit(self, limit: int) -> None:
+        """Set max connections per torrent."""
+        self._call(
+            "client.set_torrent_connection_limit",
+            SetTorrentConnectionLimitRequest(limit=limit),
+        )
+
+    def client_get_torrent_connection_limit(self) -> GetTorrentConnectionLimitResponse:
+        """Get max connections per torrent."""
+        return _validate(
+            GetTorrentConnectionLimitResponse,
+            self._call("client.get_torrent_connection_limit"),
         )
 
     # ── torrent — file priority ────────────────────────────────────────

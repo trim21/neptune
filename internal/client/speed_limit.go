@@ -87,3 +87,7 @@ func (c *Client) SetTorrentConnectionLimit(limit uint16) {
 func (c *Client) GetTorrentConnectionLimit() uint16 {
 	return uint16(c.session.TorrentConnLimit.Load())
 }
+
+func (c *Client) GetConnectionCount() uint32 {
+	return c.session.ConnCount.Load()
+}
