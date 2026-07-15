@@ -198,7 +198,6 @@ const priorityFactor = 3
 const maxBlockRetries = 2
 
 type partialInfo struct {
-	blockCount    int
 	blocksInPiece int
 	ratio         float64
 	pieceIndex    uint32
@@ -232,6 +231,7 @@ type PiecePicker struct {
 	numPieces          uint32
 	blocksPerPiece     uint32
 	dirty              bool
+	partialsDirty      bool
 }
 
 // NewPiecePicker creates a new piece picker for the given torrent info.
@@ -261,6 +261,7 @@ func NewPiecePicker(info meta.Info, missingBm *bm.LockFreeBitmap, chunkDoneBm *b
 		chunkDoneBm:     chunkDoneBm,
 		strategy:        strategy,
 		dirty:           true,
+		partialsDirty:   true,
 		blockInfos:      newBlockStates(int(numPieces) * int(blocksPerPiece)),
 	}
 
@@ -315,6 +316,9 @@ func (pp *PiecePicker) IncRefcount(pieceIndex uint32) {
 		// piece went from unavailable to available
 		pp.dirty = true
 	}
+	if pp.findDownloadingPiece(pieceIndex) != nil {
+		pp.partialsDirty = true
+	}
 }
 
 // DecRefcount decrements the reference count for all blocks in the given piece.
@@ -331,6 +335,9 @@ func (pp *PiecePicker) DecRefcount(pieceIndex uint32) {
 	}
 	if pp.availability[pieceIndex] == 0 {
 		pp.dirty = true
+	}
+	if pp.findDownloadingPiece(pieceIndex) != nil {
+		pp.partialsDirty = true
 	}
 }
 
@@ -409,6 +416,7 @@ func (pp *PiecePicker) MarkAsResponded(pieceIndex uint32, blockIndex int) {
 	if dp := pp.findDownloadingPiece(pieceIndex); dp != nil {
 		if oldState != blockStateResponded {
 			dp.responded++
+			pp.partialsDirty = true
 		}
 		if oldState == blockStateRequested {
 			dp.requested--
@@ -656,70 +664,75 @@ func (pp *PiecePicker) PickPieces(
 		}
 	}
 
-	// Phase 1: partial pieces (pieces in downloading state with some blocks finished)
-	pp.partials = pp.partials[:0]
+	// Phase 1: partial pieces (pieces in downloading state with some blocks finished).
+	// Cache the sorted view, rebuild only when a downloading piece's ratio or priority changed.
+	// Peer-specific filtering (bitfield, choke, parole, etc.) is applied during iteration
+	// so that different peers can share the same sorted cache.
+	if pp.partialsDirty {
+		pp.partials = pp.partials[:0]
 
-	for _, dp := range pp.downloadingPieces {
-		if !pp.missingBm.Contains(dp.index) {
+		for _, dp := range pp.downloadingPieces {
+			if !pp.missingBm.Contains(dp.index) {
+				continue
+			}
+			pp.partials = append(pp.partials, partialInfo{
+				pieceIndex:    dp.index,
+				blocksInPiece: int(dp.blocksInPiece),
+				ratio:         float64(dp.responded) / float64(dp.blocksInPiece),
+				priority:      pp.piecePriorities[dp.index],
+			})
+		}
+
+		slices.SortFunc(pp.partials, func(a, b partialInfo) int {
+			if a.ratio != b.ratio {
+				if a.ratio > b.ratio {
+					return -1
+				}
+				return 1
+			}
+			if a.priority != b.priority {
+				if a.priority > b.priority {
+					return -1
+				}
+				return 1
+			}
+			return 0
+		})
+		pp.partialsDirty = false
+	}
+
+	// Pick from partial pieces first — apply peer-specific filtering here.
+	for _, p := range pp.partials {
+		if numBlocks <= 0 {
+			break
+		}
+		dp := pp.findDownloadingPiece(p.pieceIndex)
+		if dp == nil {
 			continue
 		}
-		if !bitfield.Contains(dp.index) {
+		if !bitfield.Contains(p.pieceIndex) {
 			continue
 		}
-		if choked && !allowedFast.Contains(dp.index) {
+		if choked && !allowedFast.Contains(p.pieceIndex) {
 			continue
 		}
-		if blockedPieces.Contains(dp.index) {
+		if blockedPieces.Contains(p.pieceIndex) {
 			continue
 		}
 		if onParole {
-			owner, ok := pp.requestedBy[dp.index]
+			owner, ok := pp.requestedBy[p.pieceIndex]
 			if ok && owner != peerID {
 				continue // piece claimed by another peer
 			}
 		} else {
 			// Non-parole peer joining a piece owned by someone else:
 			// clear ownership so the original parole peer sees it as contested.
-			owner, ok := pp.requestedBy[dp.index]
+			owner, ok := pp.requestedBy[p.pieceIndex]
 			if ok && owner != peerID {
-				delete(pp.requestedBy, dp.index)
+				delete(pp.requestedBy, p.pieceIndex)
 			}
 		}
 
-		idx := pp.blockInfoIdx(dp.index)
-		freeBlocks := pp.blockInfos.countNone(idx, int(dp.blocksInPiece))
-		pp.partials = append(pp.partials, partialInfo{
-			pieceIndex:    dp.index,
-			blockCount:    freeBlocks,
-			blocksInPiece: int(dp.blocksInPiece),
-			ratio:         float64(dp.responded) / float64(dp.blocksInPiece),
-			priority:      pp.piecePriorities[dp.index],
-		})
-	}
-
-	// Sort partials: highest completion ratio first (finish started pieces),
-	// then rarest-first on availability as tiebreaker.
-	slices.SortFunc(pp.partials, func(a, b partialInfo) int {
-		if a.ratio != b.ratio {
-			if a.ratio > b.ratio {
-				return -1
-			}
-			return 1
-		}
-		if a.priority != b.priority {
-			if a.priority > b.priority {
-				return -1
-			}
-			return 1
-		}
-		return 0
-	})
-
-	// Pick from partial pieces first
-	for _, p := range pp.partials {
-		if numBlocks <= 0 {
-			break
-		}
 		idx := pp.blockInfoIdx(p.pieceIndex)
 		for i := range p.blocksInPiece {
 			switch pp.blockInfos.get(idx + i) {
@@ -964,6 +977,7 @@ func (pp *PiecePicker) addDownloadingPieceUnsafe(pieceIndex uint32) {
 		return 0
 	})
 	pp.dirty = true
+	pp.partialsDirty = true
 }
 
 // RemoveDownloadingPiece removes a piece from the downloading set.
@@ -1107,6 +1121,7 @@ func (pp *PiecePicker) ResetPiece(pieceIndex uint32) {
 	if dp := pp.findDownloadingPiece(pieceIndex); dp != nil {
 		dp.responded = 0
 		dp.requested = 0
+		pp.partialsDirty = true
 	}
 
 	// Re-add piece to candidates if it was removed by rebuildPriorities.
@@ -1145,6 +1160,7 @@ func (pp *PiecePicker) ResetAll() {
 	pp.requestedBy = make(map[uint32]uint64)
 	pp.retriedBlocks = make(map[uint32]uint8)
 	pp.dirty = true
+	pp.partialsDirty = true
 }
 
 func (pp *PiecePicker) removeDownloadingPieceUnsafe(pieceIndex uint32) {
@@ -1152,6 +1168,7 @@ func (pp *PiecePicker) removeDownloadingPieceUnsafe(pieceIndex uint32) {
 		if pp.downloadingPieces[i].index == pieceIndex {
 			pp.downloadingPieces = slices.Delete(pp.downloadingPieces, i, i+1)
 			pp.dirty = true
+			pp.partialsDirty = true
 			return
 		}
 	}
