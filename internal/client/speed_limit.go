@@ -79,3 +79,11 @@ func (c *Client) SetSlowDownloadSpeedThreshold(limit int64) {
 func (c *Client) GetSlowDownloadSpeedThreshold() int64 {
 	return c.session.SlowDownloadSpeedThreshold.Load()
 }
+
+func (c *Client) SetTorrentConnectionLimit(limit uint16) {
+	c.session.TorrentConnLimit.Store(uint32(limit))
+}
+
+func (c *Client) GetTorrentConnectionLimit() uint16 {
+	return uint16(c.session.TorrentConnLimit.Load())
+}

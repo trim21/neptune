@@ -21,7 +21,7 @@ import (
 // Moved from config.go to keep the public API clean.
 func LoadFromTOML(path string) (Config, error) {
 	var cfg = Config{
-		App: Application{MaxHTTPParallel: 100, GlobalConnectionLimit: 500, MaxRequestBodySize: 50 << 20},
+		App: Application{MaxHTTPParallel: 100, GlobalConnectionLimit: 500, TorrentConnectionLimit: 50, MaxRequestBodySize: 50 << 20},
 	}
 
 	f, err := os.Open(path)
@@ -202,6 +202,17 @@ var configFields = map[string]configField{
 			return nil
 		},
 		getter: func(a *Application) lua.LValue { return lua.LNumber(a.GlobalConnectionLimit) },
+	},
+	"application.torrent-connection-limit": {
+		setter: func(a *Application, v lua.LValue) error {
+			n, err := toGoUint16(v)
+			if err != nil {
+				return err
+			}
+			a.TorrentConnectionLimit = n
+			return nil
+		},
+		getter: func(a *Application) lua.LValue { return lua.LNumber(a.TorrentConnectionLimit) },
 	},
 	"application.global-upload-slots": {
 		setter: func(a *Application, v lua.LValue) error {

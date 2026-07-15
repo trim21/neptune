@@ -220,7 +220,7 @@ func (p *PriorityQueue) Pop() Priority {
 
 // maxConnections returns the per-torrent connection limit.
 func (d *Download) maxConnections() int {
-	return int(d.session.Config.App.GlobalConnectionLimit)
+	return int(d.session.TorrentConnLimit.Load())
 }
 
 // peerCount returns the number of currently connected peers.

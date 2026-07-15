@@ -60,6 +60,7 @@ type Session struct {
 	Config                     config.Config
 	RecheckOnComplete          atomic.Bool
 	DownloadSlots              atomic.Uint32
+	TorrentConnLimit           atomic.Uint32
 	SlowDownloadSpeedThreshold atomic.Int64
 	ConnCount                  atomic.Uint32
 	MSEPreferredCrypto         mse.CryptoMethod
@@ -148,6 +149,7 @@ func New(cfg config.Config, sessionPath string, debug bool) *Session {
 
 	s.RecheckOnComplete.Store(cfg.App.RecheckOnComplete)
 	s.DownloadSlots.Store(uint32(cfg.App.DownloadSlots))
+	s.TorrentConnLimit.Store(uint32(cfg.App.TorrentConnectionLimit))
 	s.SlowDownloadSpeedThreshold.Store(cfg.App.SlowDownloadSpeedThreshold)
 
 	s.IPv4.Store(v4)

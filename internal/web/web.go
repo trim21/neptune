@@ -142,6 +142,8 @@ func New(c *client.Client, token string, enableDebug bool) http.Handler {
 	getDownloadSlots(h, c)
 	setSlowDownloadSpeedThreshold(h, c)
 	getSlowDownloadSpeedThreshold(h, c)
+	setTorrentConnectionLimit(h, c)
+	getTorrentConnectionLimit(h, c)
 	torrentGetPiecePickStrategy(h, c)
 	// MoveTorrent(h, c)
 
