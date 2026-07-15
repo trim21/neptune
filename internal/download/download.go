@@ -507,10 +507,11 @@ func (d *Download) checkPiece(pieceIndex uint32, pc *peerContributors, done *bm.
 		d.corruptedPiecesMu.Unlock()
 		d.log.Trace().Msgf("piece %d done", pieceIndex)
 		d.have(pieceIndex)
-
-		// Notify scheduler that piece completed so peers can request new blocks.
 	}
 
+	// Hash verification removes the piece from downloadingPieces. Wake peers
+	// after that state change so they can claim another piece immediately.
+	d.notifyPeersToRequest()
 	return nil
 }
 

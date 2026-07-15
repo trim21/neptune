@@ -381,6 +381,10 @@ func (p *peerImpl) Close() {
 
 	p.cancel()
 	_ = p.Conn.Close()
+
+	// Signal remaining peers after every released request is visible in the
+	// picker, but before this peer is removed from shared tracking.
+	p.d.notifyPeersToRequest()
 }
 
 func (p *peerImpl) sendBlockRequests() {
@@ -452,22 +456,12 @@ func (p *peerImpl) requestABlock() {
 // scheduleRequests is the single per-peer scheduling goroutine. It serializes
 // picker access for this peer and exits with the peer context.
 func (p *peerImpl) scheduleRequests() {
-	// Protocol events provide the fast path. The periodic refill is a safety net
-	// for state transitions and concurrent queue updates whose signals may be
-	// coalesced while this scheduler is already running.
-	refillTicker := time.NewTicker(time.Second)
-	defer refillTicker.Stop()
-
 	for {
 		select {
 		case <-p.ctx.Done():
 			return
 		case <-p.scheduleRequestSignal:
 			p.requestABlockOnce()
-		case <-refillTicker.C:
-			if p.d.IsActiveDownloading() && (!p.IsChoking() || p.FastBitmap().Count() > 0) {
-				p.requestABlockOnce()
-			}
 		}
 	}
 }
