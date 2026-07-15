@@ -48,9 +48,10 @@ func LoadFromTOML(path string) (Config, error) {
 func LoadFromLua(path string) (Config, error) {
 	base := Config{
 		App: Application{
-			MaxHTTPParallel:       100,
-			GlobalConnectionLimit: 50,
-			MaxRequestBodySize:    50 << 20,
+			MaxHTTPParallel:        100,
+			GlobalConnectionLimit:  50,
+			TorrentConnectionLimit: 50,
+			MaxRequestBodySize:     50 << 20,
 		},
 	}
 

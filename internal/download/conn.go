@@ -23,12 +23,18 @@ const (
 )
 
 // AddConn adds an incoming connection from the listener.
+// Ownership of the global connection semaphore slot and connection counter
+// transfers to the download on success; on rejection, both are released.
 func (d *Download) AddConn(addr netip.AddrPort, conn net.Conn, h proto.Handshake, encrypted bool) {
 	if d.isAddrBanned(addr.Addr()) {
+		d.session.ConnSem.Release(1)
+		d.session.ConnCount.Sub(1)
 		conn.Close()
 		return
 	}
 	if d.peers.Size() >= d.maxConnections() {
+		d.session.ConnSem.Release(1)
+		d.session.ConnCount.Sub(1)
 		conn.Close()
 		return
 	}
