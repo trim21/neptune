@@ -116,7 +116,7 @@ func (d *Download) startBackground() {
 		connectTicker := time.NewTicker(30 * time.Second)
 		defer connectTicker.Stop()
 
-		turnoverTicker := time.NewTicker(time.Minute)
+		turnoverTicker := time.NewTicker(5 * time.Minute)
 		defer turnoverTicker.Stop()
 
 		for {

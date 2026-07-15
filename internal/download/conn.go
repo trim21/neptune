@@ -190,7 +190,16 @@ func (d *Download) peerTurnover() {
 		return
 	}
 
-	const turnoverFraction = 50 // 1/50 = 2%
+	// Only turn over connections when approaching the per-torrent limit
+	// (>= 90%). Mirrors libtorrent's peer_turnover_cutoff logic.
+	const turnoverCutoff = 90 // percent of connection limit
+
+	maxConn := d.maxConnections()
+	if maxConn < 6 || peerCount < maxConn*turnoverCutoff/100 {
+		return
+	}
+
+	const turnoverFraction = 100 / 4 // 4% of peers, mirrors libtorrent's peer_turnover
 
 	disconnectN := max(peerCount/turnoverFraction, 1)
 	candidateN := d.peerList.numCandidates()
