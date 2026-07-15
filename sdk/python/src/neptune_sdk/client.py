@@ -122,6 +122,8 @@ class NeptuneClient:
         }
         if params is not None:
             payload["params"] = asdict(params)
+        else:
+            payload["params"] = {}
 
         body_bytes = json.dumps(payload, default=_json_default).encode()
 
