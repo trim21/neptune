@@ -299,10 +299,12 @@ func (d *Download) SelectedSize() int64 {
 	return d.selectedSize.Load()
 }
 
-func (d *Download) computeSelectedSizeUnsafe() int64 {
+// buildWantedBmUnsafe rebuilds d.wantedBm from selectedFilesSet.
+// Must be called under d.s.mu.
+func (d *Download) buildWantedBmUnsafe() {
 	if d.s.selectedFilesSet == nil {
 		d.wantedBm.Fill()
-		return d.info.TotalLength
+		return
 	}
 	d.wantedBm.Clear()
 	for i := range d.info.NumPieces {
@@ -310,7 +312,9 @@ func (d *Download) computeSelectedSizeUnsafe() int64 {
 			d.wantedBm.Set(i)
 		}
 	}
+}
 
+func (d *Download) computeSelectedSizeUnsafe() int64 {
 	done := int64(d.wantedBm.Count()) * d.info.PieceLength
 	if d.wantedBm.Contains(d.info.NumPieces - 1) {
 		done = done - d.info.PieceLength + d.info.LastPieceSize

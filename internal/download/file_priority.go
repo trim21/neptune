@@ -98,6 +98,7 @@ func (d *Download) SetFilePriority(fileIDs []int, priority int) error {
 		}
 	}
 
+	d.buildWantedBmUnsafe()
 	d.selectedSize.Store(d.computeSelectedSizeUnsafe())
 	d.markUnselectedPiecesDoneUnsafe()
 	d.setMissingFromWantedSync()
