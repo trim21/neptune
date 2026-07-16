@@ -327,10 +327,9 @@ func BuildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 
 			offset += file.Length
 		}
-		d.s.mu.RUnlock()
 		data.Files = files
 
-		// Piece ranges
+		// Piece ranges — hold lock to avoid racing with buildSelectedPiecesBmUnsafe.
 		var buf strings.Builder
 		writePieceRanges(&buf, "have", d.completedBm)
 		data.PieceRanges = append(data.PieceRanges, debugPieceRange{Text: buf.String()})
@@ -344,6 +343,7 @@ func BuildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 		buf.Reset()
 		writePieceRanges(&buf, "missing", missing.WithAndNot(d.completedBm).WithAnd(d.wantedBm))
 		data.PieceRanges = append(data.PieceRanges, debugPieceRange{Text: buf.String()})
+		d.s.mu.RUnlock()
 	}
 
 	// Pending peers
