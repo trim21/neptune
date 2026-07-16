@@ -224,9 +224,9 @@ var ErrPeerSendInvalidData = errors.New("addrPort send invalid data")
 type peerImpl struct {
 	log                    zerolog.Logger
 	connectedAt            time.Time
-	closeErr               atomic.Pointer[error]
 	ctx                    context.Context
 	Conn                   net.Conn
+	closeErr               atomic.Pointer[error]
 	blockedPieceTimestamps *xsync.Map[uint32, time.Time]
 	userAgent              atomic.Pointer[string]
 	d                      *Download
@@ -253,6 +253,7 @@ type peerImpl struct {
 	lastPickResult         PickResult
 	rttAverage             sizedSlice[time.Duration]
 	requestQueue           pieceBlockQueue
+	lastPickAt             atomic.Int64
 	preferred              atomic.Bool
 	snubbed                atomic.Bool
 	onParole               atomic.Bool
@@ -271,6 +272,7 @@ type peerImpl struct {
 	ourChoking             atomic.Bool
 	lastUnchokeAt          atomic.Int64
 	desiredQueueSize       atomic.Int32
+	hadTransfer            atomic.Bool
 	rttMutex               sync.RWMutex
 	wm                     sync.Mutex
 	requestMu              sync.Mutex
@@ -284,7 +286,6 @@ type peerImpl struct {
 	fastExtension          bool
 	dhtEnabled             bool
 	subExtensions          bool
-	hadTransfer            atomic.Bool
 }
 
 func (p *peerImpl) Response(res *proto.ChunkResponse) bool {

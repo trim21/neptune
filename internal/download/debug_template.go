@@ -103,7 +103,7 @@ type debugTracker struct {
 }
 
 type debugPeer struct {
-	Address      string `json:"address"`
+	Encryption   string `json:"encryption"`
 	DownRate     string `json:"down_rate"`
 	UpRate       string `json:"up_rate"`
 	Client       string `json:"client"`
@@ -111,20 +111,21 @@ type debugPeer struct {
 	Fast         string `json:"fast"`
 	PeerID       string `json:"peer_id"`
 	LastPick     string `json:"last_pick"`
+	Address      string `json:"address"`
 	Direction    string `json:"direction"`
-	Encryption   string `json:"encryption"`
+	LastPickAt   int64  `json:"last_pick_at"`
 	OurReq       int    `json:"our_req"`
 	ReqQ         int    `json:"req_q"`
 	DesiredQ     int    `json:"desired_q"`
 	PeerReq      int    `json:"peer_req"`
+	BlockedCount int    `json:"blocked_count"`
+	TrustPoints  int32  `json:"trust_points"`
 	Snubbed      bool   `json:"snubbed"`
 	PeerChoke    bool   `json:"peer_choke"`
 	PeerInterest bool   `json:"peer_interest"`
 	OurChoke     bool   `json:"our_choke"`
 	OurInterest  bool   `json:"our_interest"`
 	OnParole     bool   `json:"on_parole"`
-	BlockedCount int    `json:"blocked_count"`
-	TrustPoints  int32  `json:"trust_points"`
 }
 
 type debugFile struct {
@@ -249,6 +250,7 @@ func BuildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 			PeerReq:      p.PeerRequestCount(),
 			PeerID:       url.QueryEscape(p.PeerIDString()),
 			LastPick:     schedulingDebugStr(p, func(pp *peerImpl) string { return pp.LastPickDebug() }),
+			LastPickAt:   schedulingDebugUnix(p, func(pp *peerImpl) int64 { return pp.LastPickAt() }),
 			Direction:    dir,
 			Encryption:   enc,
 		})
@@ -428,6 +430,13 @@ func schedulingDebugInt(p Peer, fn func(*peerImpl) int) int {
 	}
 	return 0
 }
+func schedulingDebugUnix(p Peer, fn func(*peerImpl) int64) int64 {
+	if pp, ok := any(p).(*peerImpl); ok {
+		return fn(pp)
+	}
+	return 0
+}
+
 func schedulingDebugStr(p Peer, fn func(*peerImpl) string) string {
 	if pp, ok := any(p).(*peerImpl); ok {
 		return fn(pp)

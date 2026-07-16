@@ -109,7 +109,13 @@ func (p *peerImpl) LastPickDebug() string {
 	return "-"
 }
 
-func (p *peerImpl) SetLastPickDebug(s string) { p.lastPickDebug.Store(&s) }
+// LastPickAt returns the unix timestamp of the last SetLastPickDebug call.
+func (p *peerImpl) LastPickAt() int64 { return p.lastPickAt.Load() }
+
+func (p *peerImpl) SetLastPickDebug(s string) {
+	p.lastPickDebug.Store(&s)
+	p.lastPickAt.Store(time.Now().Unix())
+}
 
 // ── Peer requests (upload side) ──────────────────────────────────────────
 
