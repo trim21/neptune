@@ -106,6 +106,14 @@ func (d *Download) backgroundResHandler() {
 			}
 		case res := <-d.resChan:
 			if d.GetState() != Downloading {
+				// The peer read loop already consumed this request from
+				// myRequests (resIsValid), so no timeout/close/reject path
+				// will ever release the picker claim. Abort it explicitly,
+				// otherwise the block stays Requested forever and the piece
+				// can never complete after resuming.
+				bi := int(res.res.Begin / uint32(defaultBlockSize))
+				d.picker.Load().AbortDownload(res.res.PieceIndex, bi)
+				proto.PiecePool.Put(res.res)
 				drainHeap(d, &h, pc, done, pending)
 				continue
 			}

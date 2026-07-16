@@ -131,12 +131,22 @@ requestABlock()           sendBlockRequests()      peer event loop              
 
 ## Other Termination Paths
 
+> **Invariant**: every picker claim (Requested mark, or a `retriedBlocks`
+> increment for an endgame duplicate) must end exactly once — via
+> `markAsResponded()` or `abortDownload()`. Once the peer read loop consumes a
+> request from `myRequests` (`resIsValid`), timeout/close/reject will never
+> see it again, so any path that drops the response afterwards must abort the
+> claim explicitly, or the block stays Requested forever and the piece can
+> never complete.
+
 | Path | Mechanism |
 |---|---|
 | **Timeout** (30s) | `checkRequestTimeouts()` iterates `myRequests`; any request stale >30s → `abortDownload()` → `blockStateNone` |
 | **Reject** | Peer sends `proto.Reject` → `abortDownload()` + remove from `requestQueue` |
-| **Peer disconnect** | `peerImpl.Close()` iterates `myRequests` + `requestQueue`, calls `abortDownload()` for all |
-| **Snub** | 5 consecutive timeouts → marks peer as snubbed, clears all in-flight requests, desiredQueueSize drops to 1 |
+| **Peer disconnect** | `peerImpl.Close()` → `abortAllRequestsLocked()` aborts `myRequests` + `requestQueue` |
+| **Snub** | 5 consecutive timeouts → marks peer as snubbed, `abortAllRequestsLocked()` aborts all in-flight **and queued** requests, desiredQueueSize drops to 1 |
+| **State leaves Downloading** (Stop / queue demote / Moving) | `backgroundResHandler()` drops the response but first calls `abortDownload()` for its block |
+| **Peer ctx canceled mid-delivery** | `resChan` send loses to `<-p.ctx.Done()` → `abortDownload()` before dropping the response |
 
 ## Key Data Structure Relationships
 

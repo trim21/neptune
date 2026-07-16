@@ -361,16 +361,7 @@ func (p *peerImpl) Close() {
 	// Synchronize with queue-to-request ownership transfers, then abort every
 	// block that is still queued or in flight.
 	p.requestMu.Lock()
-	p.myRequests.Range(func(req proto.ChunkRequest, _ time.Time) bool {
-		bi := int(req.Begin / uint32(defaultBlockSize))
-		p.peerCtx.Picker().AbortDownload(req.PieceIndex, bi)
-		return true
-	})
-	p.requestQueue.Range(func(block PieceBlock) bool {
-		p.peerCtx.Picker().AbortDownload(block.PieceIndex, block.BlockIndex)
-		return true
-	})
-	p.requestQueue.Clear()
+	p.abortAllRequestsUnsafe()
 	p.requestMu.Unlock()
 
 	// Release exclusive piece ownerships so parole peers can claim them.
@@ -386,6 +377,25 @@ func (p *peerImpl) Close() {
 	// Signal remaining peers after every released request is visible in the
 	// picker, but before this peer is removed from shared tracking.
 	p.d.notifyPeersToRequest()
+}
+
+// abortAllRequestsUnsafe releases every picker claim this peer holds: both
+// in-flight requests (myRequests) and blocks still waiting in requestQueue.
+// Every claim must end exactly once (MarkAsResponded or AbortDownload);
+// dropping peer-side tracking without aborting leaves the block stuck in
+// Requested state forever. Caller must hold p.requestMu.
+func (p *peerImpl) abortAllRequestsUnsafe() {
+	p.myRequests.Range(func(req proto.ChunkRequest, _ time.Time) bool {
+		bi := int(req.Begin / uint32(defaultBlockSize))
+		p.peerCtx.Picker().AbortDownload(req.PieceIndex, bi)
+		p.myRequests.Delete(req)
+		return true
+	})
+	p.requestQueue.Range(func(block PieceBlock) bool {
+		p.peerCtx.Picker().AbortDownload(block.PieceIndex, block.BlockIndex)
+		return true
+	})
+	p.requestQueue.Clear()
 }
 
 func (p *peerImpl) sendBlockRequests() {
@@ -682,13 +692,7 @@ func (p *peerImpl) checkRequestTimeouts() {
 
 					// Clear all remaining in-flight and queued requests on snub.
 					p.requestMu.Lock()
-					p.myRequests.Range(func(req proto.ChunkRequest, _ time.Time) bool {
-						bi := int(req.Begin / uint32(defaultBlockSize))
-						p.peerCtx.Picker().AbortDownload(req.PieceIndex, bi)
-						p.myRequests.Delete(req)
-						return true
-					})
-					p.requestQueue.Clear()
+					p.abortAllRequestsUnsafe()
 					p.requestMu.Unlock()
 				}
 
@@ -873,6 +877,11 @@ func (p *peerImpl) start(skipHandshake bool) {
 			select {
 			case p.d.resChan <- chunkSubmit{res: event.Res, peerID: p.id}:
 			case <-p.ctx.Done():
+				// resIsValid already consumed the request from myRequests, so
+				// Close will not find it there. Release the picker claim
+				// explicitly or the block stays Requested forever.
+				bi := int(event.Res.Begin / uint32(defaultBlockSize))
+				p.peerCtx.Picker().AbortDownload(event.Res.PieceIndex, bi)
 				proto.PiecePool.Put(event.Res)
 				return
 			}
