@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/trim21/errgo"
 	"github.com/trim21/go-bencode"
@@ -115,6 +116,6 @@ func ResumeFromData(sess *session.Session, data []byte) (*Download, error) {
 }
 
 // TrkStagger calls Stagger on the download's tracker set.
-func (d *Download) TrkStagger(totalDownloads int) {
-	d.tracker.Stagger(totalDownloads)
+func (d *Download) TrkStagger(maxDelay time.Duration) {
+	d.tracker.Stagger(maxDelay)
 }

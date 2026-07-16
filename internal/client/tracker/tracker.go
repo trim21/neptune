@@ -370,18 +370,18 @@ func (t *Trackers) URLs() [][]string {
 }
 
 // Stagger adds a random delay to all NextAnnounce times.
-// totalDownloads is the number of torrents in the session, used to set the
-// stagger window so ~1 torrent announces per second on average. The window
-// is clamped between 5 seconds and 30 minutes.
-func (t *Trackers) Stagger(totalDownloads int) {
+// maxDelay caps the random delay added to each tracker.
+// The delay is clamped between 5 seconds and 30 minutes.
+func (t *Trackers) Stagger(maxDelay time.Duration) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	maxDelay := min(max(totalDownloads, 5), 30*60)
+	seconds := int(maxDelay.Seconds())
+	seconds = min(max(seconds, 5), 30*60)
 
 	for _, tier := range t.tiers {
 		for _, tr := range tier.Trackers {
-			tr.NextAnnounce = tr.NextAnnounce.Add(time.Duration(rand.IntN(maxDelay)) * time.Second)
+			tr.NextAnnounce = tr.NextAnnounce.Add(time.Duration(rand.IntN(seconds)) * time.Second)
 		}
 	}
 }

@@ -93,6 +93,11 @@ func (d *Download) Init(resumed bool, skipHashCheck bool) {
 
 	go d.startBackground()
 	d.goBackground(d.tracker.Run)
+
+	if !resumed {
+		d.TrkStagger(60 * time.Second)
+	}
+
 	d.tracker.Announce(tracker.EventStarted)
 
 	d.saveResume()

@@ -4,6 +4,8 @@
 package client
 
 import (
+	"time"
+
 	"github.com/samber/lo"
 
 	"neptune/internal/download"
@@ -27,11 +29,15 @@ func (c *Client) UnmarshalResume(data []byte, totalDownloads int) error {
 	if err != nil {
 		return err
 	}
-	// Only stagger seeding and stopped torrents on resume;
-	// actively downloading (or queued) torrents need to announce immediately.
-	if !d.IsDownloading() {
-		d.TrkStagger(totalDownloads)
+	// Stagger announces across the session to avoid all torrents
+	// announcing simultaneously on restart. Downloading torrents
+	// get a shorter window (60s) for timely reconnect; seeding/stopped
+	// torrents spread across the full session count.
+	maxDelay := time.Duration(totalDownloads) * time.Second
+	if d.IsDownloading() {
+		maxDelay = min(maxDelay, 60*time.Second)
 	}
+	d.TrkStagger(maxDelay)
 
 	c.m.Lock()
 	defer c.m.Unlock()
