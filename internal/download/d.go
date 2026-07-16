@@ -303,11 +303,12 @@ func (d *Download) computeSelectedSizeUnsafe() int64 {
 	if d.s.selectedFilesSet == nil {
 		return d.info.TotalLength
 	}
-	var size int64
-	for idx := range d.s.selectedFilesSet {
-		size += d.info.Files[idx].Length
+	d.buildSelectedPiecesBmUnsafe()
+	done := int64(d.wantedBm.Count()) * d.info.PieceLength
+	if d.wantedBm.Contains(d.info.NumPieces - 1) {
+		done = done - d.info.PieceLength + d.info.LastPieceSize
 	}
-	return size
+	return done
 }
 
 func (d *Download) buildSelectedPiecesBmUnsafe() {
