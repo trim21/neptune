@@ -299,6 +299,16 @@ func (d *Download) SelectedSize() int64 {
 	return d.selectedSize.Load()
 }
 
+// rebuildWantedState rebuilds wantedBm, selectedSize, and syncs missingBm
+// after selectedFilesSet changes. Must be called under d.s.mu.
+func (d *Download) rebuildWantedState() {
+	d.buildWantedBmUnsafe()
+	d.selectedSize.Store(d.computeSelectedSizeUnsafe())
+	d.markUnselectedPiecesDoneUnsafe()
+	d.setMissingFromWantedSync()
+	d.completed.Store(d.computeCompletedUnsafe())
+}
+
 // buildWantedBmUnsafe rebuilds d.wantedBm from selectedFilesSet.
 // Must be called under d.s.mu.
 func (d *Download) buildWantedBmUnsafe() {
