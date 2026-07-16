@@ -83,11 +83,11 @@ func New(sess *session.Session, m *metainfo.MetaInfo, info meta.Info, basePath s
 
 		normalChunkLen: normalChunkLen,
 
-		AddAt: time.Now().Unix(),
+		AddAt: time.Now().UnixMilli(),
 
-		// Default queue weight: negative timestamp so earlier-added torrents
+		// Default queue weight: negative timestamp (ms) so earlier-added torrents
 		// have higher weight (less negative) and thus higher priority.
-		queueWeight: *atomic.NewInt64(-time.Now().Unix()),
+		queueWeight: *atomic.NewInt64(-time.Now().UnixMilli()),
 
 		resChan: make(chan chunkSubmit, 1),
 
