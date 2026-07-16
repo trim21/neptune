@@ -882,7 +882,8 @@ func (p *peerImpl) start(skipHandshake bool) {
 				p.log.Trace().Any("ext", event.ExtHandshake).Msg("receive extension handshake")
 
 				if event.ExtHandshake.V.Set {
-					p.userAgent.Store(&event.ExtHandshake.V.Value)
+					v := event.ExtHandshake.V.Value // copy to avoid pointing into reused event struct
+					p.userAgent.Store(&v)
 				}
 				if event.ExtHandshake.QueueLength.Set {
 					p.queueLimit.Store(event.ExtHandshake.QueueLength.Value)
