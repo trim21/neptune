@@ -456,12 +456,24 @@ func (p *peerImpl) requestABlock() {
 // scheduleRequests is the single per-peer scheduling goroutine. It serializes
 // picker access for this peer and exits with the peer context.
 func (p *peerImpl) scheduleRequests() {
+	// Event-driven triggers (Bitfield, Unchoke, Piece, etc.) all fire during
+	// connection setup. If requestABlockOnce returns empty during that window
+	// (e.g. bitfield not yet received), no subsequent event will retry.
+	// The periodic refill ensures the pipeline recovers without waiting for
+	// new data or protocol events that may never arrive.
+	refillTicker := time.NewTicker(time.Second)
+	defer refillTicker.Stop()
+
 	for {
 		select {
 		case <-p.ctx.Done():
 			return
 		case <-p.scheduleRequestSignal:
 			p.requestABlockOnce()
+		case <-refillTicker.C:
+			if p.d.IsActiveDownloading() && (!p.IsChoking() || p.FastBitmap().Count() > 0) {
+				p.requestABlockOnce()
+			}
 		}
 	}
 }
