@@ -300,9 +300,6 @@ func (d *Download) SelectedSize() int64 {
 }
 
 func (d *Download) computeSelectedSizeUnsafe() int64 {
-	if d.wantedBm == nil {
-		d.wantedBm = bm.New(d.info.NumPieces)
-	}
 	if d.s.selectedFilesSet == nil {
 		d.wantedBm.Fill()
 		return d.info.TotalLength

@@ -115,8 +115,7 @@ func New(sess *session.Session, m *metainfo.MetaInfo, info meta.Info, basePath s
 
 	d.completedBm = completedBm
 	d.wantedBm = bm.New(info.NumPieces)
-
-	d.selectedSize = *atomic.NewInt64(d.computeSelectedSizeUnsafe())
+	d.selectedSize.Store(d.computeSelectedSizeUnsafe())
 
 	// missingBm = wantedBm & ~completedBm. Download owns and maintains it.
 	missingBm := bm.NewLockFreeBitmap(info.NumPieces)
