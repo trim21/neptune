@@ -4,6 +4,7 @@
 package client
 
 import (
+	"bytes"
 	"slices"
 	"time"
 
@@ -71,12 +72,19 @@ func (c *Client) rebalanceQueue() {
 		return
 	}
 
-	// Sort descending by weight. Tie-break by AddedAt (older first).
+	// Sort descending by weight. Tie-break by AddedAt (older first), then by
+	// info hash (lexicographic) for a fully deterministic order.
 	slices.SortStableFunc(candidates, func(a, b queueCandidate) int {
 		if a.weight != b.weight {
 			return b.weight - a.weight
 		}
-		return int(a.d.AddAt - b.d.AddAt)
+		if a.d.AddAt != b.d.AddAt {
+			return int(a.d.AddAt - b.d.AddAt)
+		}
+
+		hashA, hashB := a.d.InfoHash(), b.d.InfoHash()
+
+		return bytes.Compare(hashA[:], hashB[:])
 	})
 
 	used := 0
