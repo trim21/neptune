@@ -254,7 +254,6 @@ type peerImpl struct {
 	rttAverage             sizedSlice[time.Duration]
 	requestQueue           pieceBlockQueue
 	lastPickAt             atomic.Int64
-	lastTickAt             atomic.Int64
 	preferred              atomic.Bool
 	snubbed                atomic.Bool
 	onParole               atomic.Bool
@@ -473,7 +472,6 @@ func (p *peerImpl) scheduleRequests() {
 		case <-p.scheduleRequestSignal:
 			p.requestABlockOnce()
 		case <-refillTicker.C:
-			p.lastTickAt.Store(time.Now().Unix())
 			if p.d.IsActiveDownloading() && (!p.IsChoking() || p.FastBitmap().Count() > 0) {
 				p.requestABlockOnce()
 			}
@@ -831,8 +829,6 @@ func (p *peerImpl) start(skipHandshake bool) {
 			if !p.isSeed.Load() && p.Bitmap.Count() == p.d.info.NumPieces {
 				p.isSeed.Store(true)
 			}
-			// Peer now has pieces we know about — ask for blocks immediately.
-			p.requestBlocks()
 		case proto.Have:
 			if event.Index >= p.d.info.NumPieces {
 				p.log.Debug().Uint32("index", event.Index).Msg("peer send 'Have' message with invalid index")
@@ -846,7 +842,6 @@ func (p *peerImpl) start(skipHandshake bool) {
 			if !p.isSeed.Load() && p.Bitmap.Count() == p.d.info.NumPieces {
 				p.isSeed.Store(true)
 			}
-			p.requestBlocks()
 		case proto.Interested:
 			p.peerInterested.Store(true)
 			p.d.onPeerInterested(p)
@@ -857,7 +852,6 @@ func (p *peerImpl) start(skipHandshake bool) {
 			p.peerChoking.Store(true)
 		case proto.Unchoke:
 			p.peerChoking.Store(false)
-			p.requestBlocks()
 		case proto.Piece:
 			p.hadTransfer.Store(true)
 			if !p.resIsValid(event.Res) {
@@ -882,11 +876,6 @@ func (p *peerImpl) start(skipHandshake bool) {
 				proto.PiecePool.Put(event.Res)
 				return
 			}
-
-			// Refill the request queue after receiving data so the
-			// pipeline stays full without waiting for the background
-			// handler to call notifyPeersToRequest.
-			p.requestABlock()
 		case proto.Request:
 			if !p.validateRequest(event.Req) {
 				if p.fastExtension {
@@ -967,7 +956,6 @@ func (p *peerImpl) start(skipHandshake bool) {
 				}
 			}
 			p.isSeed.Store(true)
-			p.requestBlocks()
 		case proto.HaveNone:
 			// Decrement old pieces before clearing
 			p.Bitmap.Range(func(u uint32) {
@@ -989,9 +977,6 @@ func (p *peerImpl) start(skipHandshake bool) {
 
 			// Abort in the picker so other peers can request this block.
 			p.peerCtx.Picker().AbortDownload(event.Req.PieceIndex, bi)
-
-			// Libtorrent: request_a_block if queue is empty, then send_block_requests.
-			p.requestABlock()
 		case proto.AllowedFast:
 			if event.Index >= p.d.info.NumPieces {
 				p.log.Debug().Uint32("index", event.Index).Msg("peer send 'AllowedFast' message with invalid index")
@@ -999,10 +984,6 @@ func (p *peerImpl) start(skipHandshake bool) {
 			}
 
 			p.allowFast.Set(event.Index)
-
-			// Choked peer with no fast pieces can't request. New fast
-			// piece may unlock request capability — trigger refill.
-			p.requestBlocks()
 		case proto.Port:
 			if p.d.private { // client should not enable dht on private torrent
 				return
@@ -1011,6 +992,16 @@ func (p *peerImpl) start(skipHandshake bool) {
 		case proto.Suggest:
 		// currently ignored and unsupported
 		case proto.BitCometExtension:
+		}
+
+		// ── Trigger re-requests after events that changed request capability ──
+		switch event.Event {
+		case proto.Bitfield, proto.Have, proto.HaveAll:
+			p.requestBlocks()
+		case proto.Unchoke, proto.AllowedFast:
+			p.requestBlocks()
+		case proto.Piece, proto.Reject:
+			p.requestABlock()
 		}
 
 		switch event.Event {

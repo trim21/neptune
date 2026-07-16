@@ -114,7 +114,6 @@ type debugPeer struct {
 	Address      string `json:"address"`
 	Direction    string `json:"direction"`
 	LastPickAt   int64  `json:"last_pick_at"`
-	LastTickAt   int64  `json:"last_tick_at"`
 	OurReq       int    `json:"our_req"`
 	ReqQ         int    `json:"req_q"`
 	DesiredQ     int    `json:"desired_q"`
@@ -252,7 +251,6 @@ func BuildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 			PeerID:       url.QueryEscape(p.PeerIDString()),
 			LastPick:     schedulingDebugStr(p, func(pp *peerImpl) string { return pp.LastPickDebug() }),
 			LastPickAt:   schedulingDebugUnix(p, func(pp *peerImpl) int64 { return pp.LastPickAt() }),
-			LastTickAt:   schedulingDebugUnix(p, func(pp *peerImpl) int64 { return pp.LastTickAt() }),
 			Direction:    dir,
 			Encryption:   enc,
 		})

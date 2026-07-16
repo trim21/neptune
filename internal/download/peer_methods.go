@@ -112,9 +112,6 @@ func (p *peerImpl) LastPickDebug() string {
 // LastPickAt returns the unix timestamp of the last SetLastPickDebug call.
 func (p *peerImpl) LastPickAt() int64 { return p.lastPickAt.Load() }
 
-// LastTickAt returns the unix timestamp of the last ticker fire.
-func (p *peerImpl) LastTickAt() int64 { return p.lastTickAt.Load() }
-
 func (p *peerImpl) SetLastPickDebug(s string) {
 	p.lastPickDebug.Store(&s)
 	p.lastPickAt.Store(time.Now().Unix())
