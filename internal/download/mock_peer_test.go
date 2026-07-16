@@ -402,6 +402,8 @@ func (m *mockPeer) BlockedPieceTime(pieceIndex uint32) (time.Time, bool) {
 // ── Parole mode ──────────────────────────────────────────────────────────
 
 func (m *mockPeer) SetOnParole(v bool) { m.onParole.Store(v) }
+func (m *mockPeer) OnParole() bool     { return m.onParole.Load() }
+func (m *mockPeer) BlockedCount() int  { return m.blockedPieces.Count() }
 func (m *mockPeer) TrustPoints() int32 { return m.trustPoints.Load() }
 func (m *mockPeer) AddTrustPoints(delta int32) int32 {
 	for {

@@ -183,6 +183,8 @@ func (p *peerImpl) BlockedPieceTime(pieceIndex uint32) (time.Time, bool) {
 // ── Parole mode ──────────────────────────────────────────────────────────
 
 func (p *peerImpl) SetOnParole(v bool) { p.onParole.Store(v) }
+func (p *peerImpl) OnParole() bool     { return p.onParole.Load() }
+func (p *peerImpl) BlockedCount() int  { return p.blockedPieces.Count() }
 func (p *peerImpl) TrustPoints() int32 { return p.trustPoints.Load() }
 func (p *peerImpl) AddTrustPoints(delta int32) int32 {
 	for {

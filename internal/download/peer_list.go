@@ -535,5 +535,3 @@ func peerDisconnectScore(p Peer, weAreSeed bool) int64 {
 	score += p.UploadRate() / 1024 / 2 // +0.5 per KB/s upload (reciprocity)
 	return score
 }
-
-

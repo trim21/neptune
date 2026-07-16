@@ -31,8 +31,8 @@ var debugTemplateFS embed.FS
 var debugTmpl = template.Must(template.ParseFS(debugTemplateFS, "debug.html"))
 
 type debugPageData struct {
-	Corrupted         string                  `json:"corrupted"`
-	Completed         string                  `json:"completed"`
+	UploadRate        string                  `json:"upload_rate"`
+	PickerText        string                  `json:"picker_text"`
 	DownloadRate      string                  `json:"download_rate"`
 	NetRate           string                  `json:"net_rate"`
 	InfoHash          string                  `json:"info_hash"`
@@ -45,9 +45,11 @@ type debugPageData struct {
 	WasteStale        string                  `json:"waste_stale"`
 	Name              string                  `json:"name"`
 	WasteDupe         string                  `json:"waste_dupe"`
-	UploadRate        string                  `json:"upload_rate"`
+	Completed         string                  `json:"completed"`
+	Corrupted         string                  `json:"corrupted"`
+	LastDataAt        string                  `json:"last_data_at"`
+	State             string                  `json:"state"`
 	Pending           string                  `json:"pending"`
-	PickerText        string                  `json:"picker_text"`
 	DownloadingPieces []debugDownloadingPiece `json:"downloading_pieces,omitempty"`
 	FailingPieces     []debugFailingPiece     `json:"failing_pieces,omitempty"`
 	Trackers          []debugTracker          `json:"trackers,omitempty"`
@@ -55,6 +57,7 @@ type debugPageData struct {
 	Files             []debugFile             `json:"files,omitempty"`
 	PieceRanges       []debugPieceRange       `json:"piece_ranges,omitempty"`
 	PendingPeers      []debugPendingPeer      `json:"pending_peers,omitempty"`
+	NumCandidates     int                     `json:"num_connect_candidates"`
 	RemainingPieces   uint32                  `json:"remaining_pieces"`
 	CompletedPieces   uint32                  `json:"completed_pieces"`
 	TotalPieces       uint32                  `json:"total_pieces"`
@@ -119,6 +122,9 @@ type debugPeer struct {
 	PeerInterest bool   `json:"peer_interest"`
 	OurChoke     bool   `json:"our_choke"`
 	OurInterest  bool   `json:"our_interest"`
+	OnParole     bool   `json:"on_parole"`
+	BlockedCount int    `json:"blocked_count"`
+	TrustPoints  int32  `json:"trust_points"`
 }
 
 type debugFile struct {
@@ -141,6 +147,7 @@ func BuildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 	data := &debugPageData{
 		InfoHash:        infoHashHex,
 		Name:            d.info.Name,
+		State:           d.GetState().String(),
 		DownloadRate:    humanizeHumanReadable(d.pieceDownloadRate),
 		NetRate:         humanizeHumanReadable(d.ioDownloadRate),
 		UploadRate:      humanizeHumanReadable(d.pieceUploadRate),
@@ -154,6 +161,8 @@ func BuildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 		WasteDupe:       humanize.IBytes(uint64(d.wastedDupe.Load())),
 		Corrupted:       humanize.IBytes(uint64(d.corrupted.Load())),
 		ErrorMsg:        d.ErrorMsg(),
+		LastDataAt:      lastDataAt(d.pieceDownloadRate),
+		NumCandidates:   d.peerList.numCandidates(),
 		TotalPieces:     d.info.NumPieces,
 		CompletedPieces: d.completedBm.Count(),
 		RemainingPieces: d.info.NumPieces - d.completedBm.Count(),
@@ -233,6 +242,9 @@ func BuildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 			PeerInterest: p.IsPeerInterested(),
 			OurChoke:     p.IsOurChoking(),
 			OurInterest:  p.IsOurInterested(),
+			OnParole:     p.OnParole(),
+			BlockedCount: p.BlockedCount(),
+			TrustPoints:  p.TrustPoints(),
 			Fast:         fmt.Sprint(p.FastBitmap().ToArray()),
 			PeerReq:      p.PeerRequestCount(),
 			PeerID:       url.QueryEscape(p.PeerIDString()),
@@ -426,6 +438,14 @@ func (s *sortablePeers) sort() {
 		}
 		return 0
 	})
+}
+
+func lastDataAt(m *flowrate.Monitor) string {
+	st := m.Status()
+	if st.Idle == 0 && st.Total == 0 {
+		return "never"
+	}
+	return time.Now().Add(-st.Idle).Format(time.RFC3339)
 }
 
 // writePieceRanges writes compressed piece ranges like "0-5726" instead of listing each piece.
