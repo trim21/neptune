@@ -94,5 +94,10 @@ func (pp *PiecePicker) RequestABlock(
 	}
 	last.BusyBlocks = last.BusyBlocks[:m]
 
+	// Diagnostic: if post-filter emptied the result, record why.
+	if len(last.FreeBlocks) == 0 && len(last.BusyBlocks) == 0 && numRequests > 0 {
+		pp.recordDiag(peerBitfield, choked, fastBm, blockedPieces, true)
+	}
+
 	return last
 }

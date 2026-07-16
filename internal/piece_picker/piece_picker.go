@@ -847,39 +847,66 @@ func (pp *PiecePicker) PickPieces(
 
 	// Diagnostic: record filter skip reasons when no blocks were picked.
 	if numBlocks > 0 && len(result.FreeBlocks) == 0 && len(result.BusyBlocks) == 0 {
-		pp.diagDirty = pp.dirty
-		pp.diagFreeBlocks = pp.freeBlocks
-		pp.diagNumWant = len(pp.pieces)
-		pp.diagSkippedResponded = 0
-		pp.diagSkippedBitfield = 0
-		pp.diagSkippedChoked = 0
-		pp.diagSkippedBlocked = 0
-		pp.diagSkippedDownloading = 0
-		for _, pi := range pp.pieces {
-			if !pp.missingBm.Contains(pi) || pp.allBlocksResponded(pi) {
-				pp.diagSkippedResponded++
-				continue
-			}
-			if !bitfield.Contains(pi) {
-				pp.diagSkippedBitfield++
-				continue
-			}
-			if choked && !allowedFast.Contains(pi) {
-				pp.diagSkippedChoked++
-				continue
-			}
-			if blockedPieces.Contains(pi) {
-				pp.diagSkippedBlocked++
-				continue
-			}
+		pp.recordDiagUnsafe(bitfield, choked, allowedFast, blockedPieces, true)
+	}
+
+	return result
+}
+
+// recordDiag scans all candidate pieces and records why they were skipped.
+// Call after a failed pick to surface which filter is blocking progress.
+func (pp *PiecePicker) recordDiag(
+	bitfield *bm.Bitmap,
+	choked bool,
+	allowedFast *bm.Bitmap,
+	blockedPieces *bm.LockFreeBitmap,
+	skipDownloading bool,
+) {
+	pp.mu.Lock()
+	defer pp.mu.Unlock()
+	pp.recordDiagUnsafe(bitfield, choked, allowedFast, blockedPieces, skipDownloading)
+}
+
+// recordDiagUnsafe is the lock-free variant; caller must hold pp.mu.
+func (pp *PiecePicker) recordDiagUnsafe(
+	bitfield *bm.Bitmap,
+	choked bool,
+	allowedFast *bm.Bitmap,
+	blockedPieces *bm.LockFreeBitmap,
+	skipDownloading bool,
+) {
+	pp.diagDirty = pp.dirty
+	pp.diagFreeBlocks = pp.freeBlocks
+	pp.diagNumWant = len(pp.pieces)
+	pp.diagSkippedResponded = 0
+	pp.diagSkippedBitfield = 0
+	pp.diagSkippedChoked = 0
+	pp.diagSkippedBlocked = 0
+	pp.diagSkippedDownloading = 0
+	for _, pi := range pp.pieces {
+		if !pp.missingBm.Contains(pi) || pp.allBlocksResponded(pi) {
+			pp.diagSkippedResponded++
+			continue
+		}
+		if !bitfield.Contains(pi) {
+			pp.diagSkippedBitfield++
+			continue
+		}
+		if choked && !allowedFast.Contains(pi) {
+			pp.diagSkippedChoked++
+			continue
+		}
+		if blockedPieces.Contains(pi) {
+			pp.diagSkippedBlocked++
+			continue
+		}
+		if skipDownloading {
 			if pp.findDownloadingPiece(pi) != nil {
 				pp.diagSkippedDownloading++
 				continue
 			}
 		}
 	}
-
-	return result
 }
 
 // pickStartupBlock implements the startup mode strategy:
