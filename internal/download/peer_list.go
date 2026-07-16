@@ -229,43 +229,6 @@ func compareAddr(a, b netip.AddrPort) int {
 	return 0
 }
 
-// addOrUpdateIncoming ensures a peer entry exists for an incoming connection.
-// Returns true if this is a duplicate connection (peer already has connection).
-func (pl *peerList) addOrUpdateIncoming(addr netip.AddrPort, sessionTime int64, conn Peer) (rejectDuplicate bool) {
-	pl.mu.Lock()
-	defer pl.mu.Unlock()
-
-	idx, found := pl.findPeer(addr)
-	if found {
-		pp := pl.peers[idx]
-		if pp.connection != nil {
-			return true // duplicate, reject
-		}
-		wasConnCand := pp.isConnectCandidate(pl.finished, pl.maxFailcount)
-		pp.connection = conn
-		pp.lastSeen = sessionTime
-		pp.source |= tracker.PeerSourceIncoming
-		pp.cachedSourceRank = tracker.SourceRank(pp.source)
-		pp.connectable = true
-		if wasConnCand {
-			pl.numConnectCandidates--
-		}
-		return false
-	}
-
-	pp := &persistentPeer{
-		addrPort:         addr,
-		source:           tracker.PeerSourceIncoming,
-		cachedSourceRank: tracker.SourceRank(tracker.PeerSourceIncoming),
-		connectable:      false,
-		connection:       conn,
-		lastSeen:         sessionTime,
-		priority:         pl.d.session.PeerPriority(addr),
-	}
-	pl.peers = slices.Insert(pl.peers, idx, pp)
-	return false
-}
-
 // newConnection attaches a connection to an existing peer entry.
 // Returns false if the peer wasn't found in the list.
 func (pl *peerList) newConnection(addr netip.AddrPort, conn Peer, sessionTime int64) bool {
@@ -571,39 +534,4 @@ func peerDisconnectScore(p Peer, weAreSeed bool) int64 {
 	return score
 }
 
-// peerTurnover disconnects up to 'count' least useful peers to make room for new ones.
-func (pl *peerList) peerTurnover(count int, weAreSeed bool) []Peer {
-	pl.mu.Lock()
-	defer pl.mu.Unlock()
 
-	type connectedPeer struct {
-		pp    *persistentPeer
-		score int64
-	}
-	var connected []connectedPeer
-	for _, pp := range pl.peers {
-		if pp.connection != nil && !pp.connection.Closed() {
-			connected = append(connected, connectedPeer{
-				pp:    pp,
-				score: peerDisconnectScore(pp.connection, weAreSeed),
-			})
-		}
-	}
-
-	slices.SortFunc(connected, func(a, b connectedPeer) int {
-		if a.score < b.score {
-			return -1
-		}
-		if a.score > b.score {
-			return 1
-		}
-		return 0
-	})
-
-	toDisconnect := make([]Peer, 0, min(count, len(connected)))
-	for i := range min(count, len(connected)) {
-		toDisconnect = append(toDisconnect, connected[i].pp.connection)
-	}
-
-	return toDisconnect
-}

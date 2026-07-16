@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/netip"
+	"slices"
 	"time"
 
 	"neptune/internal/mse"
@@ -159,7 +160,9 @@ func (d *Download) recordDisconnect(p Peer) {
 			!errors.Is(p.CloseError(), io.EOF) &&
 			!errors.Is(p.CloseError(), context.Canceled)
 
-		d.peerList.connectionClosed(p.Addr(), time.Now().Unix(), p.HadTransfer(), failed)
+		if !p.Incoming() {
+			d.peerList.connectionClosed(p.Addr(), time.Now().Unix(), p.HadTransfer(), failed)
+		}
 	}
 
 	d.peers.Delete(p.ID())
@@ -220,9 +223,35 @@ func (d *Download) peerTurnover() {
 	}
 
 	weAreSeed := d.HasState(Seeding)
-	toDisconnect := d.peerList.peerTurnover(disconnectN, weAreSeed)
-	for _, p := range toDisconnect {
-		p.Close()
+
+	// Collect all connected peers and score them for turnover.
+	type scoredPeer struct {
+		p     Peer
+		score int64
+	}
+	var scored []scoredPeer
+	d.peers.Range(func(_ uint64, p Peer) bool {
+		if !p.Closed() {
+			scored = append(scored, scoredPeer{
+				p:     p,
+				score: peerDisconnectScore(p, weAreSeed),
+			})
+		}
+		return true
+	})
+
+	slices.SortFunc(scored, func(a, b scoredPeer) int {
+		if a.score < b.score {
+			return -1
+		}
+		if a.score > b.score {
+			return 1
+		}
+		return 0
+	})
+
+	for i := range min(disconnectN, len(scored)) {
+		scored[i].p.Close()
 	}
 }
 

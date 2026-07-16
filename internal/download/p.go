@@ -781,17 +781,6 @@ func (p *peerImpl) start(skipHandshake bool) {
 		return
 	}
 
-	// Register in persistent peer list for reconnect/backoff tracking.
-	if p.incoming {
-		if p.d.peerList.addOrUpdateIncoming(p.Address, time.Now().Unix(), p) {
-			// peerList already has a connection for this address.
-			// We need to back out; close() will clean up shared state
-			// because we are the primary in connectedAddrs.
-			p.Close()
-			return
-		}
-	}
-
 	go p.checkRequestTimeouts()
 
 	// for re-use
