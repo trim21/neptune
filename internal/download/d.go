@@ -154,6 +154,7 @@ type Download struct {
 	completedBm            *bm.Bitmap
 	missingBm              *bm.LockFreeBitmap
 	wantedBm               *bm.Bitmap
+	selectedFilesSet       *bm.Bitmap
 	s                      downloadState
 	info                   meta.Info
 	backgroundWg           sync.WaitGroup
@@ -194,12 +195,11 @@ type chunkSubmit struct {
 
 // downloadState groups mutable fields that must be accessed under s.mu.
 type downloadState struct {
-	custom           map[string]string
-	selectedFilesSet map[int]struct{}
-	basePath         string
-	downloadDir      string
-	tags             []string
-	mu               sync.RWMutex
+	custom      map[string]string
+	basePath    string
+	downloadDir string
+	tags        []string
+	mu          sync.RWMutex
 }
 
 func (d *Download) GetState() State {
@@ -273,22 +273,13 @@ func (d *Download) setError(err error) {
 }
 
 func (d *Download) isFileSelected(fileIndex int) bool {
-	d.s.mu.RLock()
-	defer d.s.mu.RUnlock()
-	if d.s.selectedFilesSet == nil {
-		return true
-	}
-	_, ok := d.s.selectedFilesSet[fileIndex]
-	return ok
+	return d.selectedFilesSet.Contains(uint32(fileIndex))
 }
 
-// hasSelectedFilesUnsafe returns true if the piece touches at least one selected file.
-func (d *Download) hasSelectedFilesUnsafe(pieceIndex uint32) bool {
-	if d.s.selectedFilesSet == nil {
-		return true
-	}
+// hasSelectedFiles returns true if the piece touches at least one selected file.
+func (d *Download) hasSelectedFiles(pieceIndex uint32) bool {
 	for chunk := range d.info.PieceFileChunks(pieceIndex) {
-		if _, ok := d.s.selectedFilesSet[chunk.FileIndex]; ok {
+		if d.selectedFilesSet.Contains(uint32(chunk.FileIndex)) {
 			return true
 		}
 	}
@@ -312,13 +303,13 @@ func (d *Download) rebuildWantedState() {
 // buildWantedBmUnsafe rebuilds d.wantedBm from selectedFilesSet.
 // Must be called under d.s.mu.
 func (d *Download) buildWantedBmUnsafe() {
-	if d.s.selectedFilesSet == nil {
+	if d.selectedFilesSet.Count() == uint32(len(d.info.Files)) {
 		d.wantedBm.Fill()
 		return
 	}
 	d.wantedBm.Clear()
 	for i := range d.info.NumPieces {
-		if d.hasSelectedFilesUnsafe(i) {
+		if d.hasSelectedFiles(i) {
 			d.wantedBm.Set(i)
 		}
 	}
@@ -333,7 +324,7 @@ func (d *Download) computeSelectedSizeUnsafe() int64 {
 }
 
 func (d *Download) computeCompletedUnsafe() int64 {
-	if d.s.selectedFilesSet == nil {
+	if d.selectedFilesSet.Count() == uint32(len(d.info.Files)) {
 		done := int64(d.completedBm.Count()) * d.info.PieceLength
 		if d.completedBm.Contains(d.info.NumPieces - 1) {
 			done = done - d.info.PieceLength + d.info.LastPieceSize
@@ -349,7 +340,7 @@ func (d *Download) computeCompletedUnsafe() int64 {
 
 // markUnselectedPiecesDoneUnsafe marks pieces that only touch unselected files as complete.
 func (d *Download) markUnselectedPiecesDoneUnsafe() {
-	if d.s.selectedFilesSet == nil {
+	if d.selectedFilesSet.Count() == uint32(len(d.info.Files)) {
 		return
 	}
 

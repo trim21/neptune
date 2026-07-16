@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"neptune/internal/pkg/bm"
 	"neptune/internal/pkg/gfs"
 )
 
@@ -25,14 +26,7 @@ func (d *Download) Move(target string) error {
 
 	d.s.mu.Lock()
 	originalBasePath := d.s.basePath
-
-	var selectedFilesSet map[int]struct{}
-	if d.s.selectedFilesSet != nil {
-		selectedFilesSet = make(map[int]struct{}, len(d.s.selectedFilesSet))
-		for k := range d.s.selectedFilesSet {
-			selectedFilesSet[k] = struct{}{}
-		}
-	}
+	selectedFilesSet := d.selectedFilesSet
 	d.s.mu.Unlock()
 
 	err := d.move(ctx, target, originalBasePath, selectedFilesSet)
@@ -52,12 +46,10 @@ func (d *Download) Move(target string) error {
 	return nil
 }
 
-func (d *Download) move(ctx context.Context, target string, originalBasePath string, selectedFilesSet map[int]struct{}) error {
+func (d *Download) move(ctx context.Context, target string, originalBasePath string, selectedFilesSet *bm.Bitmap) error {
 	for index := range d.info.Files {
-		if selectedFilesSet != nil {
-			if _, ok := selectedFilesSet[index]; !ok {
-				continue
-			}
+		if !selectedFilesSet.Contains(uint32(index)) {
+			continue
 		}
 		err := d.moveFile(ctx, target, originalBasePath, uint32(index))
 		if err != nil {

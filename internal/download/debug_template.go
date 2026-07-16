@@ -322,10 +322,8 @@ func BuildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 		d.s.mu.RLock()
 		for i, file := range d.info.Files {
 			selected := "yes"
-			if d.s.selectedFilesSet != nil {
-				if _, ok := d.s.selectedFilesSet[i]; !ok {
-					selected = "no"
-				}
+			if !d.selectedFilesSet.Contains(uint32(i)) {
+				selected = "no"
 			}
 
 			startPiece := as.Uint32(offset / d.info.PieceLength)

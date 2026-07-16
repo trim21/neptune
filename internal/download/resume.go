@@ -97,11 +97,11 @@ func (d *Download) MarshalBinary() (data []byte, err error) {
 	d.s.mu.RLock()
 	defer d.s.mu.RUnlock()
 	var selectedFiles []int
-	if d.s.selectedFilesSet != nil {
-		selectedFiles = make([]int, 0, len(d.s.selectedFilesSet))
-		for idx := range d.s.selectedFilesSet {
-			selectedFiles = append(selectedFiles, idx)
-		}
+	if d.selectedFilesSet.Count() != uint32(len(d.info.Files)) {
+		selectedFiles = make([]int, 0, d.selectedFilesSet.Count())
+		d.selectedFilesSet.Range(func(i uint32) {
+			selectedFiles = append(selectedFiles, int(i))
+		})
 		slices.Sort(selectedFiles)
 	}
 	basePath := d.s.basePath

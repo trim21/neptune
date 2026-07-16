@@ -27,17 +27,15 @@ func (d *Download) SetFilePriority(fileIDs []int, priority int) error {
 	d.s.mu.Lock()
 	defer d.s.mu.Unlock()
 
-	d.ensureSelectedFilesSet()
-
 	if priority == 1 {
 		d.resetReSelectedPieces(fileIDs)
 	}
 
 	for _, id := range fileIDs {
 		if priority == 0 {
-			delete(d.s.selectedFilesSet, id)
+			d.selectedFilesSet.Unset(uint32(id))
 		} else {
-			d.s.selectedFilesSet[id] = struct{}{}
+			d.selectedFilesSet.Set(uint32(id))
 		}
 	}
 
@@ -53,18 +51,6 @@ func (d *Download) SetFilePriority(fileIDs []int, priority int) error {
 	d.notifyPeersToRequest()
 
 	return nil
-}
-
-// ensureSelectedFilesSet lazily initializes selectedFilesSet from current file set.
-// Must be called under d.s.mu.
-func (d *Download) ensureSelectedFilesSet() {
-	if d.s.selectedFilesSet != nil {
-		return
-	}
-	d.s.selectedFilesSet = make(map[int]struct{}, len(d.info.Files))
-	for i := range d.info.Files {
-		d.s.selectedFilesSet[i] = struct{}{}
-	}
 }
 
 // resetReSelectedPieces un-completes pieces that touch newly selected files

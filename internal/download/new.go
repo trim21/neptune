@@ -104,12 +104,14 @@ func New(sess *session.Session, m *metainfo.MetaInfo, info meta.Info, basePath s
 		peersCh: make(chan []tracker.DiscoveredPeer, 1),
 	}
 
-	// Populate selectedFilesSet if only a subset of files is selected.
-	// nil means all files are selected.
+	// selectedFilesSet: all bits set means all files selected.
+	// When only a subset is selected, clear and set specific bits.
+	d.selectedFilesSet = bm.New(uint32(len(info.Files)))
+	d.selectedFilesSet.Fill()
 	if len(selectedFiles) > 0 && len(selectedFiles) < len(info.Files) {
-		d.s.selectedFilesSet = make(map[int]struct{}, len(selectedFiles))
+		d.selectedFilesSet.Clear()
 		for _, idx := range selectedFiles {
-			d.s.selectedFilesSet[idx] = struct{}{}
+			d.selectedFilesSet.Set(uint32(idx))
 		}
 	}
 
