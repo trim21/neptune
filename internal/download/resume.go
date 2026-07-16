@@ -120,7 +120,7 @@ func (d *Download) MarshalBinary() (data []byte, err error) {
 		InfoHash:           d.info.Hash.Hex(),
 		Bitfield:           d.completedBm.Bitfield(),
 		AddAt:              timestamp.New(d.AddAt),
-		CompletedAt:        timestamp.New(time.Unix(0, d.CompletedAt.Load())),
+		CompletedAt:        timestamp.New(time.Unix(0, d.completedAt.Load())),
 		SelectedFiles:      selectedFiles,
 		FilePaths:          d.filePaths(),
 		DownloadSpeedLimit: d.downloadLimiter.Rate(),

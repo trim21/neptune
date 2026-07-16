@@ -79,7 +79,7 @@ func (d *Download) Info(keys []string) TorrentInfo {
 		TotalLength:          d.info.TotalLength,
 		SelectedSize:         d.SelectedSize(),
 		AddedAt:              d.AddAt.UnixMilli(),
-		CompletedAt:          d.CompletedAt.Load() / 1e9,
+		CompletedAt:          d.completedAt.Load() / 1e9,
 		Private:              d.info.Private,
 		Corrupted:            d.corrupted.Load(),
 		WastedStale:          d.wastedStale.Load(),

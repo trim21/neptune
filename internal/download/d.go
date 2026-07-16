@@ -161,7 +161,7 @@ type Download struct {
 	backgroundWg           sync.WaitGroup
 	unchokeSlotIdx         int
 	wastedDupe             atomic.Int64
-	CompletedAt            atomic.Int64
+	completedAt            atomic.Int64
 	state                  atomic.Uint32
 	downloaded             atomic.Int64
 	pendingBytes           atomic.Int64

@@ -88,7 +88,7 @@ func ResumeFromData(sess *session.Session, data []byte) (*Download, error) {
 		d.state.Store(uint32(Downloading))
 	}
 	d.AddAt = r.AddAt.Time
-	d.CompletedAt.Store(r.CompletedAt.UnixNano())
+	d.completedAt.Store(r.CompletedAt.UnixNano())
 
 	d.queueWeight.Store(r.QueueWeight)
 
