@@ -64,7 +64,10 @@ func ResumeFromData(sess *session.Session, data []byte) (*Download, error) {
 	// OR into the bitmap rather than replacing the pointer,
 	// so PiecePicker's reference to completedBm stays valid.
 	d.completedBm.OR(bm.FromBitfields(r.Bitfield, d.info.NumPieces))
-	if d.completedBm.Count() == d.info.NumPieces {
+	d.setMissingFromWantedSync()
+	d.completed.Store(d.computeCompletedUnsafe())
+
+	if d.isComplete() {
 		d.picker.Store(nil)
 	} else {
 		for i := range d.info.NumPieces {
@@ -76,13 +79,9 @@ func ResumeFromData(sess *session.Session, data []byte) (*Download, error) {
 	// Restore state from resume data. ResumeStopped maps to Stopped;
 	// anything else (including historical raw State values from old resume
 	// files) is treated as active.
-	d.markUnselectedPiecesDoneUnsafe()
-	d.setMissingFromWantedSync()
-	d.completed.Store(d.computeCompletedUnsafe())
-
 	if r.State == ResumeStopped {
 		d.state.Store(uint32(Stopped))
-	} else if d.completedBm.Count() == d.info.NumPieces {
+	} else if d.isComplete() {
 		d.state.Store(uint32(Seeding))
 	} else {
 		d.state.Store(uint32(Downloading))

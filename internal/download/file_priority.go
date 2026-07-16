@@ -41,7 +41,7 @@ func (d *Download) SetFilePriority(fileIDs []int, priority int) error {
 
 	d.rebuildWantedState()
 
-	if d.completedBm.Count() == d.info.NumPieces {
+	if d.isComplete() {
 		if err := d.transition(Seeding); err != nil {
 			d.log.Error().Err(err).Msg("failed to transition state in SetFilePriority")
 		}

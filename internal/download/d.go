@@ -295,7 +295,6 @@ func (d *Download) SelectedSize() int64 {
 func (d *Download) rebuildWantedState() {
 	d.buildWantedBmUnsafe()
 	d.selectedSize.Store(d.computeSelectedSizeUnsafe())
-	d.markUnselectedPiecesDoneUnsafe()
 	d.setMissingFromWantedSync()
 	d.completed.Store(d.computeCompletedUnsafe())
 }
@@ -338,22 +337,9 @@ func (d *Download) computeCompletedUnsafe() int64 {
 	return done
 }
 
-// markUnselectedPiecesDoneUnsafe marks pieces that only touch unselected files as complete.
-func (d *Download) markUnselectedPiecesDoneUnsafe() {
-	if d.selectedFilesSet.Count() == uint32(len(d.info.Files)) {
-		return
-	}
-
-	// unwanted = NOT wantedBm — compute via full.WithAndNot(wantedBm)
-	full := bm.New(d.info.NumPieces)
-	full.Fill()
-	unwanted := full.WithAndNot(d.wantedBm)
-
-	d.completedBm.OR(unwanted)
-
-	unwanted.Range(func(i uint32) {
-		d.picker.Load().WeHave(i)
-	})
+// isComplete reports whether all wanted pieces are downloaded and verified.
+func (d *Download) isComplete() bool {
+	return d.missingBm.Count() == 0
 }
 
 // setMissingFromWantedSync syncs missingBm to wantedBm & ~completedBm.

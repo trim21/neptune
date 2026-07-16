@@ -613,7 +613,7 @@ func (d *Download) gradualUnblockPiece(pieceIndex uint32) {
 }
 
 func (d *Download) checkDone(done, pending *bm.NilSafeLockFreeBitmap) {
-	if d.completedBm.Count() != d.info.NumPieces {
+	if !d.isComplete() {
 		return
 	}
 
@@ -692,13 +692,11 @@ func (d *Download) runHashCheck(onSeeding func()) {
 			return
 		}
 
-		d.s.mu.RLock()
-		d.markUnselectedPiecesDoneUnsafe()
 		d.completed.Store(d.computeCompletedUnsafe())
-		d.s.mu.RUnlock()
+		allDone := d.isComplete()
 		d.pieceDownloadRate.Reset()
 
-		if d.completedBm.Count() == d.info.NumPieces {
+		if allDone {
 			if onSeeding != nil {
 				onSeeding()
 			}

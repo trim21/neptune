@@ -223,16 +223,15 @@ func (d *Download) check(resumed bool, skipHashCheck bool) {
 	}
 
 	if !resumed {
-		d.s.mu.RLock()
-		d.markUnselectedPiecesDoneUnsafe()
 		d.setMissingFromWantedSync()
 		d.completed.Store(d.computeCompletedUnsafe())
-		d.s.mu.RUnlock()
+		allDone := d.isComplete()
+		donePieces := d.completedBm.WithAnd(d.wantedBm).Count()
 		d.pieceDownloadRate.Reset()
 
-		d.log.Debug().Msgf("done size %s", humanize.IBytes(uint64(d.completedBm.Count())*uint64(d.info.PieceLength)))
+		d.log.Debug().Msgf("done size %s", humanize.IBytes(uint64(donePieces)*uint64(d.info.PieceLength)))
 
-		if d.completedBm.Count() == d.info.NumPieces {
+		if allDone {
 			d.completedAt.Store(time.Now().UnixNano())
 			if err := d.transition(Seeding); err != nil {
 				d.log.Error().Err(err).Msg("failed to transition state after init check")
