@@ -254,6 +254,7 @@ type peerImpl struct {
 	rttAverage             sizedSlice[time.Duration]
 	requestQueue           pieceBlockQueue
 	lastPickAt             atomic.Int64
+	lastTickAt             atomic.Int64
 	preferred              atomic.Bool
 	snubbed                atomic.Bool
 	onParole               atomic.Bool
@@ -472,6 +473,7 @@ func (p *peerImpl) scheduleRequests() {
 		case <-p.scheduleRequestSignal:
 			p.requestABlockOnce()
 		case <-refillTicker.C:
+			p.lastTickAt.Store(time.Now().Unix())
 			if p.d.IsActiveDownloading() && (!p.IsChoking() || p.FastBitmap().Count() > 0) {
 				p.requestABlockOnce()
 			}
