@@ -505,11 +505,9 @@ func (p *peerImpl) requestABlockOnce() {
 	busy := pickResult.BusyBlocks
 
 	if len(free) == 0 && len(busy) == 0 {
-		if p.d.session.Debug {
-			s := fmt.Sprintf("skip: numReq=%d (desired=%d, myReq=%d, reqQ=%d), free=%d busy=%d",
-				desired-outstanding-queued, desired, outstanding, queued, len(free), len(busy))
-			p.SetLastPickDebug(s)
-		}
+		s := fmt.Sprintf("skip: numReq=%d (desired=%d, myReq=%d, reqQ=%d), free=%d busy=%d",
+			desired-outstanding-queued, desired, outstanding, queued, len(free), len(busy))
+		p.SetLastPickDebug(s)
 		return
 	}
 
@@ -519,6 +517,8 @@ func (p *peerImpl) requestABlockOnce() {
 	for _, fb := range free {
 		p.tryEnqueuePickedBlock(picker, fb, false)
 	}
+
+	p.SetLastPickDebug(fmt.Sprintf("picked: free=%d busy=%d", len(free), len(busy)))
 
 	p.SendBlockRequests()
 
