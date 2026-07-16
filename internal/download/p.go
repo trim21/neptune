@@ -867,6 +867,11 @@ func (p *peerImpl) start(skipHandshake bool) {
 				proto.PiecePool.Put(event.Res)
 				return
 			}
+
+			// Refill the request queue after receiving data so the
+			// pipeline stays full without waiting for the background
+			// handler to call notifyPeersToRequest.
+			p.requestABlock()
 		case proto.Request:
 			if !p.validateRequest(event.Req) {
 				if p.fastExtension {
@@ -979,6 +984,10 @@ func (p *peerImpl) start(skipHandshake bool) {
 			}
 
 			p.allowFast.Set(event.Index)
+
+			// Choked peer with no fast pieces can't request. New fast
+			// piece may unlock request capability — trigger refill.
+			p.requestBlocks()
 		case proto.Port:
 			if p.d.private { // client should not enable dht on private torrent
 				return

@@ -210,28 +210,38 @@ type partialInfo struct {
 //
 // All public methods are safe for concurrent use.
 type PiecePicker struct {
-	strategy           *atomic.Uint32
-	chunkDoneBm        *bm.Bitmap
-	missingBm          *bm.LockFreeBitmap
-	partials           []partialInfo
-	piecePriorities    []uint32
-	downloadingPieces  []downloadingPiece
-	blockInfos         blockStates
-	pieces             []uint32
-	availability       []uint16
-	requestedBy        map[uint32]uint64 // piece → first peer to claim it (exclusive tracking)
-	retriedBlocks      map[uint32]uint8  // chunk index → retry count (capped at maxBlockRetries)
-	info               meta.Info
-	downloadQueueSize  int
-	freeBlocks         int // blocks in None state across wanted pieces
-	numWantLeft        int
-	blockSize          int64
-	mu                 sync.Mutex
-	numCompletedPieces uint32
-	numPieces          uint32
-	blocksPerPiece     uint32
-	dirty              bool
-	partialsDirty      bool
+	strategy               *atomic.Uint32
+	chunkDoneBm            *bm.Bitmap
+	missingBm              *bm.LockFreeBitmap
+	requestedBy            map[uint32]uint64 // piece → first peer to claim it (exclusive tracking)
+	retriedBlocks          map[uint32]uint8  // chunk index → retry count (capped at maxBlockRetries)
+	partials               []partialInfo
+	piecePriorities        []uint32
+	downloadingPieces      []downloadingPiece
+	blockInfos             blockStates
+	pieces                 []uint32
+	availability           []uint16
+	info                   meta.Info
+	numWantLeft            int
+	diagSkippedDownloading int
+	downloadQueueSize      int
+	blockSize              int64
+	diagNumWant            int
+	diagSkippedResponded   int
+	diagSkippedBitfield    int
+	diagSkippedChoked      int
+	diagSkippedBlocked     int
+	freeBlocks             int // blocks in None state across wanted pieces
+	diagFreeBlocks         int
+	mu                     sync.Mutex
+	numCompletedPieces     uint32
+	numPieces              uint32
+	blocksPerPiece         uint32
+
+	// Diagnostic counters from the last PickPieces Phase 3 scan.
+	diagDirty     bool
+	dirty         bool
+	partialsDirty bool
 }
 
 // NewPiecePicker creates a new piece picker for the given torrent info.
@@ -834,6 +844,41 @@ func (pp *PiecePicker) PickPieces(
 		pp.pickBlocksFromPiece(pi, &numBlocks, &result)
 		pp.requestedBy[pi] = peerID
 	}
+
+	// Diagnostic: record filter skip reasons when no blocks were picked.
+	if numBlocks > 0 && len(result.FreeBlocks) == 0 && len(result.BusyBlocks) == 0 {
+		pp.diagDirty = pp.dirty
+		pp.diagFreeBlocks = pp.freeBlocks
+		pp.diagNumWant = len(pp.pieces)
+		pp.diagSkippedResponded = 0
+		pp.diagSkippedBitfield = 0
+		pp.diagSkippedChoked = 0
+		pp.diagSkippedBlocked = 0
+		pp.diagSkippedDownloading = 0
+		for _, pi := range pp.pieces {
+			if !pp.missingBm.Contains(pi) || pp.allBlocksResponded(pi) {
+				pp.diagSkippedResponded++
+				continue
+			}
+			if !bitfield.Contains(pi) {
+				pp.diagSkippedBitfield++
+				continue
+			}
+			if choked && !allowedFast.Contains(pi) {
+				pp.diagSkippedChoked++
+				continue
+			}
+			if blockedPieces.Contains(pi) {
+				pp.diagSkippedBlocked++
+				continue
+			}
+			if pp.findDownloadingPiece(pi) != nil {
+				pp.diagSkippedDownloading++
+				continue
+			}
+		}
+	}
+
 	return result
 }
 
@@ -1017,6 +1062,16 @@ type PickerStats struct {
 	RespondedBlocks int
 	FreeBlocks      int
 	DownloadQueue   int
+
+	// Diagnostic counters from the last empty PickPieces call (Phase 3).
+	DiagNumWant            int
+	DiagSkippedResponded   int
+	DiagSkippedBitfield    int
+	DiagSkippedChoked      int
+	DiagSkippedBlocked     int
+	DiagSkippedDownloading int
+	DiagDirty              bool
+	DiagFreeBlocks         int
 }
 
 type DownloadingPieceInfo struct {
@@ -1074,6 +1129,15 @@ func (pp *PiecePicker) DebugStats() PickerStats {
 		OpenPieces:    len(pp.pieces),
 		Downloading:   len(pp.downloadingPieces),
 		DownloadQueue: pp.downloadQueueSize,
+
+		DiagNumWant:            pp.diagNumWant,
+		DiagSkippedResponded:   pp.diagSkippedResponded,
+		DiagSkippedBitfield:    pp.diagSkippedBitfield,
+		DiagSkippedChoked:      pp.diagSkippedChoked,
+		DiagSkippedBlocked:     pp.diagSkippedBlocked,
+		DiagSkippedDownloading: pp.diagSkippedDownloading,
+		DiagDirty:              pp.diagDirty,
+		DiagFreeBlocks:         pp.diagFreeBlocks,
 	}
 
 	for pi := range pp.numPieces {

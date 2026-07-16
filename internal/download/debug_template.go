@@ -289,6 +289,18 @@ func BuildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 		humanize.IBytes(uint64(dlTotal)), humanize.IBytes(uint64(peerTotalBytes)),
 	)
 
+	// Diagnostic: if picker returned empty last time, explain why.
+	if st.DiagNumWant > 0 {
+		passed := st.DiagNumWant - st.DiagSkippedResponded - st.DiagSkippedBitfield - st.DiagSkippedChoked - st.DiagSkippedBlocked - st.DiagSkippedDownloading
+		data.PickerText += fmt.Sprintf(
+			"\ndiag: want=%d passed=%d skip(responded=%d bitfield=%d choked=%d blocked=%d downloading=%d) dirty=%v freeBlocks=%d",
+			st.DiagNumWant, passed,
+			st.DiagSkippedResponded, st.DiagSkippedBitfield, st.DiagSkippedChoked,
+			st.DiagSkippedBlocked, st.DiagSkippedDownloading,
+			st.DiagDirty, st.DiagFreeBlocks,
+		)
+	}
+
 	// Downloading pieces detail
 	dlPieces := d.picker.Load().DebugDownloadingPieces()
 	if len(dlPieces) > 0 {
