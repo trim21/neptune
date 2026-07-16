@@ -247,9 +247,11 @@ func flushContiguousFromHeap(d *Download, h *heap.Heap[responseChunk], pc *peerC
 	defer pieceChunksPool.Put(mergedChunk)
 	mergedChunk.Reset()
 
+	headLen := int64(len(head.res.Data))
+
 	done.Set(headPi)
 	pending.Unset(headPi)
-	d.pendingBytes.Add(-defaultBlockSize)
+	d.pendingBytes.Add(-headLen)
 
 	tailPi := headPi
 
@@ -269,11 +271,13 @@ func flushContiguousFromHeap(d *Download, h *heap.Heap[responseChunk], pc *peerC
 			break
 		}
 
+		peakLen := int64(len(peak.res.Data))
+
 		tailPi++
 
 		done.Set(tailPi)
 		pending.Unset(tailPi)
-		d.pendingBytes.Add(-defaultBlockSize)
+		d.pendingBytes.Add(-peakLen)
 
 		mergedChunk.Write(peak.res.Data)
 
@@ -408,11 +412,12 @@ func handlePieceFromHeap(d *Download, h *heap.Heap[responseChunk], pc *peerContr
 		buf.Reset()
 
 		for _, res := range pendingChunks {
+			resLen := int64(len(res.Data))
 			buf.Write(res.Data)
 			pi := res.Begin/defaultBlockSize + index*d.normalChunkLen
 			done.Set(pi)
 			pending.Unset(pi)
-			d.pendingBytes.Add(-defaultBlockSize)
+			d.pendingBytes.Add(-resLen)
 			proto.PiecePool.Put(res)
 		}
 
@@ -425,6 +430,7 @@ func handlePieceFromHeap(d *Download, h *heap.Heap[responseChunk], pc *peerContr
 		// Mixed case: some chunks were already flushed by flushContiguousFromHeap.
 		// Write each pending chunk at its correct offset.
 		for _, res := range pendingChunks {
+			resLen := int64(len(res.Data))
 			err := d.store.WriteChunk(d.ctx, index, res.Begin, res.Data)
 			if err != nil {
 				d.setError(err)
@@ -433,7 +439,7 @@ func handlePieceFromHeap(d *Download, h *heap.Heap[responseChunk], pc *peerContr
 			pi := res.Begin/defaultBlockSize + index*d.normalChunkLen
 			done.Set(pi)
 			pending.Unset(pi)
-			d.pendingBytes.Add(-defaultBlockSize)
+			d.pendingBytes.Add(-resLen)
 			proto.PiecePool.Put(res)
 		}
 	}
