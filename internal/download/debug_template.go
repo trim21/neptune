@@ -165,8 +165,8 @@ func BuildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 		LastDataAt:      lastDataAt(d.pieceDownloadRate),
 		NumCandidates:   d.peerList.numCandidates(),
 		TotalPieces:     d.info.NumPieces,
-		CompletedPieces: d.completedBm.Count(),
-		RemainingPieces: d.info.NumPieces - d.completedBm.Count(),
+		CompletedPieces: d.completedBm.WithAnd(d.wantedBm).Count(),
+		RemainingPieces: d.wantedBm.Count() - d.completedBm.WithAnd(d.wantedBm).Count(),
 		FullMode:        fullMode,
 	}
 
