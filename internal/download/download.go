@@ -629,7 +629,7 @@ func (d *Download) checkDone(done, pending *bm.NilSafeLockFreeBitmap) {
 	// Release per-block bitmaps — no longer needed once seeding.
 	done.Release()
 	pending.Release()
-	d.CompletedAt.Store(time.Now().Unix())
+	d.CompletedAt.Store(time.Now().UnixNano())
 	d.pieceDownloadRate.Reset()
 
 	d.fireCompletedHook()
@@ -663,7 +663,7 @@ func (d *Download) recheckAfterComplete() {
 	d.stateCond.Broadcast()
 
 	d.runHashCheck(func() {
-		d.CompletedAt.Store(time.Now().Unix())
+		d.CompletedAt.Store(time.Now().UnixNano())
 
 		d.fireCompletedHook()
 

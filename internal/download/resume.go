@@ -9,9 +9,12 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"time"
 
 	"github.com/rs/zerolog/log"
 	"github.com/trim21/go-bencode"
+
+	"neptune/internal/pkg/timestamp"
 )
 
 var _ encoding.BinaryMarshaler = (*Download)(nil)
@@ -45,8 +48,8 @@ type resume struct {
 	// Per-torrent speed limits in bytes per second. 0 means unlimited.
 	DownloadSpeedLimit int64
 	UploadSpeedLimit   int64
-	AddAt              int64
-	CompletedAt        int64
+	AddAt              timestamp.Timestamp
+	CompletedAt        timestamp.Timestamp
 	Downloaded         int64
 	Uploaded           int64
 	Corrupted          int64
@@ -116,8 +119,8 @@ func (d *Download) MarshalBinary() (data []byte, err error) {
 		State:              normalizeResumeState(d.GetState()),
 		InfoHash:           d.info.Hash.Hex(),
 		Bitfield:           d.completedBm.Bitfield(),
-		AddAt:              d.AddAt,
-		CompletedAt:        d.CompletedAt.Load(),
+		AddAt:              timestamp.New(d.AddAt),
+		CompletedAt:        timestamp.New(time.Unix(0, d.CompletedAt.Load())),
 		SelectedFiles:      selectedFiles,
 		FilePaths:          d.filePaths(),
 		DownloadSpeedLimit: d.downloadLimiter.Rate(),

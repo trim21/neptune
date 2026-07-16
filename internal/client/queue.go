@@ -78,8 +78,8 @@ func (c *Client) rebalanceQueue() {
 		if a.weight != b.weight {
 			return b.weight - a.weight
 		}
-		if a.d.AddAt != b.d.AddAt {
-			return int(a.d.AddAt - b.d.AddAt)
+		if !a.d.AddAt.Equal(b.d.AddAt) {
+			return a.d.AddAt.Compare(b.d.AddAt)
 		}
 
 		hashA, hashB := a.d.InfoHash(), b.d.InfoHash()

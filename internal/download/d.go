@@ -129,11 +129,11 @@ func validTransition(from, to State) bool {
 // ctx should be canceled when torrent is removed, not stopped.
 type Download struct {
 	log                    zerolog.Logger
+	AddAt                  time.Time
 	ctx                    context.Context
 	store                  piece_store.PieceStore
-	corruptedPieces        map[uint32]int
-	bannedAddrs            map[netip.Addr]time.Time
-	downloadLimiter        *ratelimit.Limiter
+	connectedAddrs         *xsync.Map[netip.AddrPort, Peer]
+	picker                 atomic.Pointer[PiecePicker]
 	session                *session.Session
 	pieceDownloadRate      *flowrate.Monitor
 	ioDownloadRate         *flowrate.Monitor
@@ -142,10 +142,10 @@ type Download struct {
 	uploadLimiter          *ratelimit.Limiter
 	peersCh                chan []tracker.DiscoveredPeer
 	peers                  *xsync.Map[uint64, Peer]
-	connectedAddrs         *xsync.Map[netip.AddrPort, Peer]
+	bannedAddrs            map[netip.Addr]time.Time
 	stateCond              *gsync.Cond
 	peerList               *peerList
-	picker                 atomic.Pointer[PiecePicker]
+	downloadLimiter        *ratelimit.Limiter
 	err                    atomic.Pointer[error]
 	cancel                 context.CancelFunc
 	scheduleResponseSignal chan empty.Empty
@@ -155,12 +155,12 @@ type Download struct {
 	missingBm              *bm.LockFreeBitmap
 	wantedBm               *bm.Bitmap
 	selectedFilesSet       *bm.Bitmap
+	corruptedPieces        map[uint32]int
 	s                      downloadState
 	info                   meta.Info
 	backgroundWg           sync.WaitGroup
-	uploadAtStart          int64
-	piecePickStrategy      atomic.Uint32
-	completed              atomic.Int64
+	unchokeSlotIdx         int
+	wastedDupe             atomic.Int64
 	CompletedAt            atomic.Int64
 	state                  atomic.Uint32
 	downloaded             atomic.Int64
@@ -168,12 +168,12 @@ type Download struct {
 	corrupted              atomic.Int64
 	uploaded               atomic.Int64
 	wastedStale            atomic.Int64
-	wastedDupe             atomic.Int64
-	peerIDCounter          atomic.Uint64
-	unchokeSlotIdx         int
-	AddAt                  int64
-	peerLeechers           atomic.Int64
 	peerSeeds              atomic.Int64
+	peerIDCounter          atomic.Uint64
+	uploadAtStart          int64
+	completed              atomic.Int64
+	peerLeechers           atomic.Int64
+	piecePickStrategy      atomic.Uint32
 	downloadAtStart        int64
 	selectedSize           atomic.Int64
 	unchokeCycleOffset     int

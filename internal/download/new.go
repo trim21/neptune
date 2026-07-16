@@ -83,7 +83,7 @@ func New(sess *session.Session, m *metainfo.MetaInfo, info meta.Info, basePath s
 
 		normalChunkLen: normalChunkLen,
 
-		AddAt: time.Now().UnixMilli(),
+		AddAt: time.Now(),
 
 		// Default queue weight: negative timestamp (ms) so earlier-added torrents
 		// have higher weight (less negative) and thus higher priority.
