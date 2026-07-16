@@ -355,7 +355,7 @@ func BuildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 		}
 		data.Files = files
 
-		// Piece ranges — hold lock to avoid racing with buildSelectedPiecesBmUnsafe.
+		// Piece ranges — hold lock to avoid racing with computeSelectedSizeUnsafe.
 		var buf strings.Builder
 		writePieceRanges(&buf, "have", d.completedBm)
 		data.PieceRanges = append(data.PieceRanges, debugPieceRange{Text: buf.String()})

@@ -300,24 +300,12 @@ func (d *Download) SelectedSize() int64 {
 }
 
 func (d *Download) computeSelectedSizeUnsafe() int64 {
-	if d.s.selectedFilesSet == nil {
-		return d.info.TotalLength
-	}
-	d.buildSelectedPiecesBmUnsafe()
-	done := int64(d.wantedBm.Count()) * d.info.PieceLength
-	if d.wantedBm.Contains(d.info.NumPieces - 1) {
-		done = done - d.info.PieceLength + d.info.LastPieceSize
-	}
-	return done
-}
-
-func (d *Download) buildSelectedPiecesBmUnsafe() {
 	if d.wantedBm == nil {
 		d.wantedBm = bm.New(d.info.NumPieces)
 	}
 	if d.s.selectedFilesSet == nil {
 		d.wantedBm.Fill()
-		return
+		return d.info.TotalLength
 	}
 	d.wantedBm.Clear()
 	for i := range d.info.NumPieces {
@@ -325,6 +313,12 @@ func (d *Download) buildSelectedPiecesBmUnsafe() {
 			d.wantedBm.Set(i)
 		}
 	}
+
+	done := int64(d.wantedBm.Count()) * d.info.PieceLength
+	if d.wantedBm.Contains(d.info.NumPieces - 1) {
+		done = done - d.info.PieceLength + d.info.LastPieceSize
+	}
+	return done
 }
 
 func (d *Download) computeCompletedUnsafe() int64 {
