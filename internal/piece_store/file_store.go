@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"neptune/internal/pkg/fadvise"
+	"neptune/internal/pkg/fallocate"
 	"neptune/internal/pkg/gfs"
 )
 
@@ -23,15 +24,16 @@ func (s *FileStore) WriteChunk(ctx context.Context, pieceIndex uint32, begin uin
 	size := int64(len(data))
 	var off int64
 	for chunk := range s.info.FileChunks(offset, offset+size) {
-		f, fresh, err := s.fp.Open(
-			s.filePath(chunk.FileIndex),
-			os.O_RDWR|os.O_CREATE, os.ModePerm, time.Hour,
-		)
+		path := s.filePath(chunk.FileIndex)
+		f, fresh, err := s.fp.Open(path, os.O_RDWR|os.O_CREATE, os.ModePerm, time.Hour)
 		if err != nil {
 			return err
 		}
 		if fresh {
 			_ = fadvise.Random(f.File, 0, 0)
+			if s.fallocate && s.selectedFilesSet.Contains(uint32(chunk.FileIndex)) {
+				_ = fallocate.Fallocate(f.File, 0, s.info.Files[chunk.FileIndex].Length)
+			}
 		}
 		_, err = gfs.WriteAtCtx(ctx, s.ioc, f.File, data[off:off+chunk.Length], chunk.OffsetOfFile)
 		if err != nil {

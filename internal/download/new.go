@@ -48,10 +48,20 @@ func New(sess *session.Session, m *metainfo.MetaInfo, info meta.Info, basePath s
 	}
 
 	completedBm := bm.New(info.NumPieces)
-
 	normalChunkLen := info.BlocksPerPiece()
 
-	store := piece_store.NewFileStore(info, basePath, sess.FilePool, sess.IOContext)
+	// selectedFilesSet: all bits set means all files selected.
+	// When only a subset is selected, clear and set specific bits.
+	selectedFilesSet := bm.New(uint32(len(info.Files)))
+	selectedFilesSet.Fill()
+	if len(selectedFiles) > 0 && len(selectedFiles) < len(info.Files) {
+		selectedFilesSet.Clear()
+		for _, idx := range selectedFiles {
+			selectedFilesSet.Set(uint32(idx))
+		}
+	}
+
+	store := piece_store.NewFileStore(info, basePath, sess.FilePool, sess.IOContext, selectedFilesSet, sess.Config.App.Fallocate)
 
 	d := &Download{
 		ctx:    ctx,
@@ -61,6 +71,8 @@ func New(sess *session.Session, m *metainfo.MetaInfo, info meta.Info, basePath s
 		session: sess,
 		log:     log.With().Stringer("info_hash", info.Hash).Logger(),
 		peerID:  NewPeerID(),
+
+		selectedFilesSet: selectedFilesSet,
 
 		s: downloadState{
 			tags:        tags,
@@ -102,17 +114,6 @@ func New(sess *session.Session, m *metainfo.MetaInfo, info meta.Info, basePath s
 		uploadLimiter:   ratelimit.New(0),
 
 		peersCh: make(chan []tracker.DiscoveredPeer, 1),
-	}
-
-	// selectedFilesSet: all bits set means all files selected.
-	// When only a subset is selected, clear and set specific bits.
-	d.selectedFilesSet = bm.New(uint32(len(info.Files)))
-	d.selectedFilesSet.Fill()
-	if len(selectedFiles) > 0 && len(selectedFiles) < len(info.Files) {
-		d.selectedFilesSet.Clear()
-		for _, idx := range selectedFiles {
-			d.selectedFilesSet.Set(uint32(idx))
-		}
 	}
 
 	d.completedBm = completedBm

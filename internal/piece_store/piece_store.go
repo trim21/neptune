@@ -8,6 +8,7 @@ import (
 	"crypto/sha1"
 
 	"neptune/internal/meta"
+	"neptune/internal/pkg/bm"
 	"neptune/internal/pkg/filepool"
 	"neptune/internal/pkg/gfs"
 )
@@ -22,18 +23,22 @@ type Store interface {
 
 // FileStore is the production implementation backed by real files via filepool.
 type FileStore struct {
-	fp       *filepool.FilePool
-	ioc      *gfs.IOContext
-	basePath string
-	info     meta.Info
+	fp               *filepool.FilePool
+	ioc              *gfs.IOContext
+	selectedFilesSet *bm.Bitmap
+	basePath         string
+	info             meta.Info
+	fallocate        bool
 }
 
 // NewFileStore creates a FileStore for the given torrent info and base path.
-func NewFileStore(info meta.Info, basePath string, fp *filepool.FilePool, ioc *gfs.IOContext) *FileStore {
+func NewFileStore(info meta.Info, basePath string, fp *filepool.FilePool, ioc *gfs.IOContext, selectedFilesSet *bm.Bitmap, fallocate bool) *FileStore {
 	return &FileStore{
-		info:     info,
-		basePath: basePath,
-		fp:       fp,
-		ioc:      ioc,
+		info:             info,
+		basePath:         basePath,
+		fp:               fp,
+		ioc:              ioc,
+		selectedFilesSet: selectedFilesSet,
+		fallocate:        fallocate,
 	}
 }
