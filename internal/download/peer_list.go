@@ -284,7 +284,9 @@ func (pl *peerList) connectionClosed(addr netip.AddrPort, sessionTime int64, had
 		pp.lastSeen = sessionTime
 	}
 
-	if failed {
+	// Don't penalize peers that already transferred data — transient
+	// disconnects are likely network issues, not peer quality problems.
+	if failed && !hadTrans {
 		if pp.failcount < 31 {
 			pp.failcount++
 		}
