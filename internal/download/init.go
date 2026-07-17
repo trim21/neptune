@@ -198,6 +198,7 @@ func (d *Download) check(resumed bool, skipHashCheck bool) {
 	if !resumed {
 		d.log.Debug().Msg("initializing download")
 		d.state.Store(uint32(Checking))
+		d.picker.Load().DisableRequests()
 	}
 
 	if skipHashCheck {

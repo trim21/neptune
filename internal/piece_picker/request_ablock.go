@@ -4,100 +4,150 @@
 package piece_picker
 
 import (
+	"neptune/internal/pkg/assert"
 	"neptune/internal/pkg/bm"
 )
 
-// RequestABlock picks blocks for a peer using this piece picker.
-// The caller must ensure the download is in downloading state and
-// completedBm.Count() < info.NumPieces.
-//
-// last is the previous PickResult; its FreeBlocks/BusyBlocks backing arrays
-// are reused to avoid allocation. The idiom mirrors append:
-//
-//	result = pp.RequestABlock(result, desiredQueueSize, outstanding, queued, choked, peerBitfield, fastBitmap)
-//
-// The returned PickResult has FreeBlocks/BusyBlocks containing only usable
-// (unfinished, not completed, not chunk-done) blocks.
-func (pp *PiecePicker) RequestABlock(
-	last PickResult,
-	desiredQueueSize int,
-	outstanding int,
-	queued int,
-	choked bool,
-	peerBitfield *bm.Bitmap,
-	fastBitmap *bm.Bitmap,
-	blockedPieces *bm.LockFreeBitmap,
-	onParole bool,
-	peerID uint64,
-) PickResult {
-	if pp == nil {
-		return last
+// PickAndClaim selects blocks and records peer ownership in one critical
+// section. Every returned claim must be consumed by AcceptResponse,
+// ReleaseClaim, ReleasePeerClaims, or DisableRequests.
+func (pp *PiecePicker) PickAndClaim(reuse []BlockClaim, req PickRequest) []BlockClaim {
+	reuse = reuse[:0]
+	if pp == nil || req.NumBlocks <= 0 {
+		return reuse
 	}
 
-	last.FreeBlocks = last.FreeBlocks[:0]
-	last.BusyBlocks = last.BusyBlocks[:0]
+	pp.mu.Lock()
+	defer pp.mu.Unlock()
 
-	if pp.missingBm.Count() == 0 {
-		return last
+	if !pp.requestsEnabled || pp.missingBm.Count() == 0 {
+		return reuse
 	}
 
-	numRequests := desiredQueueSize - outstanding - queued
-	if numRequests <= 0 {
-		return last
+	bitfield := req.Bitfield
+	if bitfield == nil {
+		bitfield = bm.New(0)
+	}
+	allowedFast := req.AllowedFast
+	if allowedFast == nil {
+		allowedFast = bm.New(0)
+	}
+	blockedPieces := req.BlockedPieces
+	if blockedPieces == nil {
+		blockedPieces = bm.NewLockFreeBitmap(0)
 	}
 
-	fastBm := fastBitmap
-	if fastBm == nil {
-		fastBm = bm.New(0)
-	}
-
-	last = pp.PickPieces(
-		peerBitfield,
-		choked,
-		fastBm,
+	result := pp.pickPiecesUnsafe(
+		bitfield,
+		req.Choked,
+		allowedFast,
 		blockedPieces,
-		numRequests,
-		0,
-		nil,
-		onParole,
-		peerID,
-		last,
+		req.NumBlocks,
+		req.PreferContiguous,
+		req.SuggestedPieces,
+		req.OnParole,
+		req.PeerID,
+		pp.pickScratch,
 	)
+	pp.pickScratch = result
 
-	if len(last.FreeBlocks) == 0 && choked && fastBm.Count() == 0 {
-		return last
-	}
-
-	// In-place filter: keep only blocks that are not finished, not chunk-done.
-	n := 0
-	for _, fb := range last.FreeBlocks {
-		if pp.IsFinished(fb.PieceIndex, fb.BlockIndex) {
+	for _, block := range result.FreeBlocks {
+		if len(reuse) >= req.NumBlocks || pp.chunkAlreadyDoneUnsafe(block) {
 			continue
 		}
-		chunkPi := fb.PieceIndex*pp.blocksPerPiece + uint32(fb.BlockIndex)
-		if pp.chunkDoneBm != nil && pp.chunkDoneBm.Contains(chunkPi) {
-			continue
+		claim, ok := pp.registerClaimUnsafe(block, req.PeerID, false)
+		if ok {
+			reuse = append(reuse, claim)
 		}
-		last.FreeBlocks[n] = fb
-		n++
 	}
-	last.FreeBlocks = last.FreeBlocks[:n]
 
-	m := 0
-	for _, bb := range last.BusyBlocks {
-		chunkPi := bb.PieceIndex*pp.blocksPerPiece + uint32(bb.BlockIndex)
-		if pp.chunkDoneBm != nil && pp.chunkDoneBm.Contains(chunkPi) {
-			continue
+	// Preserve the existing endgame behavior: only duplicate when no free
+	// block was claimed, and create at most one duplicate per scheduling pass.
+	if len(reuse) == 0 {
+		for _, block := range result.BusyBlocks {
+			if pp.chunkAlreadyDoneUnsafe(block) {
+				continue
+			}
+			claim, ok := pp.registerClaimUnsafe(block, req.PeerID, true)
+			if ok {
+				reuse = append(reuse, claim)
+				break
+			}
 		}
-		last.BusyBlocks[m] = bb
-		m++
-	}
-	last.BusyBlocks = last.BusyBlocks[:m]
-
-	// Diagnostic: if post-filter emptied the result, record why.
-	if len(last.FreeBlocks) == 0 && len(last.BusyBlocks) == 0 && numRequests > 0 {
-		pp.recordDiag(peerBitfield, choked, fastBm, blockedPieces, true)
 	}
 
-	return last
+	return reuse
+}
+
+func (pp *PiecePicker) chunkAlreadyDoneUnsafe(block PieceBlock) bool {
+	idx := pp.blockInfoIdx(block.PieceIndex) + int(block.BlockIndex)
+	if pp.blockInfos.get(idx) == blockStateResponded {
+		return true
+	}
+	chunkIdx := pp.chunkIndex(block.PieceIndex, int(block.BlockIndex))
+	return pp.chunkDoneBm != nil && pp.chunkDoneBm.Contains(chunkIdx)
+}
+
+func (pp *PiecePicker) registerClaimUnsafe(block PieceBlock, owner uint64, retry bool) (BlockClaim, bool) {
+	if !pp.requestsEnabled || block.PieceIndex >= pp.numPieces || block.BlockIndex >= uint32(pp.numBlocksInPiece(block.PieceIndex)) {
+		return BlockClaim{}, false
+	}
+
+	idx := pp.blockInfoIdx(block.PieceIndex) + int(block.BlockIndex)
+	state := pp.blockInfos.get(idx)
+	if retry {
+		if state != blockStateRequested {
+			return BlockClaim{}, false
+		}
+	} else if state != blockStateNone {
+		return BlockClaim{}, false
+	}
+
+	chunkIdx := pp.chunkIndex(block.PieceIndex, int(block.BlockIndex))
+	claims := pp.claimsByBlock[chunkIdx]
+	if retry {
+		assert.NotEqual(claims.count, uint8(0), "requested block has no named claim")
+	} else {
+		assert.Equal(claims.count, uint8(0), "free block already has named claims")
+	}
+	if claims.count >= maxClaimsPerBlock {
+		return BlockClaim{}, false
+	}
+	for i := range int(claims.count) {
+		record := pp.activeClaims[claims.tokens[i]]
+		if record.owner == owner {
+			return BlockClaim{}, false
+		}
+	}
+
+	pp.nextClaimToken++
+	if pp.nextClaimToken == 0 {
+		pp.nextClaimToken++
+	}
+	token := pp.nextClaimToken
+	claim := BlockClaim{Block: block, token: token}
+	pp.activeClaims[token] = claimRecord{block: block, owner: owner}
+	claims.tokens[claims.count] = token
+	claims.count++
+	pp.claimsByBlock[chunkIdx] = claims
+	peerClaims := pp.claimsByPeer[owner]
+	if peerClaims == nil {
+		peerClaims = make(map[uint64]struct{})
+		pp.claimsByPeer[owner] = peerClaims
+	}
+	peerClaims[token] = struct{}{}
+
+	if state == blockStateNone {
+		pp.blockInfos.set(idx, blockStateRequested)
+		pp.downloadQueueSize++
+		pp.freeBlocks--
+		pp.addDownloadingPieceUnsafe(block.PieceIndex)
+		if dp := pp.findDownloadingPiece(block.PieceIndex); dp != nil {
+			dp.requested++
+		}
+	}
+	if _, ok := pp.parolePieceOwners[block.PieceIndex]; !ok {
+		pp.parolePieceOwners[block.PieceIndex] = owner
+	}
+	return claim, true
 }

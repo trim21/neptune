@@ -49,8 +49,8 @@ type mockPeer struct {
 	userAgent              string
 	peerIDString           string
 	lastPickDebug          string
-	lastPickRes            PickResult
-	queued                 []PieceBlock
+	lastClaims             []BlockClaim
+	queued                 []BlockClaim
 	enqueuedBlocks         []PieceBlock
 	requestsSent           []proto.ChunkRequest
 	info                   meta.Info
@@ -139,22 +139,25 @@ func (m *mockPeer) Close() {
 	}
 	// Abort enqueued blocks in the picker, matching peerImpl.Close() behavior.
 	if m.dl != nil {
-		m.mu.Lock()
-		for _, b := range m.queued {
-			m.dl.picker.Load().AbortDownload(b.PieceIndex, b.BlockIndex)
-		}
-		m.mu.Unlock()
+		m.ClearDownloadRequests()
 		// Decrement picker refcount for all pieces this peer had.
 		m.bitmap.Range(func(u uint32) {
 			m.dl.picker.Load().DecRefcount(u)
 		})
-		m.dl.picker.Load().ReleasePeerPieces(m.peerID)
 	}
 	m.closedCalled = true
 }
 func (m *mockPeer) Closed() bool          { return m.closed.Load() }
 func (m *mockPeer) IsDisconnecting() bool { return m.disconnecting.Load() }
 func (m *mockPeer) CloseError() error     { return m.closeErr }
+func (m *mockPeer) ClearDownloadRequests() {
+	if m.dl != nil {
+		m.dl.picker.Load().ReleasePeerClaims(m.peerID)
+	}
+	m.mu.Lock()
+	m.queued = m.queued[:0]
+	m.mu.Unlock()
+}
 
 // ── Piece availability ──────────────────────────────────────────────
 
@@ -206,20 +209,12 @@ func (m *mockPeer) OutstandingRequests() int {
 	return int(m.outstanding)
 }
 func (m *mockPeer) QueueLen() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return len(m.queued)
 }
 func (m *mockPeer) IsInQueue(chunk proto.ChunkRequest) bool {
 	return m.inQueueMap[chunk]
-}
-func (m *mockPeer) EnqueueBlock(pieceIndex uint32, blockIndex int) {
-	m.mu.Lock()
-	m.enqueuedBlocks = append(m.enqueuedBlocks, PieceBlock{PieceIndex: pieceIndex, BlockIndex: blockIndex})
-	// Don't enqueue if already closed — matches production where Close()
-	// destroys the request queue via conn.Close().
-	if !m.closed.Load() {
-		m.queued = append(m.queued, PieceBlock{PieceIndex: pieceIndex, BlockIndex: blockIndex})
-	}
-	m.mu.Unlock()
 }
 func (m *mockPeer) SendBlockRequests() {
 	m.sendBlockCalled++
@@ -227,11 +222,12 @@ func (m *mockPeer) SendBlockRequests() {
 	queued := m.queued
 	m.queued = m.queued[:0]
 	m.mu.Unlock()
-	for _, b := range queued {
-		m.Request(pieceChunk(m.info, b.PieceIndex, b.BlockIndex))
+	for _, claim := range queued {
+		b := claim.Block
+		m.Request(pieceChunk(m.info, b.PieceIndex, int(b.BlockIndex)), claim)
 	}
 }
-func (m *mockPeer) Request(chunk proto.ChunkRequest) {
+func (m *mockPeer) Request(chunk proto.ChunkRequest, claim BlockClaim) {
 	m.requestsSent = append(m.requestsSent, chunk)
 	m.atomicSetInt32(&m.outstanding, m.outstanding+1)
 	// Async delivery via resChan.
@@ -244,20 +240,14 @@ func (m *mockPeer) Request(chunk proto.ChunkRequest) {
 					Data:       make([]byte, chunk.Length),
 				},
 				peerID: m.peerID,
+				claim:  claim,
 			}
 		}()
 	}
 }
 func (m *mockPeer) DesiredQueueSize() int { return int(m.desiredSize) }
 
-// ── Picker integration ──────────────────────────────────────────────
-
-func (m *mockPeer) LastPickResult() PickResult {
-	return m.lastPickRes
-}
-func (m *mockPeer) SetLastPickResult(r PickResult) {
-	m.lastPickRes = r
-}
+// ── Picker integration ──────────────────────────────────────────────.
 func (m *mockPeer) LastPickDebug() string     { return m.lastPickDebug }
 func (m *mockPeer) SetLastPickDebug(s string) { m.lastPickDebug = s }
 
@@ -271,58 +261,31 @@ func (m *mockPeer) requestABlock() {
 		return
 	}
 
-	pickResult := d.picker.Load().RequestABlock(
-		m.LastPickResult(),
-		m.DesiredQueueSize(),
-		m.OutstandingRequests(),
-		m.QueueLen(),
-		m.IsChoking(),
-		m.PeerBitmap(),
-		m.FastBitmap(),
-		m.blockedPieces,
-		m.onParole.Load(),
-		m.peerID,
-	)
-	m.SetLastPickResult(pickResult)
-	free := pickResult.FreeBlocks
-	busy := pickResult.BusyBlocks
-
-	if len(free) == 0 && len(busy) == 0 {
+	claims := d.picker.Load().PickAndClaim(m.lastClaims, PickRequest{
+		Bitfield:      m.PeerBitmap(),
+		AllowedFast:   m.FastBitmap(),
+		BlockedPieces: m.blockedPieces,
+		PeerID:        m.peerID,
+		NumBlocks:     m.DesiredQueueSize() - m.OutstandingRequests() - m.QueueLen(),
+		Choked:        m.IsChoking(),
+		OnParole:      m.onParole.Load(),
+	})
+	m.lastClaims = claims
+	if len(claims) == 0 {
 		return
 	}
 
-	for _, fb := range free {
-		if m.IsInQueue(pieceChunk(d.info, fb.PieceIndex, fb.BlockIndex)) {
+	m.mu.Lock()
+	for _, claim := range claims {
+		if m.closed.Load() || !d.IsActiveDownloading() {
+			d.picker.Load().ReleaseClaim(claim)
 			continue
 		}
-		if !d.picker.Load().TryMarkAsRequesting(fb.PieceIndex, fb.BlockIndex, false) {
-			continue
-		}
-		m.EnqueueBlock(fb.PieceIndex, fb.BlockIndex)
-		if m.closed.Load() {
-			d.picker.Load().AbortDownload(fb.PieceIndex, fb.BlockIndex)
-		}
+		m.enqueuedBlocks = append(m.enqueuedBlocks, claim.Block)
+		m.queued = append(m.queued, claim)
 	}
+	m.mu.Unlock()
 	m.SendBlockRequests()
-
-	// Busy blocks (endgame): only when no free blocks available, at most one.
-	if len(free) == 0 {
-		for _, bb := range busy {
-			if m.IsInQueue(pieceChunk(d.info, bb.PieceIndex, bb.BlockIndex)) {
-				continue
-			}
-			if !d.picker.Load().TryMarkAsRequesting(bb.PieceIndex, bb.BlockIndex, true) {
-				continue
-			}
-			m.EnqueueBlock(bb.PieceIndex, bb.BlockIndex)
-			if m.closed.Load() {
-				d.picker.Load().AbortDownload(bb.PieceIndex, bb.BlockIndex)
-				continue
-			}
-			m.SendBlockRequests()
-			return
-		}
-	}
 }
 
 // ── Peer requests (upload side) ─────────────────────────────────────

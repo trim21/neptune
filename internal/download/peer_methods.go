@@ -76,31 +76,10 @@ func (p *peerImpl) UpdateUploadRate(bytes int)   { p.pieceUploadRate.Update(byte
 func (p *peerImpl) OutstandingRequests() int { return p.myRequests.Size() }
 func (p *peerImpl) QueueLen() int            { return p.requestQueueLen() }
 
-func (p *peerImpl) EnqueueBlock(pieceIndex uint32, blockIndex int) {
-	p.requestMu.Lock()
-	if !p.requestQueue.Push(PieceBlock{PieceIndex: pieceIndex, BlockIndex: blockIndex}) {
-		p.requestMu.Unlock()
-		panic("peer request queue overflow")
-	}
-	p.requestMu.Unlock()
-}
-
 func (p *peerImpl) SendBlockRequests()    { p.sendBlockRequests() }
 func (p *peerImpl) DesiredQueueSize() int { return p.updateDesiredQueueSize() }
 
 // ── Picker integration ───────────────────────────────────────────────────
-
-func (p *peerImpl) LastPickResult() PickResult {
-	p.lastPickResultMu.Lock()
-	defer p.lastPickResultMu.Unlock()
-	return p.lastPickResult
-}
-
-func (p *peerImpl) SetLastPickResult(r PickResult) {
-	p.lastPickResultMu.Lock()
-	defer p.lastPickResultMu.Unlock()
-	p.lastPickResult = r
-}
 
 func (p *peerImpl) LastPickDebug() string {
 	if s := p.lastPickDebug.Load(); s != nil {

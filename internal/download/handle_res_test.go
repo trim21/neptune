@@ -270,13 +270,13 @@ func TestHandleResOrder(t *testing.T) {
 			pendingBm := bm.NewNilSafeLockFreeBitmap(d.info.TotalBlockCount())
 			pc := &peerContributors{m: make(map[uint32]map[uint64]empty.Empty)}
 			for _, c := range order {
-				handleRes(d, &h, pc, doneBm, pendingBm, chunkSubmit{
+				handleRes(d, &h, pc, doneBm, pendingBm, claimedSubmitForTest(t, d, chunkSubmit{
 					res: &proto.ChunkResponse{
 						PieceIndex: c.pieceIndex, Begin: c.begin,
 						Data: make([]byte, c.length),
 					},
 					peerID: 0,
-				})
+				}))
 			}
 			if h.Len() != 0 || !allDone(d, doneBm) {
 				t.Errorf("FAIL %s: heap=%d\n%s", name, h.Len(), dumpState(d, &h, doneBm, pendingBm))
@@ -332,10 +332,10 @@ func TestHandleResLargePiece(t *testing.T) {
 	}
 
 	for _, c := range order {
-		handleRes(d, &h, pc, doneBm, pendingBm, chunkSubmit{peerID: 0, res: &proto.ChunkResponse{
+		handleRes(d, &h, pc, doneBm, pendingBm, claimedSubmitForTest(t, d, chunkSubmit{peerID: 0, res: &proto.ChunkResponse{
 			PieceIndex: c.pieceIndex, Begin: c.begin,
 			Data: make([]byte, c.length),
-		}})
+		}}))
 	}
 
 	if h.Len() != 0 || !allDone(d, doneBm) {
@@ -380,13 +380,13 @@ func FuzzHandleRes(f *testing.F) {
 		go d.backgroundResHandler()
 
 		for _, c := range all {
-			d.resChan <- chunkSubmit{
+			d.resChan <- claimedSubmitForTest(t, d, chunkSubmit{
 				res: &proto.ChunkResponse{
 					PieceIndex: c.pieceIndex, Begin: c.begin,
 					Data: make([]byte, c.length),
 				},
 				peerID: 0,
-			}
+			})
 		}
 
 		waitDownloadDone(t, d, numPieces, seed)
@@ -436,13 +436,20 @@ func FuzzHandleResDuplicates(f *testing.F) {
 		d.resChan = make(chan chunkSubmit, len(all))
 		go d.backgroundResHandler()
 
+		claims := make(map[uint32]BlockClaim, totalChunks)
 		for _, c := range all {
+			claim, ok := claims[c.pi]
+			if !ok {
+				claim = claimBlockForTest(t, d, c.pieceIndex, c.begin/defaultBlockSize, 0)
+				claims[c.pi] = claim
+			}
 			d.resChan <- chunkSubmit{
 				res: &proto.ChunkResponse{
 					PieceIndex: c.pieceIndex, Begin: c.begin,
 					Data: make([]byte, c.length),
 				},
 				peerID: 0,
+				claim:  claim,
 			}
 		}
 

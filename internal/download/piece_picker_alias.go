@@ -11,8 +11,11 @@ type PiecePicker = piece_picker.PiecePicker
 // PieceBlock is imported from the piece_picker package.
 type PieceBlock = piece_picker.PieceBlock
 
-// PickResult is imported from the piece_picker package.
-type PickResult = piece_picker.PickResult
+// BlockClaim is imported from the piece_picker package.
+type BlockClaim = piece_picker.BlockClaim
+
+// PickRequest is imported from the piece_picker package.
+type PickRequest = piece_picker.PickRequest
 
 // PiecePickStrategy is imported from the piece_picker package.
 type PiecePickStrategy = piece_picker.PiecePickStrategy

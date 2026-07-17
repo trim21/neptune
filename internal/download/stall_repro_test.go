@@ -33,35 +33,34 @@ func TestStallEndgameBusyLoop(t *testing.T) {
 			continue
 		}
 		for bi := range d.info.PieceBlockCount(pi) {
-			handleRes(d, &h, pc, doneBm, pendingBm, chunkSubmit{peerID: 0, res: &proto.ChunkResponse{
+			handleRes(d, &h, pc, doneBm, pendingBm, claimedSubmitForTest(t, d, chunkSubmit{peerID: 0, res: &proto.ChunkResponse{
 				PieceIndex: pi,
 				Begin:      uint32(bi) * defaultBlockSize,
 				Data:       make([]byte, defaultBlockSize),
-			}})
+			}}))
 		}
 	}
 	time.Sleep(20 * time.Millisecond)
 
 	// Only pieces 0 and 1 remain. Start both.
-	d.picker.Load().MarkAsRequesting(0, 0)
-	d.picker.Load().AddDownloadingPiece(0)
-	d.picker.Load().MarkAsRequesting(1, 0)
-	d.picker.Load().AddDownloadingPiece(1)
+	claim0 := claimBlockForTest(t, d, 0, 0, 1)
+	claim1 := claimBlockForTest(t, d, 1, 0, 1)
 
 	// Receive all blocks for piece 1 → triggers async checkPiece.
 	for bi := range d.info.PieceBlockCount(1) {
 		if bi == 0 {
 			continue
 		}
-		handleRes(d, &h, pc, doneBm, pendingBm, chunkSubmit{peerID: 0, res: &proto.ChunkResponse{
+		handleRes(d, &h, pc, doneBm, pendingBm, claimedSubmitForTest(t, d, chunkSubmit{peerID: 0, res: &proto.ChunkResponse{
 			PieceIndex: 1, Begin: uint32(bi) * defaultBlockSize,
 			Data: make([]byte, defaultBlockSize),
-		}})
+		}}))
 	}
-	handleRes(d, &h, pc, doneBm, pendingBm, chunkSubmit{peerID: 0, res: &proto.ChunkResponse{
+	handleRes(d, &h, pc, doneBm, pendingBm, chunkSubmit{peerID: 0, claim: claim1, res: &proto.ChunkResponse{
 		PieceIndex: 1, Begin: 0,
 		Data: make([]byte, defaultBlockSize),
 	}})
+	d.picker.Load().ReleaseClaim(claim0)
 
 	time.Sleep(5 * time.Millisecond) // async checkPiece may be in-flight
 
@@ -69,14 +68,19 @@ func TestStallEndgameBusyLoop(t *testing.T) {
 	peerBitfield.Fill()
 
 	pp := d.picker.Load()
-	result := PickResult{}
-	result = pp.PickPieces(peerBitfield, false, nil, bm.NewLockFreeBitmap(d.info.NumPieces), 100, 0, nil, false, 0, result)
+	claims := pp.PickAndClaim(nil, PickRequest{
+		Bitfield:      peerBitfield,
+		BlockedPieces: bm.NewLockFreeBitmap(d.info.NumPieces),
+		PeerID:        2,
+		NumBlocks:     100,
+	})
 
 	completedFromResult := 0
-	for _, fb := range result.FreeBlocks {
-		if d.completedBm.Contains(fb.PieceIndex) {
+	for _, claim := range claims {
+		if d.completedBm.Contains(claim.Block.PieceIndex) {
 			completedFromResult++
 		}
+		pp.ReleaseClaim(claim)
 	}
 	if completedFromResult > 0 {
 		t.Logf("Race hit: %d free blocks from already-completed pieces", completedFromResult)

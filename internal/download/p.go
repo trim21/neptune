@@ -38,29 +38,34 @@ const ourPexExtID proto.ExtensionMessage = 22
 // pieceBlockQueue is a fixed-capacity FIFO matching the per-peer request cap.
 // Normal push/pop operations never allocate or move existing entries.
 type pieceBlockQueue struct {
-	blocks [maxRequestQueue]PieceBlock
+	blocks [maxRequestQueue]BlockClaim
 	head   int
 	size   int
+}
+
+type trackedRequest struct {
+	sentAt time.Time
+	claim  BlockClaim
 }
 
 func (q *pieceBlockQueue) Len() int {
 	return q.size
 }
 
-func (q *pieceBlockQueue) Push(block PieceBlock) bool {
+func (q *pieceBlockQueue) Push(claim BlockClaim) bool {
 	if q.size == len(q.blocks) {
 		return false
 	}
 
 	tail := (q.head + q.size) % len(q.blocks)
-	q.blocks[tail] = block
+	q.blocks[tail] = claim
 	q.size++
 	return true
 }
 
-func (q *pieceBlockQueue) Front() (PieceBlock, bool) {
+func (q *pieceBlockQueue) Front() (BlockClaim, bool) {
 	if q.size == 0 {
-		return PieceBlock{}, false
+		return BlockClaim{}, false
 	}
 	return q.blocks[q.head], true
 }
@@ -82,7 +87,7 @@ func (q *pieceBlockQueue) Clear() {
 	q.size = 0
 }
 
-func (q *pieceBlockQueue) Range(fn func(PieceBlock) bool) {
+func (q *pieceBlockQueue) Range(fn func(BlockClaim) bool) {
 	for i := range q.size {
 		if !fn(q.blocks[(q.head+i)%len(q.blocks)]) {
 			return
@@ -90,10 +95,10 @@ func (q *pieceBlockQueue) Range(fn func(PieceBlock) bool) {
 	}
 }
 
-func (q *pieceBlockQueue) Remove(pieceIndex uint32, blockIndex int) bool {
+func (q *pieceBlockQueue) Remove(pieceIndex uint32, blockIndex uint32) bool {
 	for i := range q.size {
 		index := (q.head + i) % len(q.blocks)
-		block := q.blocks[index]
+		block := q.blocks[index].Block
 		if block.PieceIndex != pieceIndex || block.BlockIndex != blockIndex {
 			continue
 		}
@@ -184,7 +189,7 @@ func newPeer(
 		scheduleRequestSignal: make(chan empty.Empty, 1),
 
 		//ResChan:   make(chan req.Response, 1),
-		myRequests:       xsync.NewMap[proto.ChunkRequest, time.Time](),
+		myRequests:       xsync.NewMap[proto.ChunkRequest, trackedRequest](),
 		myRequestHistory: xsync.NewMap[proto.ChunkRequest, empty.Empty](),
 
 		Rejected: xsync.NewMap[proto.ChunkRequest, empty.Empty](),
@@ -233,7 +238,7 @@ type peerImpl struct {
 	peerCtx                *PeerContext
 	cancel                 context.CancelFunc
 	Bitmap                 *bm.Bitmap
-	myRequests             *xsync.Map[proto.ChunkRequest, time.Time]
+	myRequests             *xsync.Map[proto.ChunkRequest, trackedRequest]
 	myRequestHistory       *xsync.Map[proto.ChunkRequest, empty.Empty]
 	lastPickDebug          atomic.Pointer[string]
 	Rejected               *xsync.Map[proto.ChunkRequest, empty.Empty]
@@ -250,7 +255,7 @@ type peerImpl struct {
 	contributedPieces      *bm.Bitmap
 	blockedPieces          *bm.LockFreeBitmap
 	Address                netip.AddrPort
-	lastPickResult         PickResult
+	lastClaims             []BlockClaim
 	rttAverage             sizedSlice[time.Duration]
 	requestQueue           pieceBlockQueue
 	lastPickAt             atomic.Int64
@@ -276,7 +281,6 @@ type peerImpl struct {
 	rttMutex               sync.RWMutex
 	wm                     sync.Mutex
 	requestMu              sync.Mutex
-	lastPickResultMu       sync.Mutex
 	extDontHaveID          gsync.AtomicUint[proto.ExtensionMessage]
 	extPexID               gsync.AtomicUint[proto.ExtensionMessage]
 	readBuf                [4]byte
@@ -302,22 +306,11 @@ func (p *peerImpl) Response(res *proto.ChunkResponse) bool {
 	return true
 }
 
-func (p *peerImpl) Request(req proto.ChunkRequest) {
-	p.requestMu.Lock()
-	if p.closed.Load() || p.isDisconnecting() || !p.reserveRequest(req) {
-		p.requestMu.Unlock()
-		return
-	}
-	p.requestMu.Unlock()
-
-	p.sendRequest(req)
-}
-
 // reserveRequest records ownership of a picked block before it is removed from
 // requestQueue. The caller must hold requestMu so Close cannot miss the ownership
 // transfer and concurrent drains cannot overbook the request limit.
-func (p *peerImpl) reserveRequest(req proto.ChunkRequest) bool {
-	_, exist := p.myRequests.LoadOrStore(req, time.Now())
+func (p *peerImpl) reserveRequest(req proto.ChunkRequest, claim BlockClaim) bool {
+	_, exist := p.myRequests.LoadOrStore(req, trackedRequest{claim: claim, sentAt: time.Now()})
 	if exist {
 		p.log.Trace().Msg("myRequests already sent")
 		return false
@@ -364,9 +357,6 @@ func (p *peerImpl) Close() {
 	p.abortAllRequestsUnsafe()
 	p.requestMu.Unlock()
 
-	// Release exclusive piece ownerships so parole peers can claim them.
-	p.d.picker.Load().ReleasePeerPieces(p.id)
-
 	// Shared state cleanup: recordDisconnect handles connectedAddrs,
 	// peerList, peer map, connection slot release, and re-request signal.
 	p.d.recordDisconnect(p)
@@ -379,23 +369,22 @@ func (p *peerImpl) Close() {
 	p.d.notifyPeersToRequest()
 }
 
-// abortAllRequestsUnsafe releases every picker claim this peer holds: both
-// in-flight requests (myRequests) and blocks still waiting in requestQueue.
-// Every claim must end exactly once (MarkAsResponded or AbortDownload);
-// dropping peer-side tracking without aborting leaves the block stuck in
-// Requested state forever. Caller must hold p.requestMu.
+// abortAllRequestsUnsafe clears peer-local tracking and releases every picker
+// claim owned by this peer, including claims already handed to resChan.
+// Caller must hold p.requestMu.
 func (p *peerImpl) abortAllRequestsUnsafe() {
-	p.myRequests.Range(func(req proto.ChunkRequest, _ time.Time) bool {
-		bi := int(req.Begin / uint32(defaultBlockSize))
-		p.peerCtx.Picker().AbortDownload(req.PieceIndex, bi)
+	p.peerCtx.Picker().ReleasePeerClaims(p.id)
+	p.myRequests.Range(func(req proto.ChunkRequest, _ trackedRequest) bool {
 		p.myRequests.Delete(req)
 		return true
 	})
-	p.requestQueue.Range(func(block PieceBlock) bool {
-		p.peerCtx.Picker().AbortDownload(block.PieceIndex, block.BlockIndex)
-		return true
-	})
 	p.requestQueue.Clear()
+}
+
+func (p *peerImpl) ClearDownloadRequests() {
+	p.requestMu.Lock()
+	p.abortAllRequestsUnsafe()
+	p.requestMu.Unlock()
 }
 
 func (p *peerImpl) sendBlockRequests() {
@@ -410,23 +399,25 @@ func (p *peerImpl) sendBlockRequests() {
 			return
 		}
 
-		block, _ := p.requestQueue.Front()
-		chunk := pieceChunk(p.d.info, block.PieceIndex, block.BlockIndex)
+		claim, _ := p.requestQueue.Front()
+		block := claim.Block
+		chunk := pieceChunk(p.d.info, block.PieceIndex, int(block.BlockIndex))
 
 		// Skip if peer is choking us (unless allowed fast).
 		if p.peerChoking.Load() && !p.allowFast.Contains(block.PieceIndex) {
 			p.requestQueue.Pop()
 			p.requestMu.Unlock()
-			p.peerCtx.Picker().AbortDownload(block.PieceIndex, block.BlockIndex)
+			p.peerCtx.Picker().ReleaseClaim(claim)
 			continue
 		}
 
 		// Reserve the request before removing it from the queue. Holding requestMu
 		// keeps Close from missing it and serializes the queue-size check
 		// across concurrent sendBlockRequests calls.
-		if !p.reserveRequest(chunk) {
+		if !p.reserveRequest(chunk, claim) {
 			p.requestQueue.Pop()
 			p.requestMu.Unlock()
+			p.peerCtx.Picker().ReleaseClaim(claim)
 			continue
 		}
 		p.requestQueue.Pop()
@@ -499,78 +490,64 @@ func (p *peerImpl) requestABlockOnce() {
 	outstanding := p.OutstandingRequests()
 	queued := p.QueueLen()
 
-	pickResult := picker.RequestABlock(
-		p.LastPickResult(),
-		desired,
-		outstanding,
-		queued,
-		p.IsChoking(),
-		p.PeerBitmap(),
-		p.FastBitmap(),
-		p.blockedPieces,
-		p.onParole.Load(),
-		p.id,
-	)
-	p.SetLastPickResult(pickResult)
-	free := pickResult.FreeBlocks
-	busy := pickResult.BusyBlocks
+	numRequests := desired - outstanding - queued
+	claims := picker.PickAndClaim(p.lastClaims, PickRequest{
+		Bitfield:      p.PeerBitmap(),
+		AllowedFast:   p.FastBitmap(),
+		BlockedPieces: p.blockedPieces,
+		PeerID:        p.id,
+		NumBlocks:     numRequests,
+		Choked:        p.IsChoking(),
+		OnParole:      p.onParole.Load(),
+	})
+	p.lastClaims = claims
 
-	if len(free) == 0 && len(busy) == 0 {
-		s := fmt.Sprintf("skip: numReq=%d (desired=%d, myReq=%d, reqQ=%d), free=%d busy=%d",
-			desired-outstanding-queued, desired, outstanding, queued, len(free), len(busy))
+	if len(claims) == 0 {
+		s := fmt.Sprintf("skip: numReq=%d (desired=%d, myReq=%d, reqQ=%d)",
+			numRequests, desired, outstanding, queued)
 		p.SetLastPickDebug(s)
 		return
 	}
 
-	// Free blocks: atomically transfer each picked block into this peer's
-	// request queue. The picker state and peer queue are updated while holding
-	// requestMu so Close cannot leave an orphaned Requested block behind.
-	for _, fb := range free {
-		p.tryEnqueuePickedBlock(picker, fb, false)
-	}
-
-	p.SetLastPickDebug(fmt.Sprintf("picked: free=%d busy=%d", len(free), len(busy)))
-
-	p.SendBlockRequests()
-
-	// Busy blocks (endgame): only when no free blocks available, at most one to avoid burst.
-	if len(free) == 0 {
-		for _, bb := range busy {
-			if !p.tryEnqueuePickedBlock(picker, bb, true) {
-				continue
-			}
-			p.SendBlockRequests()
-			return
+	enqueued := 0
+	for _, claim := range claims {
+		if p.enqueueClaim(picker, claim) {
+			enqueued++
 		}
 	}
+	p.SetLastPickDebug(fmt.Sprintf("claimed=%d enqueued=%d", len(claims), enqueued))
+	p.SendBlockRequests()
 }
 
-func (p *peerImpl) tryEnqueuePickedBlock(picker *PiecePicker, block PieceBlock, retry bool) bool {
+// enqueueClaim consumes claim: it either stores it in requestQueue or releases
+// it before returning.
+func (p *peerImpl) enqueueClaim(picker *PiecePicker, claim BlockClaim) bool {
 	p.requestMu.Lock()
 	defer p.requestMu.Unlock()
 
-	if p.closed.Load() || p.isDisconnecting() {
+	if p.closed.Load() || p.isDisconnecting() || !p.peerCtx.IsDownloading() {
+		picker.ReleaseClaim(claim)
 		return false
 	}
 
-	chunk := pieceChunk(p.d.info, block.PieceIndex, block.BlockIndex)
+	block := claim.Block
+	chunk := pieceChunk(p.d.info, block.PieceIndex, int(block.BlockIndex))
 	if _, ok := p.myRequests.Load(chunk); ok {
+		picker.ReleaseClaim(claim)
 		return false
 	}
 	alreadyQueued := false
-	p.requestQueue.Range(func(queued PieceBlock) bool {
-		alreadyQueued = queued == block
+	p.requestQueue.Range(func(queued BlockClaim) bool {
+		alreadyQueued = queued.Block == block
 		return !alreadyQueued
 	})
 	if alreadyQueued {
+		picker.ReleaseClaim(claim)
 		return false
 	}
 
-	if !picker.TryMarkAsRequesting(block.PieceIndex, block.BlockIndex, retry) {
-		return false
-	}
-	if !p.requestQueue.Push(block) {
-		picker.AbortDownload(block.PieceIndex, block.BlockIndex)
+	if !p.requestQueue.Push(claim) {
+		picker.ReleaseClaim(claim)
 		return false
 	}
 	return true
@@ -628,8 +605,9 @@ func (p *peerImpl) IsInQueue(chunk proto.ChunkRequest) bool {
 	}
 
 	found := false
-	p.requestQueue.Range(func(block PieceBlock) bool {
-		found = pieceChunk(p.d.info, block.PieceIndex, block.BlockIndex) == chunk
+	p.requestQueue.Range(func(claim BlockClaim) bool {
+		block := claim.Block
+		found = pieceChunk(p.d.info, block.PieceIndex, int(block.BlockIndex)) == chunk
 		return !found
 	})
 	return found
@@ -664,22 +642,30 @@ func (p *peerImpl) checkRequestTimeouts() {
 			now := time.Now()
 
 			// Collect timed-out block requests (per-block, not all-or-nothing).
-			var timedOutReqs []proto.ChunkRequest
-			p.myRequests.Range(func(req proto.ChunkRequest, reqTime time.Time) bool {
-				if now.Sub(reqTime) > blockTimeout {
-					timedOutReqs = append(timedOutReqs, req)
+			type timedOutRequest struct {
+				tracked trackedRequest
+				req     proto.ChunkRequest
+			}
+			var timedOutReqs []timedOutRequest
+			p.myRequests.Range(func(req proto.ChunkRequest, tracked trackedRequest) bool {
+				if now.Sub(tracked.sentAt) > blockTimeout {
+					timedOutReqs = append(timedOutReqs, timedOutRequest{req: req, tracked: tracked})
 				}
 				return true
 			})
 
 			if len(timedOutReqs) > 0 {
 				// Abort each timed-out block individually so other peers can pick them up.
-				for _, req := range timedOutReqs {
-					bi := int(req.Begin / uint32(defaultBlockSize))
-					p.peerCtx.Picker().AbortDownload(req.PieceIndex, bi)
+				for _, timeout := range timedOutReqs {
 					p.requestMu.Lock()
-					p.myRequests.Delete(req)
+					current, ok := p.myRequests.Load(timeout.req)
+					if ok && current.claim == timeout.tracked.claim {
+						p.myRequests.Delete(timeout.req)
+					}
 					p.requestMu.Unlock()
+					if ok && current.claim == timeout.tracked.claim {
+						p.peerCtx.Picker().ReleaseClaim(timeout.tracked.claim)
+					}
 				}
 
 				consecutiveTimeouts += len(timedOutReqs)
@@ -858,7 +844,8 @@ func (p *peerImpl) start(skipHandshake bool) {
 			p.peerChoking.Store(false)
 		case proto.Piece:
 			p.hadTransfer.Store(true)
-			if !p.resIsValid(event.Res) {
+			claim, ok := p.resIsValid(event.Res)
+			if !ok {
 				p.log.Trace().Msg("failed to validate response")
 				// send response without myRequests
 				return
@@ -875,13 +862,9 @@ func (p *peerImpl) start(skipHandshake bool) {
 			}
 
 			select {
-			case p.d.resChan <- chunkSubmit{res: event.Res, peerID: p.id}:
+			case p.d.resChan <- chunkSubmit{res: event.Res, peerID: p.id, claim: claim}:
 			case <-p.ctx.Done():
-				// resIsValid already consumed the request from myRequests, so
-				// Close will not find it there. Release the picker claim
-				// explicitly or the block stays Requested forever.
-				bi := int(event.Res.Begin / uint32(defaultBlockSize))
-				p.peerCtx.Picker().AbortDownload(event.Res.PieceIndex, bi)
+				p.peerCtx.Picker().ReleaseClaim(claim)
 				proto.PiecePool.Put(event.Res)
 				return
 			}
@@ -978,14 +961,13 @@ func (p *peerImpl) start(skipHandshake bool) {
 		case proto.Reject:
 			p.log.Trace().Msgf("reject %+v", event.Req)
 			p.Rejected.Store(event.Req, empty.Empty{})
-			bi := int(event.Req.Begin / uint32(defaultBlockSize))
 			p.requestMu.Lock()
-			p.myRequests.Delete(event.Req)
-			p.requestQueue.Remove(event.Req.PieceIndex, bi)
+			tracked, ok := p.myRequests.LoadAndDelete(event.Req)
 			p.requestMu.Unlock()
 
-			// Abort in the picker so other peers can request this block.
-			p.peerCtx.Picker().AbortDownload(event.Req.PieceIndex, bi)
+			if ok {
+				p.peerCtx.Picker().ReleaseClaim(tracked.claim)
+			}
 		case proto.AllowedFast:
 			if event.Index >= p.d.info.NumPieces {
 				p.log.Debug().Uint32("index", event.Index).Msg("peer send 'AllowedFast' message with invalid index")
@@ -1098,7 +1080,7 @@ func (p *peerImpl) validateRequest(req proto.ChunkRequest) bool {
 	return req.Begin+req.Length <= pieceSize
 }
 
-func (p *peerImpl) resIsValid(res *proto.ChunkResponse) bool {
+func (p *peerImpl) resIsValid(res *proto.ChunkResponse) (BlockClaim, bool) {
 	r := proto.ChunkRequest{
 		PieceIndex: res.PieceIndex,
 		Begin:      res.Begin,
@@ -1106,15 +1088,15 @@ func (p *peerImpl) resIsValid(res *proto.ChunkResponse) bool {
 	}
 
 	p.requestMu.Lock()
-	reqTime, ok := p.myRequests.LoadAndDelete(r)
+	tracked, ok := p.myRequests.LoadAndDelete(r)
 	p.requestMu.Unlock()
 	if ok {
 		p.rttMutex.Lock()
-		p.rttAverage.Push(time.Since(reqTime))
+		p.rttAverage.Push(time.Since(tracked.sentAt))
 		p.rttMutex.Unlock()
 	}
 
-	return ok
+	return tracked.claim, ok
 }
 
 type pexPeer struct {

@@ -53,12 +53,7 @@ func runIntegration(t *testing.T, numPieces, blocksPerPiece uint32, seed uint64)
 		pp.IncRefcount(i)
 	}
 
-	last := PickResult{
-		FreeBlocks: make([]PieceBlock, 0, 16),
-		BusyBlocks: make([]PieceBlock, 0, 16),
-	}
-	pieceDone := make([]int, numPieces)
-
+	last := make([]BlockClaim, 0, 16)
 	var h heap.Heap[responseChunk]
 	doneBm := bm.NewNilSafeLockFreeBitmap(d.info.TotalBlockCount())
 	pendingBm := bm.NewNilSafeLockFreeBitmap(d.info.TotalBlockCount())
@@ -68,37 +63,36 @@ func runIntegration(t *testing.T, numPieces, blocksPerPiece uint32, seed uint64)
 	const maxIters = 5000
 	for iter := 0; iter < maxIters && d.completedBm.Count() < numPieces; iter++ {
 		desired := 4 + int(blocksPerPiece*2)
-		last = pp.RequestABlock(last, desired, 0, 0, false, peerBf, nil, bm.NewLockFreeBitmap(numPieces), false, 0)
+		last = pp.PickAndClaim(last, PickRequest{
+			Bitfield:      peerBf,
+			BlockedPieces: bm.NewLockFreeBitmap(numPieces),
+			PeerID:        1,
+			NumBlocks:     desired,
+		})
 
-		if len(last.FreeBlocks) == 0 && len(last.BusyBlocks) == 0 {
+		if len(last) == 0 {
 			time.Sleep(time.Millisecond)
 			continue
 		}
 
-		pickFrom := last.FreeBlocks
-		if len(pickFrom) == 0 {
-			pickFrom = last.BusyBlocks
-		}
-		n := 1 + rng.IntN(min(len(pickFrom), int(blocksPerPiece)))
-		for i := 0; i < n && i < len(pickFrom); i++ {
-			fb := pickFrom[i]
-			pp.MarkAsRequesting(fb.PieceIndex, fb.BlockIndex)
-			if pieceDone[fb.PieceIndex] == 0 {
-				pp.AddDownloadingPiece(fb.PieceIndex)
+		n := 1 + rng.IntN(min(len(last), int(blocksPerPiece)))
+		for i, claim := range last {
+			if i >= n {
+				pp.ReleaseClaim(claim)
+				continue
 			}
-			pieceDone[fb.PieceIndex]++
-
+			fb := claim.Block
 			chunkSize := defaultBlockSize
 			if fb.PieceIndex == numPieces-1 {
 				nb := d.info.PieceBlockCount(fb.PieceIndex)
-				if fb.BlockIndex == nb-1 {
+				if fb.BlockIndex == uint32(nb-1) {
 					chunkSize = int(d.info.PieceLen(fb.PieceIndex)) - (nb-1)*defaultBlockSize
 				}
 			}
 
-			handleRes(d, &h, pc, doneBm, pendingBm, chunkSubmit{peerID: 0, res: &proto.ChunkResponse{
+			handleRes(d, &h, pc, doneBm, pendingBm, chunkSubmit{peerID: 1, claim: claim, res: &proto.ChunkResponse{
 				PieceIndex: fb.PieceIndex,
-				Begin:      uint32(fb.BlockIndex) * uint32(defaultBlockSize),
+				Begin:      fb.BlockIndex * uint32(defaultBlockSize),
 				Data:       make([]byte, chunkSize),
 			}})
 		}

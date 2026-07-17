@@ -47,7 +47,11 @@ func (d *Download) Stop() error {
 func (d *Download) DemoteToQueued() {
 	if err := d.transition(PendingDownloading); err != nil {
 		d.log.Error().Err(err).Msg("failed to demote to PendingDownloading")
+		return
 	}
+	// Flush responses already accepted before the demotion. New in-flight
+	// responses remain valid and are flushed as they arrive.
+	d.stateCond.Broadcast()
 }
 
 // PromoteFromQueued transitions a PendingDownloading torrent back to Downloading,

@@ -28,6 +28,7 @@ type PeerInterface interface {
 
 	// ── Lifecycle ────────────────────────────────────────────────────
 	Close()
+	ClearDownloadRequests()
 	Closed() bool
 	IsDisconnecting() bool
 	CloseError() error

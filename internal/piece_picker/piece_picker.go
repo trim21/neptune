@@ -14,6 +14,7 @@ import (
 	"go.uber.org/atomic"
 
 	"neptune/internal/meta"
+	"neptune/internal/pkg/assert"
 	"neptune/internal/pkg/bm"
 )
 
@@ -197,6 +198,44 @@ const priorityFactor = 3
 // while still providing enough redundancy for tail-block completion.
 const maxBlockRetries = 2
 
+const maxClaimsPerBlock = 1 + maxBlockRetries
+
+// PieceBlock identifies a block within a piece.
+type PieceBlock struct {
+	PieceIndex uint32
+	BlockIndex uint32
+}
+
+// BlockClaim is an opaque, peer-owned claim on a block. The token is kept
+// private so callers can only pass claims returned by PickAndClaim.
+type BlockClaim struct {
+	Block PieceBlock
+	token uint64
+}
+
+type claimRecord struct {
+	block PieceBlock
+	owner uint64
+}
+
+type blockClaims struct {
+	tokens [maxClaimsPerBlock]uint64
+	count  uint8
+}
+
+// PickRequest describes one atomic pick-and-claim operation.
+type PickRequest struct {
+	Bitfield         *bm.Bitmap
+	AllowedFast      *bm.Bitmap
+	BlockedPieces    *bm.LockFreeBitmap
+	SuggestedPieces  []uint32
+	PeerID           uint64
+	NumBlocks        int
+	PreferContiguous int
+	Choked           bool
+	OnParole         bool
+}
+
 type partialInfo struct {
 	blocksInPiece int
 	ratio         float64
@@ -213,8 +252,11 @@ type PiecePicker struct {
 	strategy               *atomic.Uint32
 	chunkDoneBm            *bm.Bitmap
 	missingBm              *bm.LockFreeBitmap
-	requestedBy            map[uint32]uint64 // piece → first peer to claim it (exclusive tracking)
-	retriedBlocks          map[uint32]uint8  // chunk index → retry count (capped at maxBlockRetries)
+	parolePieceOwners      map[uint32]uint64
+	activeClaims           map[uint64]claimRecord
+	claimsByBlock          map[uint32]blockClaims
+	claimsByPeer           map[uint64]map[uint64]struct{}
+	pickScratch            PickResult
 	partials               []partialInfo
 	piecePriorities        []uint32
 	downloadingPieces      []downloadingPiece
@@ -222,26 +264,28 @@ type PiecePicker struct {
 	pieces                 []uint32
 	availability           []uint16
 	info                   meta.Info
-	numWantLeft            int
-	diagSkippedDownloading int
-	downloadQueueSize      int
 	blockSize              int64
+	staleAccepts           uint64
+	downloadQueueSize      int
+	numWantLeft            int
 	diagNumWant            int
 	diagSkippedResponded   int
 	diagSkippedBitfield    int
 	diagSkippedChoked      int
 	diagSkippedBlocked     int
-	freeBlocks             int // blocks in None state across wanted pieces
+	freeBlocks             int
 	diagFreeBlocks         int
+	staleReleases          uint64
+	diagSkippedDownloading int
+	nextClaimToken         uint64
 	mu                     sync.Mutex
-	numCompletedPieces     uint32
-	numPieces              uint32
 	blocksPerPiece         uint32
-
-	// Diagnostic counters from the last PickPieces Phase 3 scan.
-	diagDirty     bool
-	dirty         bool
-	partialsDirty bool
+	numPieces              uint32
+	numCompletedPieces     uint32
+	requestsEnabled        bool
+	diagDirty              bool
+	dirty                  bool
+	partialsDirty          bool
 }
 
 // NewPiecePicker creates a new piece picker for the given torrent info.
@@ -257,22 +301,25 @@ func NewPiecePicker(info meta.Info, missingBm *bm.LockFreeBitmap, chunkDoneBm *b
 	freeBlocks := fullPieceBlocks + lastPieceBlocks
 
 	pp := &PiecePicker{
-		info:            info,
-		numPieces:       numPieces,
-		blocksPerPiece:  blocksPerPiece,
-		freeBlocks:      freeBlocks,
-		blockSize:       meta.DefaultBlockSize,
-		availability:    make([]uint16, numPieces),
-		piecePriorities: make([]uint32, numPieces),
-		pieces:          make([]uint32, numPieces),
-		requestedBy:     make(map[uint32]uint64),
-		retriedBlocks:   make(map[uint32]uint8),
-		missingBm:       missingBm,
-		chunkDoneBm:     chunkDoneBm,
-		strategy:        strategy,
-		dirty:           true,
-		partialsDirty:   true,
-		blockInfos:      newBlockStates(int(numPieces) * int(blocksPerPiece)),
+		info:              info,
+		numPieces:         numPieces,
+		blocksPerPiece:    blocksPerPiece,
+		freeBlocks:        freeBlocks,
+		blockSize:         meta.DefaultBlockSize,
+		availability:      make([]uint16, numPieces),
+		piecePriorities:   make([]uint32, numPieces),
+		pieces:            make([]uint32, numPieces),
+		parolePieceOwners: make(map[uint32]uint64),
+		activeClaims:      make(map[uint64]claimRecord),
+		claimsByBlock:     make(map[uint32]blockClaims),
+		claimsByPeer:      make(map[uint64]map[uint64]struct{}),
+		missingBm:         missingBm,
+		chunkDoneBm:       chunkDoneBm,
+		strategy:          strategy,
+		dirty:             true,
+		partialsDirty:     true,
+		blockInfos:        newBlockStates(int(numPieces) * int(blocksPerPiece)),
+		requestsEnabled:   true,
 	}
 
 	// initialize pieces array
@@ -382,6 +429,7 @@ func (pp *PiecePicker) WeHave(pieceIndex uint32) {
 
 	idx := pp.blockInfoIdx(pieceIndex)
 	nb := pp.numBlocksInPiece(pieceIndex)
+	pp.invalidatePieceClaimsUnsafe(pieceIndex)
 	for i := range int(nb) {
 		oldState := pp.blockInfos.get(idx + i)
 		switch oldState {
@@ -394,115 +442,150 @@ func (pp *PiecePicker) WeHave(pieceIndex uint32) {
 	}
 	pp.removeDownloadingPieceUnsafe(pieceIndex)
 	pp.numCompletedPieces++
-	delete(pp.requestedBy, pieceIndex)
-
-	// Clear retry tracking for all blocks in this completed piece.
-	for i := range int(nb) {
-		delete(pp.retriedBlocks, pp.chunkIndex(pieceIndex, i))
-	}
+	delete(pp.parolePieceOwners, pieceIndex)
 
 	pp.dirty = true
 }
 
-// MarkAsResponded marks a block as received from peer.
-func (pp *PiecePicker) MarkAsResponded(pieceIndex uint32, blockIndex int) {
+// EnableRequests allows PickAndClaim to create new claims.
+func (pp *PiecePicker) EnableRequests() {
 	if pp == nil {
 		return
 	}
 	pp.mu.Lock()
+	pp.requestsEnabled = true
+	pp.mu.Unlock()
+}
+
+// PauseRequests prevents new claims without releasing existing ones. It is
+// used while a download is queued so already-sent requests can still finish.
+func (pp *PiecePicker) PauseRequests() {
+	if pp == nil {
+		return
+	}
+	pp.mu.Lock()
+	pp.requestsEnabled = false
+	pp.mu.Unlock()
+}
+
+// DisableRequests prevents new claims and releases every active claim. Blocks
+// with no accepted response return to the free state.
+func (pp *PiecePicker) DisableRequests() int {
+	if pp == nil {
+		return 0
+	}
+	pp.mu.Lock()
 	defer pp.mu.Unlock()
 
-	idx := pp.blockInfoIdx(pieceIndex) + blockIndex
-	oldState := pp.blockInfos.get(idx)
-	if oldState == blockStateRequested {
-		pp.downloadQueueSize--
+	pp.requestsEnabled = false
+	released := len(pp.activeClaims)
+	for token, record := range pp.activeClaims {
+		pp.releaseClaimUnsafe(BlockClaim{Block: record.block, token: token})
 	}
-	pp.blockInfos.set(idx, blockStateResponded)
-
-	// Clear retry tracking — block is now satisfied.
-	delete(pp.retriedBlocks, pp.chunkIndex(pieceIndex, blockIndex))
-
-	// Update downloadingPiece counters
-	if dp := pp.findDownloadingPiece(pieceIndex); dp != nil {
-		if oldState != blockStateResponded {
-			dp.responded++
-			pp.partialsDirty = true
-		}
-		if oldState == blockStateRequested {
-			dp.requested--
-		}
-	}
+	clear(pp.parolePieceOwners)
+	return released
 }
 
-// MarkAsRequesting marks a free block as requested. It returns false if the
-// block changed state after it was picked.
-func (pp *PiecePicker) MarkAsRequesting(pieceIndex uint32, blockIndex int) bool {
-	return pp.TryMarkAsRequesting(pieceIndex, blockIndex, false)
-}
-
-// TryMarkAsRequesting atomically claims a block returned by PickPieces.
-// retry must be false for FreeBlocks and true for BusyBlocks. Requiring the
-// expected state prevents a stale pick result from changing a block that was
-// responded to or aborted while the caller was enqueueing it.
-func (pp *PiecePicker) TryMarkAsRequesting(pieceIndex uint32, blockIndex int, retry bool) bool {
+// AcceptResponse consumes a live claim and marks its block responded. All
+// sibling endgame claims are invalidated atomically.
+func (pp *PiecePicker) AcceptResponse(claim BlockClaim) bool {
 	if pp == nil {
 		return false
 	}
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
 
-	idx := pp.blockInfoIdx(pieceIndex) + blockIndex
-	oldState := pp.blockInfos.get(idx)
-	chunkIdx := pp.chunkIndex(pieceIndex, blockIndex)
-
-	if retry {
-		if oldState != blockStateRequested || pp.retriedBlocks[chunkIdx] >= maxBlockRetries {
-			return false
-		}
-		pp.retriedBlocks[chunkIdx]++
-		return true
+	record, ok := pp.activeClaims[claim.token]
+	if !ok || record.block != claim.Block {
+		pp.staleAccepts++
+		return false
 	}
-
-	if oldState != blockStateNone {
+	idx := pp.blockInfoIdx(claim.Block.PieceIndex) + int(claim.Block.BlockIndex)
+	assert.Equal(pp.blockInfos.get(idx), blockStateRequested, "active claim on non-requested block")
+	if pp.blockInfos.get(idx) != blockStateRequested {
+		pp.staleAccepts++
 		return false
 	}
 
-	pp.blockInfos.set(idx, blockStateRequested)
-	pp.downloadQueueSize++
-	pp.freeBlocks--
-	pp.addDownloadingPieceUnsafe(pieceIndex)
-	if dp := pp.findDownloadingPiece(pieceIndex); dp != nil {
-		dp.requested++
+	chunkIdx := pp.chunkIndex(claim.Block.PieceIndex, int(claim.Block.BlockIndex))
+	claims := pp.claimsByBlock[chunkIdx]
+	assert.NotEqual(claims.count, uint8(0), "active claim missing block index")
+	for i := range int(claims.count) {
+		token := claims.tokens[i]
+		pp.deleteClaimIndexesUnsafe(token, pp.activeClaims[token])
+	}
+
+	pp.blockInfos.set(idx, blockStateResponded)
+	pp.downloadQueueSize--
+	if dp := pp.findDownloadingPiece(claim.Block.PieceIndex); dp != nil {
+		if dp.requested > 0 {
+			dp.requested--
+		}
+		dp.responded++
+		pp.partialsDirty = true
 	}
 	return true
 }
 
-// AbortDownload releases one outstanding request that was not received.
-// Duplicate endgame requests share one global block state, so aborting one
-// copy must not free the block while another copy is still in flight.
-func (pp *PiecePicker) AbortDownload(pieceIndex uint32, blockIndex int) {
+// ReleaseClaim releases exactly one claim. It is safe to call for a stale
+// claim; false means another terminal path already consumed it.
+func (pp *PiecePicker) ReleaseClaim(claim BlockClaim) bool {
 	if pp == nil {
-		return
+		return false
 	}
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
 
-	idx := pp.blockInfoIdx(pieceIndex) + blockIndex
-	if pp.blockInfos.get(idx) != blockStateRequested {
-		// A late timeout/cancel must never roll a responded block back to None.
-		return
+	if !pp.releaseClaimUnsafe(claim) {
+		pp.staleReleases++
+		return false
 	}
+	return true
+}
 
-	chunkIdx := pp.chunkIndex(pieceIndex, blockIndex)
-	if retries := pp.retriedBlocks[chunkIdx]; retries > 0 {
-		if retries == 1 {
-			delete(pp.retriedBlocks, chunkIdx)
-		} else {
-			pp.retriedBlocks[chunkIdx] = retries - 1
+// ReleasePeerClaims releases all live claims owned by peerID and clears its
+// parole piece ownerships.
+func (pp *PiecePicker) ReleasePeerClaims(peerID uint64) int {
+	if pp == nil {
+		return 0
+	}
+	pp.mu.Lock()
+	defer pp.mu.Unlock()
+
+	claims := pp.claimsByPeer[peerID]
+	released := len(claims)
+	for token := range claims {
+		record, ok := pp.activeClaims[token]
+		if ok {
+			pp.releaseClaimUnsafe(BlockClaim{Block: record.block, token: token})
 		}
-		return
+	}
+	delete(pp.claimsByPeer, peerID)
+	for pieceIndex, owner := range pp.parolePieceOwners {
+		if owner == peerID {
+			delete(pp.parolePieceOwners, pieceIndex)
+		}
+	}
+	return released
+}
+
+func (pp *PiecePicker) releaseClaimUnsafe(claim BlockClaim) bool {
+	record, ok := pp.activeClaims[claim.token]
+	if !ok || record.block != claim.Block {
+		return false
 	}
 
+	remaining := pp.deleteClaimIndexesUnsafe(claim.token, record)
+	if remaining != 0 {
+		return true
+	}
+
+	pieceIndex := record.block.PieceIndex
+	idx := pp.blockInfoIdx(pieceIndex) + int(record.block.BlockIndex)
+	assert.Equal(pp.blockInfos.get(idx), blockStateRequested, "active claim on non-requested block")
+	if pp.blockInfos.get(idx) != blockStateRequested {
+		return true
+	}
 	pp.blockInfos.set(idx, blockStateNone)
 	pp.downloadQueueSize--
 	pp.freeBlocks++
@@ -512,20 +595,61 @@ func (pp *PiecePicker) AbortDownload(pieceIndex uint32, blockIndex int) {
 		}
 		if dp.requested == 0 && dp.responded == 0 {
 			pp.removeDownloadingPieceUnsafe(pieceIndex)
-			delete(pp.requestedBy, pieceIndex)
+			delete(pp.parolePieceOwners, pieceIndex)
+		}
+	}
+	return true
+}
+
+func (pp *PiecePicker) deleteClaimIndexesUnsafe(token uint64, record claimRecord) uint8 {
+	delete(pp.activeClaims, token)
+	if peerClaims := pp.claimsByPeer[record.owner]; peerClaims != nil {
+		delete(peerClaims, token)
+	}
+
+	chunkIdx := pp.chunkIndex(record.block.PieceIndex, int(record.block.BlockIndex))
+	claims := pp.claimsByBlock[chunkIdx]
+	found := false
+	for i := range int(claims.count) {
+		if claims.tokens[i] != token {
+			continue
+		}
+		last := int(claims.count) - 1
+		claims.tokens[i] = claims.tokens[last]
+		claims.tokens[last] = 0
+		claims.count--
+		found = true
+		break
+	}
+	assert.Equal(found, true, "active claim missing token in block index")
+	if claims.count == 0 {
+		delete(pp.claimsByBlock, chunkIdx)
+	} else {
+		pp.claimsByBlock[chunkIdx] = claims
+	}
+	return claims.count
+}
+
+func (pp *PiecePicker) invalidatePieceClaimsUnsafe(pieceIndex uint32) {
+	for blockIndex := range uint32(pp.numBlocksInPiece(pieceIndex)) {
+		chunkIdx := pp.chunkIndex(pieceIndex, int(blockIndex))
+		claims := pp.claimsByBlock[chunkIdx]
+		for i := range int(claims.count) {
+			token := claims.tokens[i]
+			pp.deleteClaimIndexesUnsafe(token, pp.activeClaims[token])
 		}
 	}
 }
 
 // IsFinished returns true if the block is finished.
-func (pp *PiecePicker) IsFinished(pieceIndex uint32, blockIndex int) bool {
+func (pp *PiecePicker) IsFinished(pieceIndex uint32, blockIndex uint32) bool {
 	if pp == nil {
 		return true
 	}
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
 
-	idx := pp.blockInfoIdx(pieceIndex) + blockIndex
+	idx := pp.blockInfoIdx(pieceIndex) + int(blockIndex)
 	return pp.blockInfos.get(idx) == blockStateResponded
 }
 
@@ -601,12 +725,6 @@ func (pp *PiecePicker) updatePiecePriority(pieceIndex uint32) {
 	pp.piecePriorities[pieceIndex] = uint32(avail+1) * priorityFactor
 }
 
-// PieceBlock represents a specific block (piece index + block index).
-type PieceBlock struct {
-	PieceIndex uint32
-	BlockIndex int
-}
-
 // PickResult holds the result of PickPieces.
 type PickResult struct {
 	// FreeBlocks are blocks not requested by any peer.
@@ -629,7 +747,7 @@ type PickResult struct {
 // It first prioritizes partial pieces (highest progress first), then uses the given strategy.
 //
 
-func (pp *PiecePicker) PickPieces(
+func (pp *PiecePicker) pickPiecesUnsafe(
 	bitfield *bm.Bitmap,
 	choked bool,
 	allowedFast *bm.Bitmap,
@@ -642,12 +760,6 @@ func (pp *PiecePicker) PickPieces(
 	// re-use the slice to avoid alloc
 	result PickResult,
 ) PickResult {
-	if pp == nil {
-		return result
-	}
-	pp.mu.Lock()
-	defer pp.mu.Unlock()
-
 	strategy := StrategyRarestFirst
 	if pp.strategy != nil {
 		strategy = PiecePickStrategy(pp.strategy.Load())
@@ -730,16 +842,16 @@ func (pp *PiecePicker) PickPieces(
 			continue
 		}
 		if onParole {
-			owner, ok := pp.requestedBy[p.pieceIndex]
+			owner, ok := pp.parolePieceOwners[p.pieceIndex]
 			if ok && owner != peerID {
 				continue // piece claimed by another peer
 			}
 		} else {
 			// Non-parole peer joining a piece owned by someone else:
 			// clear ownership so the original parole peer sees it as contested.
-			owner, ok := pp.requestedBy[p.pieceIndex]
+			owner, ok := pp.parolePieceOwners[p.pieceIndex]
 			if ok && owner != peerID {
-				delete(pp.requestedBy, p.pieceIndex)
+				delete(pp.parolePieceOwners, p.pieceIndex)
 			}
 		}
 
@@ -748,15 +860,15 @@ func (pp *PiecePicker) PickPieces(
 			switch pp.blockInfos.get(idx + i) {
 			case blockStateNone:
 				if preferContiguous <= 0 && numBlocks > 0 {
-					result.FreeBlocks = append(result.FreeBlocks, PieceBlock{p.pieceIndex, i})
+					result.FreeBlocks = append(result.FreeBlocks, PieceBlock{p.pieceIndex, uint32(i)})
 					numBlocks--
 				}
 			case blockStateRequested:
 				// busy block — only replicate in endgame, and skip already-retried blocks
 				// to prevent cascading duplicate requests across many peers.
 				if isEndgame && numBlocks > 0 {
-					if pp.retriedBlocks[pp.chunkIndex(p.pieceIndex, i)] < maxBlockRetries {
-						result.BusyBlocks = append(result.BusyBlocks, PieceBlock{p.pieceIndex, i})
+					if pp.claimsByBlock[pp.chunkIndex(p.pieceIndex, i)].count < maxClaimsPerBlock {
+						result.BusyBlocks = append(result.BusyBlocks, PieceBlock{p.pieceIndex, uint32(i)})
 					}
 				}
 			}
@@ -787,8 +899,8 @@ func (pp *PiecePicker) PickPieces(
 			}
 			for i := range int(dp.blocksInPiece) {
 				if pp.blockInfos.get(idx+i) == blockStateRequested {
-					if pp.retriedBlocks[pp.chunkIndex(dp.index, i)] < maxBlockRetries {
-						result.BusyBlocks = append(result.BusyBlocks, PieceBlock{dp.index, i})
+					if pp.claimsByBlock[pp.chunkIndex(dp.index, i)].count < maxClaimsPerBlock {
+						result.BusyBlocks = append(result.BusyBlocks, PieceBlock{dp.index, uint32(i)})
 					}
 				}
 			}
@@ -813,7 +925,7 @@ func (pp *PiecePicker) PickPieces(
 			continue // parole peers only pick unclaimed pieces
 		}
 		pp.pickBlocksFromPiece(pi, &numBlocks, &result)
-		pp.requestedBy[pi] = peerID
+		pp.parolePieceOwners[pi] = peerID
 	}
 
 	// Phase 3: rarest-first via cursor scan — single pass over pre-sorted pieces.
@@ -842,7 +954,7 @@ func (pp *PiecePicker) PickPieces(
 		}
 
 		pp.pickBlocksFromPiece(pi, &numBlocks, &result)
-		pp.requestedBy[pi] = peerID
+		pp.parolePieceOwners[pi] = peerID
 	}
 
 	// Diagnostic: record filter skip reasons when no blocks were picked.
@@ -975,13 +1087,13 @@ func (pp *PiecePicker) pickBlocksFromPiece(
 	for i := range count {
 		switch pp.blockInfos.get(idx + i) {
 		case blockStateNone:
-			result.FreeBlocks = append(result.FreeBlocks, PieceBlock{pieceIndex, i})
+			result.FreeBlocks = append(result.FreeBlocks, PieceBlock{pieceIndex, uint32(i)})
 			*numBlocks--
 			if *numBlocks <= 0 {
 				return
 			}
 		case blockStateRequested:
-			result.BusyBlocks = append(result.BusyBlocks, PieceBlock{pieceIndex, i})
+			result.BusyBlocks = append(result.BusyBlocks, PieceBlock{pieceIndex, uint32(i)})
 		}
 	}
 }
@@ -1089,6 +1201,10 @@ type PickerStats struct {
 	RespondedBlocks int
 	FreeBlocks      int
 	DownloadQueue   int
+	ActiveClaims    int
+	DuplicateClaims int
+	StaleAccepts    uint64
+	StaleReleases   uint64
 
 	// Diagnostic counters from the last empty PickPieces call (Phase 3).
 	DiagNumWant            int
@@ -1153,9 +1269,13 @@ func (pp *PiecePicker) DebugStats() PickerStats {
 	defer pp.mu.Unlock()
 
 	st := PickerStats{
-		OpenPieces:    len(pp.pieces),
-		Downloading:   len(pp.downloadingPieces),
-		DownloadQueue: pp.downloadQueueSize,
+		OpenPieces:      len(pp.pieces),
+		Downloading:     len(pp.downloadingPieces),
+		DownloadQueue:   pp.downloadQueueSize,
+		ActiveClaims:    len(pp.activeClaims),
+		DuplicateClaims: len(pp.activeClaims) - len(pp.claimsByBlock),
+		StaleAccepts:    pp.staleAccepts,
+		StaleReleases:   pp.staleReleases,
 
 		DiagNumWant:            pp.diagNumWant,
 		DiagSkippedResponded:   pp.diagSkippedResponded,
@@ -1194,6 +1314,7 @@ func (pp *PiecePicker) ResetPiece(pieceIndex uint32) {
 
 	idx := pp.blockInfoIdx(pieceIndex)
 	nb := pp.numBlocksInPiece(pieceIndex)
+	pp.invalidatePieceClaimsUnsafe(pieceIndex)
 
 	// Count before reset: blocks that were NOT None get added to freeBlocks.
 	noneBefore := pp.blockInfos.countNone(idx, int(nb))
@@ -1224,12 +1345,7 @@ func (pp *PiecePicker) ResetPiece(pieceIndex uint32) {
 	}
 
 	// Clear exclusive ownership so the piece can be re-claimed.
-	delete(pp.requestedBy, pieceIndex)
-
-	// Clear retry tracking for all blocks in this piece.
-	for i := range int(nb) {
-		delete(pp.retriedBlocks, pp.chunkIndex(pieceIndex, i))
-	}
+	delete(pp.parolePieceOwners, pieceIndex)
 
 	pp.dirty = true
 }
@@ -1248,8 +1364,10 @@ func (pp *PiecePicker) ResetAll() {
 	pp.downloadQueueSize = 0
 	pp.freeBlocks = int(pp.blocksPerPiece)*int(pp.numPieces-1) + int(pp.numBlocksInPiece(pp.numPieces-1))
 	pp.numCompletedPieces = 0
-	pp.requestedBy = make(map[uint32]uint64)
-	pp.retriedBlocks = make(map[uint32]uint8)
+	clear(pp.parolePieceOwners)
+	clear(pp.activeClaims)
+	clear(pp.claimsByBlock)
+	clear(pp.claimsByPeer)
 	pp.dirty = true
 	pp.partialsDirty = true
 }
@@ -1332,20 +1450,4 @@ func (pp *PiecePicker) debugDumpUnsafe() string {
 	}
 
 	return buf.String()
-}
-
-// ReleasePeerPieces clears requestedBy entries for a disconnecting peer,
-// allowing other peers (including parole) to claim those pieces.
-func (pp *PiecePicker) ReleasePeerPieces(peerID uint64) {
-	if pp == nil {
-		return
-	}
-	pp.mu.Lock()
-	defer pp.mu.Unlock()
-
-	for pi, owner := range pp.requestedBy {
-		if owner == peerID {
-			delete(pp.requestedBy, pi)
-		}
-	}
 }

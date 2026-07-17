@@ -91,18 +91,38 @@ func (e *TransitionError) userMessage() string {
 }
 
 func (d *Download) transition(to State) error {
-	for {
-		old := State(d.state.Load())
-		if old == to {
-			return nil
-		}
-		if !validTransition(old, to) {
-			return &TransitionError{From: old, To: to}
-		}
-		if d.state.CompareAndSwap(uint32(old), uint32(to)) {
-			return nil
+	d.transitionMu.Lock()
+	defer d.transitionMu.Unlock()
+
+	old := State(d.state.Load())
+	if old == to {
+		return nil
+	}
+	if !validTransition(old, to) {
+		return &TransitionError{From: old, To: to}
+	}
+
+	picker := d.picker.Load()
+	if old != Downloading && to == Downloading {
+		picker.EnableRequests()
+	}
+	d.state.Store(uint32(to))
+
+	if old == Downloading && to == PendingDownloading {
+		picker.PauseRequests()
+	}
+	oldAcceptsResponses := old == Downloading || old == PendingDownloading
+	newAcceptsResponses := to == Downloading || to == PendingDownloading
+	if oldAcceptsResponses && !newAcceptsResponses {
+		picker.DisableRequests()
+		if d.peers != nil {
+			d.peers.Range(func(_ uint64, p Peer) bool {
+				p.ClearDownloadRequests()
+				return true
+			})
 		}
 	}
+	return nil
 }
 
 func validTransition(from, to State) bool {
@@ -112,7 +132,7 @@ func validTransition(from, to State) bool {
 	case Downloading:
 		return to == Stopped || to == Seeding || to == Error || to == Checking || to == Moving || to == PendingDownloading
 	case PendingDownloading:
-		return to == Downloading || to == Stopped || to == Checking || to == Error
+		return to == Downloading || to == Seeding || to == Stopped || to == Checking || to == Error
 	case Seeding:
 		return to == Stopped || to == Error || to == Checking || to == Moving
 	case Checking:
@@ -178,6 +198,7 @@ type Download struct {
 	selectedSize           atomic.Int64
 	unchokeCycleOffset     int
 	queueWeight            atomic.Int64
+	transitionMu           sync.Mutex
 	bannedAddrsMu          sync.Mutex
 	corruptedPiecesMu      sync.Mutex
 	normalChunkLen         uint32
@@ -191,6 +212,7 @@ type Download struct {
 type chunkSubmit struct {
 	res    *proto.ChunkResponse
 	peerID uint64
+	claim  BlockClaim
 }
 
 // downloadState groups mutable fields that must be accessed under s.mu.

@@ -85,6 +85,7 @@ func ResumeFromData(sess *session.Session, data []byte) (*Download, error) {
 		d.state.Store(uint32(Seeding))
 	} else {
 		d.state.Store(uint32(Downloading))
+		d.picker.Load().EnableRequests()
 	}
 	d.AddAt = r.AddAt.Time
 	d.completedAt.Store(r.CompletedAt.UnixNano())

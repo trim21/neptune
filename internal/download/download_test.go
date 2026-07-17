@@ -101,11 +101,8 @@ func TestRequestABlock_QueueFullWithQueued(t *testing.T) {
 	// desiredSize=8, outstanding=4, queued=4 → numRequests=0
 	p.setDesiredSize(8)
 	p.setOutstanding(4)
-	p.queued = []PieceBlock{
-		{PieceIndex: 0, BlockIndex: 0},
-		{PieceIndex: 0, BlockIndex: 1},
-		{PieceIndex: 0, BlockIndex: 2},
-		{PieceIndex: 0, BlockIndex: 3},
+	p.queued = []BlockClaim{
+		{}, {}, {}, {},
 	}
 
 	p.requestABlock()
@@ -123,7 +120,7 @@ func TestRequestABlock_IsInQueueSkipsDuplicates(t *testing.T) {
 
 	// Record what block was enqueued and add it to in-queue set.
 	firstBlock := p.enqueuedBlocks[0]
-	ch := pieceChunk(d.info, firstBlock.PieceIndex, firstBlock.BlockIndex)
+	ch := pieceChunk(d.info, firstBlock.PieceIndex, int(firstBlock.BlockIndex))
 	p.addToQueue(ch)
 
 	// Now the piece is in downloadingPieces. Second call enters partial pieces
@@ -177,9 +174,16 @@ func TestRequestABlock_EndgameBusyBlocks(t *testing.T) {
 	// as requested. Block 0 stays free → 1 free + 3 busy blocks.
 	busyPiece := uint32(4)
 	picker.AddDownloadingPiece(busyPiece)
-	nb := d.info.PieceBlockCount(busyPiece)
-	for bi := 1; bi < nb; bi++ {
-		picker.MarkAsRequesting(busyPiece, bi)
+	otherClaims := picker.PickAndClaim(nil, PickRequest{
+		Bitfield:      p.PeerBitmap(),
+		BlockedPieces: p.blockedPieces,
+		PeerID:        99,
+		NumBlocks:     d.info.PieceBlockCount(busyPiece),
+	})
+	for _, claim := range otherClaims {
+		if claim.Block.BlockIndex == 0 {
+			picker.ReleaseClaim(claim)
+		}
 	}
 
 	// Reset tracking
@@ -190,8 +194,7 @@ func TestRequestABlock_EndgameBusyBlocks(t *testing.T) {
 	p.requestABlock()
 
 	// In endgame, the mixed piece (1 free + 3 busy) returns BusyBlocks.
-	require.Empty(t, p.lastPickRes.BusyBlocks,
-		"BusyBlocks only with isEndgame; here free blocks exist so busy not needed yet")
+	require.Zero(t, picker.DebugStats().DuplicateClaims)
 	// The free block should be enqueued.
 	require.NotEmpty(t, p.enqueuedBlocks, "should enqueue the free block")
 
@@ -202,7 +205,7 @@ func TestRequestABlock_EndgameBusyBlocks(t *testing.T) {
 
 	p.requestABlock()
 
-	require.NotEmpty(t, p.lastPickRes.BusyBlocks, "should have busy blocks in endgame")
+	require.NotZero(t, picker.DebugStats().DuplicateClaims, "should create a named duplicate claim in endgame")
 	require.NotEmpty(t, p.enqueuedBlocks, "should enqueue busy block in endgame")
 }
 

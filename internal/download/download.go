@@ -105,14 +105,8 @@ func (d *Download) backgroundResHandler() {
 				pending.Init(totalBlocks)
 			}
 		case res := <-d.resChan:
-			if d.GetState() != Downloading {
-				// The peer read loop already consumed this request from
-				// myRequests (resIsValid), so no timeout/close/reject path
-				// will ever release the picker claim. Abort it explicitly,
-				// otherwise the block stays Requested forever and the piece
-				// can never complete after resuming.
-				bi := int(res.res.Begin / uint32(defaultBlockSize))
-				d.picker.Load().AbortDownload(res.res.PieceIndex, bi)
+			if !d.IsDownloading() {
+				d.picker.Load().ReleaseClaim(res.claim)
 				proto.PiecePool.Put(res.res)
 				drainHeap(d, &h, pc, done, pending)
 				continue
@@ -120,7 +114,8 @@ func (d *Download) backgroundResHandler() {
 
 			handleRes(d, &h, pc, done, pending, res)
 
-			// Handle the case where state changed during handleRes.
+			// Queued downloads accept in-flight responses but flush them
+			// immediately instead of retaining an in-memory response heap.
 			if d.GetState() != Downloading && h.Len() > 0 {
 				drainHeap(d, &h, pc, done, pending)
 			}
@@ -163,9 +158,18 @@ func handleRes(d *Download, h *heap.Heap[responseChunk], pc *peerContributors, d
 	// This order prevents the global limiter from accumulating burst while the
 	// per-torrent limiter blocks, avoiding boom-bust oscillation.
 	if err := d.session.DownloadLimiter.Wait(d.ctx, len(res.Data)); err != nil {
+		d.picker.Load().ReleaseClaim(submit.claim)
+		proto.PiecePool.Put(res)
 		return
 	}
 	if err := d.downloadLimiter.Wait(d.ctx, len(res.Data)); err != nil {
+		d.picker.Load().ReleaseClaim(submit.claim)
+		proto.PiecePool.Put(res)
+		return
+	}
+	if !d.IsDownloading() {
+		d.picker.Load().ReleaseClaim(submit.claim)
+		proto.PiecePool.Put(res)
 		return
 	}
 
@@ -176,6 +180,8 @@ func handleRes(d *Download, h *heap.Heap[responseChunk], pc *peerContributors, d
 	// in endgame mode we may receive duplicated response, just ignore them
 	if d.completedBm.Contains(res.PieceIndex) {
 		d.wastedStale.Add(int64(len(res.Data)))
+		d.picker.Load().ReleaseClaim(submit.claim)
+		proto.PiecePool.Put(res)
 		return
 	}
 
@@ -183,6 +189,13 @@ func handleRes(d *Download, h *heap.Heap[responseChunk], pc *peerContributors, d
 	// (endgame race). Overwriting would replace the first peer's data.
 	cPi := res.Begin/defaultBlockSize + res.PieceIndex*d.normalChunkLen
 	if done.Contains(cPi) {
+		d.wastedDupe.Add(int64(len(res.Data)))
+		d.picker.Load().ReleaseClaim(submit.claim)
+		proto.PiecePool.Put(res)
+		return
+	}
+
+	if !d.picker.Load().AcceptResponse(submit.claim) {
 		d.wastedDupe.Add(int64(len(res.Data)))
 		proto.PiecePool.Put(res)
 		return
@@ -208,10 +221,6 @@ func handleRes(d *Download, h *heap.Heap[responseChunk], pc *peerContributors, d
 	pending.Set(c.pi)
 	d.pendingBytes.Add(int64(len(res.Data)))
 
-	// Mark block as writing in the picker
-	blockIndex := int(res.Begin / uint32(defaultBlockSize))
-	d.picker.Load().MarkAsResponded(res.PieceIndex, blockIndex)
-
 	h.Push(c)
 
 	// Check if this chunk completes a piece — extract and flush early.
@@ -231,8 +240,8 @@ func handleRes(d *Download, h *heap.Heap[responseChunk], pc *peerContributors, d
 		return
 	}
 
-	// Refill request queues only after the picker has observed this response.
-	// Scheduling from the peer read loop races ahead of MarkAsResponded and can
+	// Refill request queues only after the picker has accepted this response.
+	// Scheduling from the peer read loop races ahead of AcceptResponse and can
 	// see a full queue, leaving no later event to request the next block.
 	d.notifyPeersToRequest()
 

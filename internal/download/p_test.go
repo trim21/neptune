@@ -91,26 +91,26 @@ func TestPieceBlockQueueWrapAround(t *testing.T) {
 	var q pieceBlockQueue
 
 	for i := range maxRequestQueue {
-		require.True(t, q.Push(PieceBlock{PieceIndex: uint32(i), BlockIndex: i}))
+		require.True(t, q.Push(BlockClaim{Block: PieceBlock{PieceIndex: uint32(i), BlockIndex: uint32(i)}}))
 	}
-	require.False(t, q.Push(PieceBlock{}))
+	require.False(t, q.Push(BlockClaim{}))
 
 	for i := range maxRequestQueue / 2 {
 		block, ok := q.Front()
 		require.True(t, ok)
-		require.Equal(t, uint32(i), block.PieceIndex)
+		require.Equal(t, uint32(i), block.Block.PieceIndex)
 		q.Pop()
 	}
 
 	for i := range maxRequestQueue / 2 {
 		value := maxRequestQueue + i
-		require.True(t, q.Push(PieceBlock{PieceIndex: uint32(value), BlockIndex: value}))
+		require.True(t, q.Push(BlockClaim{Block: PieceBlock{PieceIndex: uint32(value), BlockIndex: uint32(value)}}))
 	}
 
 	for i := maxRequestQueue / 2; i < maxRequestQueue+maxRequestQueue/2; i++ {
 		block, ok := q.Front()
 		require.True(t, ok)
-		require.Equal(t, uint32(i), block.PieceIndex)
+		require.Equal(t, uint32(i), block.Block.PieceIndex)
 		q.Pop()
 	}
 
@@ -123,28 +123,28 @@ func TestPieceBlockQueueRemoveWrappedEntry(t *testing.T) {
 	var q pieceBlockQueue
 
 	for i := range maxRequestQueue {
-		require.True(t, q.Push(PieceBlock{PieceIndex: uint32(i), BlockIndex: i}))
+		require.True(t, q.Push(BlockClaim{Block: PieceBlock{PieceIndex: uint32(i), BlockIndex: uint32(i)}}))
 	}
 	for range maxRequestQueue - 2 {
 		q.Pop()
 	}
-	require.True(t, q.Push(PieceBlock{PieceIndex: 2000, BlockIndex: 2000}))
-	require.True(t, q.Push(PieceBlock{PieceIndex: 2001, BlockIndex: 2001}))
+	require.True(t, q.Push(BlockClaim{Block: PieceBlock{PieceIndex: 2000, BlockIndex: 2000}}))
+	require.True(t, q.Push(BlockClaim{Block: PieceBlock{PieceIndex: 2001, BlockIndex: 2001}}))
 
 	require.True(t, q.Remove(1999, 1999))
 	require.False(t, q.Remove(42, 42))
 
 	var got []uint32
-	q.Range(func(block PieceBlock) bool {
-		got = append(got, block.PieceIndex)
+	q.Range(func(claim BlockClaim) bool {
+		got = append(got, claim.Block.PieceIndex)
 		return true
 	})
 	require.Equal(t, []uint32{1998, 2000, 2001}, got)
 
 	q.Clear()
 	require.Zero(t, q.Len())
-	require.True(t, q.Push(PieceBlock{PieceIndex: 1, BlockIndex: 1}))
+	require.True(t, q.Push(BlockClaim{Block: PieceBlock{PieceIndex: 1, BlockIndex: 1}}))
 	block, ok := q.Front()
 	require.True(t, ok)
-	require.Equal(t, uint32(1), block.PieceIndex)
+	require.Equal(t, uint32(1), block.Block.PieceIndex)
 }

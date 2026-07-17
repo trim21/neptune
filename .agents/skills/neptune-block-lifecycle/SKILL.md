@@ -1,171 +1,98 @@
 ---
 name: neptune-block-lifecycle
 description: >
-  Complete lifecycle of a block in Neptune's BitTorrent download pipeline: None
-  → Requested → Responded → disk write → hash verification (completed or
-  rolled back). Covers piecePicker, peer, backgroundResHandler, and checkPiece
-  module interactions. Useful for understanding or debugging the download flow.
+  Complete lifecycle of a named block claim in Neptune's BitTorrent pipeline:
+  free, claimed, response accepted, disk write, and hash verification.
 ---
 
 # Block Lifecycle
 
 > Key source files:
-> - `internal/download/piece_picker.go` — block state machine + picker logic
-> - `internal/download/download.go` — response handling, disk write, hash verification
-> - `internal/download/p.go` — peer lifecycle, request/response send & receive
-> - `internal/download/peer_methods.go` — peer interface method implementations
+> - `internal/piece_picker/piece_picker.go` - block state and claim indexes
+> - `internal/piece_picker/request_ablock.go` - atomic selection and claiming
+> - `internal/download/p.go` - peer queue and wire-request tracking
+> - `internal/download/download.go` - response acceptance, write, and verification
 
-## State Values
+## State And Ownership
+
+Blocks retain the compact 2-bit state representation:
 
 ```go
-blockStateNone      blockState = 0  // free, not yet requested from any peer
-blockStateRequested              = 1  // Request sent, waiting for Piece response
-blockStateResponded              = 2  // Piece data received, waiting for disk write
+blockStateNone      // free
+blockStateRequested // at least one live named claim
+blockStateResponded // one response accepted; awaiting write/hash verification
 ```
 
-Stored in `blockStates` (2 bits per block, 4 blocks per byte). There is no independent "completed" state for blocks — completion is tracked at the piece level by `completedBm` after hash verification passes.
+Ownership is sparse and exists only for live requests:
 
-## Global Data Flow
-
-```
-requestABlock()           sendBlockRequests()      peer event loop               backgroundResHandler()
-    │                          │                      │                           │
-    ├─ pickPieces()            │                      │                           │
-    │  returns freeBlocks      │                      │                           │
-    ├─ EnqueueBlock()          │                      │                           │
-    │  → requestQueue          │                      │                           │
-    ├─ markAsRequesting()      │                      │                           │
-    │  None → Requested        │                      │                           │
-    │                          ├─ Request() wire msg   │                           │
-    │                          │  → myRequests         ├─ Piece msg received ─────┤
-    │                          │                      │   resIsValid()             │
-    │                          │                      │   → resChan                │
-    │                          │                      │                            ├─ markAsResponded()
-    │                          │                      │                            │   Requested → Responded
-    │                          │                      │                            ├─ chunk.heap.Push()
-    │                          │                      │                            ├─ flushContiguousFromHeap()
-    │                          │                      │                            │   store.WriteChunk()
-    │                          │                      │                            ├─ checkPiece()
-    │                          │                      │                            │   VerifyPiece(hash)
-    │                          │                      │                            ├─ ✅: completedBm.Set()
-    │                          │                      │                            │      weHave() → remove piece
-    │                          │                      │                            ├─ ❌: resetPiece()
-    │                          │                      │                            │      back to None, retry
+```text
+token -> {owner peer ID, piece/block}
+global block index -> up to three tokens (original + two endgame duplicates)
+peer ID -> owned token set
 ```
 
-## Phase 1: None → Requested
+Tokens increase monotonically and are not reset. A late timeout, reject, or
+response therefore cannot terminate a newer claim for the same peer/block.
 
-**Entry point**: `download.requestABlock(p)`
+## Request Flow
 
-1. **Calculate demand**: `desiredQueueSize - myRequests - requestQueue` determines how many more blocks to request.
-2. **Pick blocks**: `piecePicker.pickPieces()` selects blocks by strategy:
-   - **Startup mode** (0 completed pieces, no downloading pieces): randomly pick block 0 of a medium-rarity piece.
-   - **Phase 1 — partial pieces**: prioritize continuing partially-downloaded pieces (highest completion ratio first).
-   - **Phase 2 — suggested pieces**: pieces suggested by the peer.
-   - **Phase 3 — rarest-first / sequential**: scan the global priority array `pp.pieces` by strategy.
-   - Returns two categories: `freeBlocks` (idle) and `busyBlocks` (already requested by other peers, used for endgame replication).
-3. **Enqueue**: `p.EnqueueBlock()` → appends to `peerImpl.requestQueue` (peer-local queue).
-4. **Global mark**: `picker.markAsRequesting()`:
-   - `blockInfos[idx] = blockStateRequested`
-   - `downloadQueueSize++`
-   - `downloadingPiece.requested++`
-   - If the piece is not yet in `downloadingPieces`, calls `addDownloadingPiece()`
-5. **Send**: `p.SendBlockRequests()` → `sendBlockRequests()`:
-   - Dequeues from `requestQueue` one by one, calls `p.Request(chunk)`
-   - Records in `myRequests` map (key = ChunkRequest, value = time.Time, for timeout detection)
-   - Sends wire message via `sendEventX(Event{Event: proto.Request, Req: req})`
-
-## Phase 2: Requested → Responded
-
-**Entry point**: peer `start()` event loop receives `proto.Piece` event
-
-6. **Validation**: `resIsValid()` does `LoadAndDelete` from `myRequests`, verifying this is a block we actually requested, and records RTT.
-7. **Delivery**: `p.d.resChan <- event.Res` places the response into the global channel.
-8. **Mark Responded**: `backgroundResHandler()` → `handleRes()`:
-   - **Rate limiting**: global limiter first, then per-torrent limiter.
-   - `picker.markAsResponded(pieceIndex, blockIndex)`:
-     - `blockInfos[idx] = blockStateResponded`
-     - `downloadQueueSize--`
-     - `downloadingPiece.requested--`
-     - `downloadingPiece.responded++`
-   - Pushes into sorted heap: `d.chunk.heap.Push(responseChunk{...})`, sorted by global chunk ID.
-
-## Phase 3: Responded → Disk Write
-
-**Trigger conditions** (bottom of `handleRes`):
-- All blocks of a piece have arrived (in heap or already done) → `handlePieceFromHeap()`
-- Heap ≥ 1000 or oldest chunk older than 5 seconds → `flushContiguousFromHeap()`
-
-9. **Coalesced write**: `flushContiguousFromHeap()`:
-   - Pops the head from heap, merges up to 10 contiguous chunks (reducing syscalls)
-   - Calls `d.store.WriteChunk(pieceIdx, begin, data)` to write to disk
-   - Updates chunk bitmap: `d.chunk.done.Set(pi)`, `d.chunk.pending.Remove(pi)`
-
-## Phase 4: Hash Verification → Final State
-
-**Entry point**: `checkPieceBitmapDone()` detects all chunks of a piece have been written → `checkPiece()`
-
-10. **Verify**: `d.store.VerifyPiece(pieceIndex, hash)` computes SHA1.
-
-### ✅ Passes → Completed
-
-- `d.completedBm.Set(pieceIndex)` — piece-level completion marker
-- `picker.weHave(pieceIndex)`:
-  - All block states for the piece → `blockStateResponded`
-  - Removed from `downloadingPieces`
-  - `numCompletedPieces++`
-- Sends `Have` message to all peers
-- Triggers `scheduleRequestSignal` so other peers can request new blocks
-- Checks if fully complete → `checkDone()` → transitions to `Seeding`, releases picker
-
-### ❌ Fails → Back to None
-
-- `picker.resetPiece(pieceIndex)`:
-  - All block states for the piece → `blockStateNone`
-  - `downloadQueueSize` adjusted accordingly
-  - `downloadingPiece.responded = 0; requested = 0`
-  - **Keeps the downloadingPiece record** — prevents pickPieces from entering startup mode and randomly picking a different piece, ensuring this piece is re-prioritized
-- Chunk bitmap bits for this piece all cleared (`d.chunk.done.Remove(i)`)
-- Records corrupt count
-- Triggers `scheduleRequestSignal` to re-schedule
-
-## Other Termination Paths
-
-> **Invariant**: every picker claim (Requested mark, or a `retriedBlocks`
-> increment for an endgame duplicate) must end exactly once — via
-> `markAsResponded()` or `abortDownload()`. Once the peer read loop consumes a
-> request from `myRequests` (`resIsValid`), timeout/close/reject will never
-> see it again, so any path that drops the response afterwards must abort the
-> claim explicitly, or the block stays Requested forever and the piece can
-> never complete.
-
-| Path | Mechanism |
-|---|---|
-| **Timeout** (30s) | `checkRequestTimeouts()` iterates `myRequests`; any request stale >30s → `abortDownload()` → `blockStateNone` |
-| **Reject** | Peer sends `proto.Reject` → `abortDownload()` + remove from `requestQueue` |
-| **Peer disconnect** | `peerImpl.Close()` → `abortAllRequestsLocked()` aborts `myRequests` + `requestQueue` |
-| **Snub** | 5 consecutive timeouts → marks peer as snubbed, `abortAllRequestsLocked()` aborts all in-flight **and queued** requests, desiredQueueSize drops to 1 |
-| **State leaves Downloading** (Stop / queue demote / Moving) | `backgroundResHandler()` drops the response but first calls `abortDownload()` for its block |
-| **Peer ctx canceled mid-delivery** | `resChan` send loses to `<-p.ctx.Done()` → `abortDownload()` before dropping the response |
-
-## Key Data Structure Relationships
-
+```text
+peer scheduler
+  -> PiecePicker.PickAndClaim(peer, capacity)
+       selection and claim registration occur under one picker lock
+  -> requestQueue stores BlockClaim
+  -> myRequests stores {BlockClaim, sentAt} before sending Request
+  -> Piece response removes and returns that exact BlockClaim
+  -> chunkSubmit carries the claim to backgroundResHandler
+  -> PiecePicker.AcceptResponse(claim)
+  -> pending heap -> disk write -> piece hash verification
 ```
-piecePicker
-├── blockInfos     [][]2bits      global block state (None/Requested/Responded)
-├── downloadingPieces []          in-flight piece progress tracking
-├── pieces         []uint32       candidate piece priority array
-├── completedBm    *Bitmap        piece-level completion marker (shared with Download)
-└── availability   []uint16       per-piece replica count across all peers
 
-peerImpl
-├── requestQueue   []pieceBlock                blocks to send (marked Requested, not yet on wire)
-├── myRequests     map[ChunkRequest]time.Time  requests already sent on wire
-└── Bitmap         *Bitmap                     pieces this peer has
+Production code must never reconstruct ownership from piece/block coordinates.
+Queue entries, wire tracking, timeout, reject, and response paths all carry the
+original `BlockClaim`.
 
-Download
-├── chunk.heap     Heap[responseChunk]         responses waiting for disk write
-├── chunk.done     Bitmap                      chunks already written to disk
-├── chunk.pending  Bitmap                      chunks currently in heap
-└── completedBm    *Bitmap                     pieces that passed hash verification
-```
+## Terminal Operations
+
+- `AcceptResponse(claim)` accepts one live response, moves the block to
+  Responded, and invalidates every sibling endgame claim atomically.
+- `ReleaseClaim(claim)` releases only that token. The block returns to None
+  only after its final live claim is released.
+- `ReleasePeerClaims(peerID)` releases queued, in-flight, and response-handoff
+  claims owned by a peer.
+- `PauseRequests()` prevents new claims while preserving live claims when a
+  Download moves from Downloading to PendingDownloading.
+- `DisableRequests()` prevents new claims and releases all live claims when a
+  Download leaves both Downloading and PendingDownloading.
+
+False from `AcceptResponse` or `ReleaseClaim` means the token is stale. This is
+normal for late endgame responses and racing termination paths; it must not
+modify block state.
+
+## Termination Paths
+
+- Timeout/reject/choke/queue failure: remove the exact peer-local entry, then
+  call `ReleaseClaim` with its stored token.
+- Peer close or snub: under `requestMu`, call `ReleasePeerClaims`, clear
+  `myRequests`, and clear `requestQueue`.
+- Download becomes PendingDownloading: pause new claims but continue accepting,
+  writing, and verifying responses for existing claims.
+- Download leaves Downloading/PendingDownloading: serialize the transition,
+  call `DisableRequests`, and clear each peer's download-side tracking while
+  keeping the connections.
+- Accepted response: sibling tokens become stale immediately; their peer-local
+  entries disappear later through response, timeout, or bulk clear.
+- Hash succeeds: `WeHave` marks the piece Responded and invalidates claims.
+- Hash fails: `ResetPiece` invalidates claims and returns blocks to None.
+- Recheck: `ResetAll` clears block state/indexes without resetting token IDs.
+
+## Invariants
+
+1. Requested implies at least one entry in the block claim index.
+2. Every active token appears in token, block, and peer indexes exactly once.
+3. Multiple claims produce one Requested -> Responded transition, or return to
+   None only after the last release.
+4. Peer-local request deletion and claim extraction occur under `requestMu`, so
+   timeout/reject/response races have one winner.
+5. PendingDownloading creates no new claims but may retain live claims until
+   response, timeout, peer close, or a terminal state transition.

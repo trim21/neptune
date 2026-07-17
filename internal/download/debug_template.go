@@ -280,12 +280,12 @@ func BuildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 	data.PickerText = fmt.Sprintf(
 		"picker: %d open pieces, %d downloading pieces\n"+
 			"blocks: %d free, %d requested, %d responded (total %d)\n"+
-			"downloadQueue: %d\n"+
+			"downloadQueue: %d; claims: %d active, %d duplicate, %d stale responses, %d stale releases\n"+
 			"rate: dl=%s/s peer_sum=%s/s (ratio %.2f)\n"+
 			"total: dl=%s peer_sum=%s",
 		st.OpenPieces, st.Downloading,
 		st.FreeBlocks, st.RequestedBlocks, st.RespondedBlocks, totalBlocks,
-		st.DownloadQueue,
+		st.DownloadQueue, st.ActiveClaims, st.DuplicateClaims, st.StaleAccepts, st.StaleReleases,
 		humanize.IBytes(uint64(dlRate)), humanize.IBytes(uint64(peerTotalCurRate)),
 		float64(peerTotalCurRate)/float64(max(dlRate, 1)),
 		humanize.IBytes(uint64(dlTotal)), humanize.IBytes(uint64(peerTotalBytes)),

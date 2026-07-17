@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"neptune/internal/piece_store"
+	"neptune/internal/pkg/bm"
 	"neptune/internal/proto"
 )
 
@@ -31,11 +32,11 @@ func TestDroppedResponseReleasesPickerClaim(t *testing.T) {
 	d := newTestDownload(t, numPieces, blocksPerPiece, piece_store.NewMemStore)
 
 	picker := d.picker.Load()
-	require.True(t, picker.TryMarkAsRequesting(0, 0, false))
+	claim := claimBlockForTest(t, d, 0, 0, 1)
 	require.Equal(t, 1, picker.DebugStats().DownloadQueue)
 
 	// Download leaves Downloading before the in-flight response is handled.
-	d.state.Store(uint32(Stopped))
+	require.NoError(t, d.transition(Stopped))
 
 	d.resChan = make(chan chunkSubmit, 1)
 	go d.backgroundResHandler()
@@ -46,6 +47,7 @@ func TestDroppedResponseReleasesPickerClaim(t *testing.T) {
 			Data: make([]byte, defaultBlockSize),
 		},
 		peerID: 1,
+		claim:  claim,
 	}
 
 	require.Eventually(t, func() bool {
@@ -72,16 +74,17 @@ func TestAbortAllRequestsLockedReleasesClaims(t *testing.T) {
 	p := &peerImpl{
 		peerCtx:    d.newPeerContext(),
 		log:        zerolog.Nop(),
-		myRequests: xsync.NewMap[proto.ChunkRequest, time.Time](),
+		myRequests: xsync.NewMap[proto.ChunkRequest, trackedRequest](),
+		id:         1,
 	}
 
 	// One block in flight (on the wire, tracked in myRequests).
-	require.True(t, picker.TryMarkAsRequesting(0, 0, false))
-	p.myRequests.Store(pieceChunk(d.info, 0, 0), time.Now())
+	claim0 := claimBlockForTest(t, d, 0, 0, p.id)
+	p.myRequests.Store(pieceChunk(d.info, 0, 0), trackedRequest{claim: claim0, sentAt: time.Now()})
 
 	// One block queued locally (marked Requested, not yet sent).
-	require.True(t, picker.TryMarkAsRequesting(0, 1, false))
-	require.True(t, p.requestQueue.Push(PieceBlock{PieceIndex: 0, BlockIndex: 1}))
+	claim1 := claimBlockForTest(t, d, 0, 1, p.id)
+	require.True(t, p.requestQueue.Push(claim1))
 
 	p.requestMu.Lock()
 	p.abortAllRequestsUnsafe()
@@ -93,4 +96,76 @@ func TestAbortAllRequestsLockedReleasesClaims(t *testing.T) {
 	require.Equal(t, numPieces*blocksPerPiece, st.FreeBlocks)
 	require.Zero(t, p.myRequests.Size())
 	require.Zero(t, p.requestQueue.Len())
+}
+
+func TestLeavingDownloadingClearsNamedClaims(t *testing.T) {
+	states := []State{Stopped, Seeding, Checking, Moving, Error}
+	for _, state := range states {
+		t.Run(state.String(), func(t *testing.T) {
+			d := newTestDownload(t, 2, 4, piece_store.NewMemStore)
+			peer := newMockPeer()
+			peer.dl = d
+			peer.info = d.info
+			peer.setNumPieces(d.info.NumPieces)
+			peer.bitmap.Fill()
+			d.peers.Store(peer.ID(), peer)
+
+			claim := claimBlockForTest(t, d, 0, 0, peer.ID())
+			peer.queued = append(peer.queued, claim)
+			require.NoError(t, d.transition(state))
+
+			stats := d.picker.Load().DebugStats()
+			require.Zero(t, stats.ActiveClaims)
+			require.Zero(t, stats.RequestedBlocks)
+			require.Empty(t, peer.queued)
+			require.Empty(t, d.picker.Load().PickAndClaim(nil, PickRequest{PeerID: 2, NumBlocks: 1}))
+		})
+	}
+}
+
+func TestPendingDownloadingAcceptsInflightResponse(t *testing.T) {
+	d := newTestDownload(t, 2, 4, piece_store.NewMemStore)
+	picker := d.picker.Load()
+	claim := claimBlockForTest(t, d, 0, 0, 1)
+
+	require.NoError(t, d.transition(PendingDownloading))
+	require.Equal(t, 1, picker.DebugStats().ActiveClaims)
+
+	peerPieces := bm.New(d.info.NumPieces)
+	peerPieces.Fill()
+	require.Empty(t, picker.PickAndClaim(nil, PickRequest{
+		Bitfield:      peerPieces,
+		BlockedPieces: bm.NewLockFreeBitmap(d.info.NumPieces),
+		PeerID:        2,
+		NumBlocks:     1,
+	}), "queued downloads must not create new claims")
+
+	d.resChan = make(chan chunkSubmit, 1)
+	go d.backgroundResHandler()
+	d.resChan <- chunkSubmit{
+		res: &proto.ChunkResponse{
+			PieceIndex: 0,
+			Begin:      0,
+			Data:       make([]byte, defaultBlockSize),
+		},
+		peerID: 1,
+		claim:  claim,
+	}
+
+	require.Eventually(t, func() bool {
+		stats := picker.DebugStats()
+		return stats.ActiveClaims == 0 && stats.RespondedBlocks == 1
+	}, 2*time.Second, 5*time.Millisecond)
+	require.Equal(t, PendingDownloading, d.GetState())
+	require.True(t, validTransition(PendingDownloading, Seeding))
+}
+
+func TestResumeEnablesClaimsAfterStop(t *testing.T) {
+	d := newTestDownload(t, 1, 4, piece_store.NewMemStore)
+	require.NoError(t, d.transition(Stopped))
+	require.NoError(t, d.transition(Downloading))
+
+	claim := claimBlockForTest(t, d, 0, 0, 1)
+	require.NotEqual(t, BlockClaim{}, claim)
+	require.Equal(t, 1, d.picker.Load().DebugStats().ActiveClaims)
 }
