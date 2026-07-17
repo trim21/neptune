@@ -25,7 +25,6 @@ func (d *Download) SetFilePriority(fileIDs []int, priority int) error {
 	}
 
 	d.s.mu.Lock()
-	defer d.s.mu.Unlock()
 
 	if priority == 1 {
 		d.resetReSelectedPieces(fileIDs)
@@ -46,6 +45,7 @@ func (d *Download) SetFilePriority(fileIDs []int, priority int) error {
 			d.log.Error().Err(err).Msg("failed to transition state in SetFilePriority")
 		}
 	}
+	d.s.mu.Unlock()
 
 	d.saveResume()
 	d.notifyPeersToRequest()
