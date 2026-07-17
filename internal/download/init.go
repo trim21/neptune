@@ -97,6 +97,10 @@ func (d *Download) initCheck() error {
 			remaining := chunk.Length
 			off := chunk.OffsetOfFile
 			for remaining > 0 {
+				if err := d.ctx.Err(); err != nil {
+					return err
+				}
+
 				toRead := min(remaining, int64(len(buf)))
 				n, err := currentFile.ReadAt(buf[:toRead], off)
 				if n > 0 {
@@ -152,6 +156,49 @@ func (d *Download) buildPieceToCheck(efs map[int]*existingFile) []uint32 {
 	}
 
 	return r
+}
+
+// validateResume checks that pieces marked complete in completedBm still have
+// their backing files on disk. Pieces whose file data is missing or truncated
+// are cleared from the bitmap.
+func (d *Download) validateResume() error {
+	var efs = make(map[int]*existingFile, len(d.info.Files)+1)
+	for i, tf := range d.info.Files {
+		if !d.isFileSelected(i) {
+			continue
+		}
+		p := filepath.Join(d.s.basePath, tf.Path)
+		stat, err := os.Stat(p)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return errgo.Wrap(err, fmt.Sprintf("failed to stat %q", tf.Path))
+		}
+		if stat.Size() > 0 {
+			efs[i] = &existingFile{index: i, size: stat.Size()}
+		}
+	}
+
+	for i := range d.info.NumPieces {
+		if !d.completedBm.Contains(i) {
+			continue
+		}
+		valid := true
+		for chunk := range d.info.PieceFileChunks(i) {
+			ef, ok := efs[chunk.FileIndex]
+			if !ok || chunk.OffsetOfFile+chunk.Length > ef.size {
+				valid = false
+				break
+			}
+		}
+		if !valid {
+			d.completedBm.Unset(i)
+			d.missingBm.Set(i)
+			d.completed.Add(-d.info.PieceLen(i))
+		}
+	}
+	return nil
 }
 
 func tryAllocFile(index int, path string, size int64, doAlloc bool, selected bool) (*existingFile, error) {
@@ -222,55 +269,47 @@ func (d *Download) verifyFileSizes() error {
 	return nil
 }
 
-func (d *Download) check(resumed bool, skipHashCheck bool) {
-	if !resumed {
-		d.log.Debug().Msg("initializing download")
-		d.state.Store(uint32(Checking))
-		d.picker.Load().DisableRequests()
-	}
+func (d *Download) checkNew(skipHashCheck bool) {
+	d.log.Debug().Msg("initializing download")
+	d.state.Store(uint32(Checking))
 
 	if skipHashCheck {
 		if err := d.verifyFileSizes(); err != nil {
-			if resumed {
-				d.log.Warn().Err(err).Msg("file size verification failed on resume")
-			} else {
-				d.setError(err)
-				d.log.Err(err).Msg("file size verification failed")
-			}
-		} else if !resumed {
-			d.completedBm.Fill()
-			d.missingBm.Clear()
-			for i := range d.info.NumPieces {
-				d.picker.Load().WeHave(i)
-			}
+			d.setError(err)
+			d.log.Err(err).Msg("file size verification failed")
+			return
 		}
-	} else if !resumed {
+		d.completedBm.Fill()
+		d.missingBm.Clear()
+		for i := range d.info.NumPieces {
+			d.picker.Load().WeHave(i)
+		}
+	} else {
 		if err := d.initCheck(); err != nil {
 			d.setError(err)
 			d.log.Err(err).Msg("failed to initCheck torrent data")
+			return
 		}
 	}
 
-	if !resumed {
-		d.setMissingFromWantedSync()
-		d.completed.Store(d.computeCompletedUnsafe())
-		allDone := d.isComplete()
-		donePieces := d.completedBm.WithAnd(d.wantedBm).Count()
-		d.pieceDownloadRate.Reset()
+	d.setMissingFromWantedSync()
+	d.completed.Store(d.computeCompletedUnsafe())
+	donePieces := d.completedBm.WithAnd(d.wantedBm).Count()
+	d.pieceDownloadRate.Reset()
 
-		d.log.Debug().Msgf("done size %s", humanize.IBytes(uint64(donePieces)*uint64(d.info.PieceLength)))
+	d.log.Debug().Msgf("done size %s", humanize.IBytes(uint64(donePieces)*uint64(d.info.PieceLength)))
 
-		if allDone {
-			d.completedAt.Store(time.Now().UnixNano())
-			if err := d.transition(Seeding); err != nil {
-				d.log.Error().Err(err).Msg("failed to transition state after init check")
-			}
+	allDone := d.isComplete()
+	if allDone {
+		d.completedAt.Store(time.Now().UnixNano())
+		if err := d.transition(Seeding); err != nil {
+			d.log.Error().Err(err).Msg("failed to transition state after init check")
+		}
+	} else {
+		if err := d.transition(Downloading); err != nil {
+			d.log.Error().Err(err).Msg("failed to transition state after init check")
 		} else {
-			if err := d.transition(Downloading); err != nil {
-				d.log.Error().Err(err).Msg("failed to transition state after init check")
-			} else {
-				d.fireStartedHook()
-			}
+			d.fireStartedHook()
 		}
 	}
 }

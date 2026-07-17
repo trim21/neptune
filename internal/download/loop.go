@@ -93,7 +93,14 @@ func (d *Download) AsyncCheck() error {
 
 // Init check existing files.
 func (d *Download) Init(resumed bool, skipHashCheck bool) {
-	d.check(resumed, skipHashCheck)
+	if resumed {
+		if err := d.validateResume(); err != nil {
+			d.setError(err)
+			d.log.Err(err).Msg("resume validation failed")
+		}
+	} else {
+		d.checkNew(skipHashCheck)
+	}
 
 	go d.startBackground()
 	d.goBackground(d.tracker.Run)
