@@ -19,6 +19,7 @@
     ".": {
       "node": {
         "import": "./dist/client.node.js",
+        "require": "./dist/client.node.js",
         "types": "./dist/client.node.d.ts"
       },
       "browser": {
