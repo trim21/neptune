@@ -18,18 +18,12 @@ func TestResetPieceIntoCandidates(t *testing.T) {
 	pp := newTestPicker(numPieces, blocksPerPiece)
 
 	// Complete piece 1 first (so numCompletedPieces > 0, avoiding startup mode).
-	for i := range int(blocksPerPiece) {
-		pp.MarkAsRequesting(1, i)
-		pp.MarkAsResponded(1, i)
-	}
+	respondPieceForTest(t, pp, 1, 1)
 	pp.missingBm.Unset(1)
 	pp.WeHave(1)
 
 	// Download piece 0: all blocks requested and responded.
-	for i := range int(blocksPerPiece) {
-		pp.MarkAsRequesting(0, i)
-		pp.MarkAsResponded(0, i)
-	}
+	respondPieceForTest(t, pp, 0, 2)
 
 	// Verify piece 0 is NOT pickable (allBlocksResponded, waiting for hash).
 	bitfield := bm.New(numPieces)

@@ -36,7 +36,8 @@ func TestDroppedResponseReleasesPickerClaim(t *testing.T) {
 	require.Equal(t, 1, picker.DebugStats().DownloadQueue)
 
 	// Download leaves Downloading before the in-flight response is handled.
-	require.NoError(t, d.transition(Stopped))
+	_, err := d.transition(Stopped)
+	require.NoError(t, err)
 
 	d.resChan = make(chan chunkSubmit, 1)
 	go d.backgroundResHandler()
@@ -112,7 +113,8 @@ func TestLeavingDownloadingClearsNamedClaims(t *testing.T) {
 
 			claim := claimBlockForTest(t, d, 0, 0, peer.ID())
 			peer.queued = append(peer.queued, claim)
-			require.NoError(t, d.transition(state))
+			_, err := d.transition(state)
+			require.NoError(t, err)
 
 			stats := d.picker.Load().DebugStats()
 			require.Zero(t, stats.ActiveClaims)
@@ -128,7 +130,8 @@ func TestPendingDownloadingAcceptsInflightResponse(t *testing.T) {
 	picker := d.picker.Load()
 	claim := claimBlockForTest(t, d, 0, 0, 1)
 
-	require.NoError(t, d.transition(PendingDownloading))
+	_, err := d.transition(PendingDownloading)
+	require.NoError(t, err)
 	require.Equal(t, 1, picker.DebugStats().ActiveClaims)
 
 	peerPieces := bm.New(d.info.NumPieces)
@@ -162,8 +165,10 @@ func TestPendingDownloadingAcceptsInflightResponse(t *testing.T) {
 
 func TestResumeEnablesClaimsAfterStop(t *testing.T) {
 	d := newTestDownload(t, 1, 4, piece_store.NewMemStore)
-	require.NoError(t, d.transition(Stopped))
-	require.NoError(t, d.transition(Downloading))
+	_, err := d.transition(Stopped)
+	require.NoError(t, err)
+	_, err = d.transition(Downloading)
+	require.NoError(t, err)
 
 	claim := claimBlockForTest(t, d, 0, 0, 1)
 	require.NotEqual(t, BlockClaim{}, claim)

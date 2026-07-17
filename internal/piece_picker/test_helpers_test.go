@@ -4,18 +4,13 @@
 package piece_picker
 
 import (
-	"sync"
+	"testing"
 
 	"go.uber.org/atomic"
 
 	"neptune/internal/meta"
 	"neptune/internal/pkg/bm"
 )
-
-var legacyTestClaims = struct {
-	m map[*PiecePicker]map[PieceBlock][]BlockClaim
-	sync.Mutex
-}{m: make(map[*PiecePicker]map[PieceBlock][]BlockClaim)}
 
 // testInfo builds a minimal meta.Info for testing with the given number of
 // pieces and blocks per piece.
@@ -31,77 +26,108 @@ func testInfo(numPieces, blocksPerPiece uint32) meta.Info {
 // newTestPicker creates a fully initialized PiecePicker for testing.
 // All pieces are wanted, none completed.
 func newTestPicker(numPieces, blocksPerPiece uint32) *PiecePicker {
+	pp, _ := newTestPickerWithState(numPieces, blocksPerPiece)
+	return pp
+}
+
+func newTestPickerWithState(numPieces, blocksPerPiece uint32) (*PiecePicker, *atomic.Uint32) {
 	info := testInfo(numPieces, blocksPerPiece)
 	missingBm := bm.NewLockFreeBitmap(info.NumPieces)
 	missingBm.Fill()
 	chunkDoneBm := bm.New(info.NumPieces * blocksPerPiece)
+	state := atomic.NewUint32(1)
 
-	return NewPiecePicker(info, missingBm, chunkDoneBm, new(atomic.Uint32))
+	return NewPiecePicker(
+		info,
+		missingBm,
+		chunkDoneBm,
+		new(atomic.Uint32),
+		NewRequestGate(state, 1),
+	), state
 }
 
-func testBlockIndex(v any) uint32 {
-	switch value := v.(type) {
-	case int:
-		return uint32(value)
-	case uint32:
-		return value
-	default:
-		panic("unsupported block index")
-	}
+type pickerTestPeer struct {
+	pp    *PiecePicker
+	owned map[uint64]BlockClaim
+	id    uint64
 }
 
-// The legacy helpers below exist only to keep strategy regression tests
-// focused on selection order. Production code cannot perform anonymous state
-// transitions because these methods are compiled only into this test package.
-func (pp *PiecePicker) MarkAsRequesting(pieceIndex uint32, blockIndex any) bool {
-	return pp.TryMarkAsRequesting(pieceIndex, blockIndex, false)
+func newPickerTestPeer(t testing.TB, pp *PiecePicker, id uint64) *pickerTestPeer {
+	t.Helper()
+	p := &pickerTestPeer{pp: pp, owned: make(map[uint64]BlockClaim), id: id}
+	t.Cleanup(func() {
+		pp.ReleasePeerClaims(id)
+	})
+	return p
 }
 
-func (pp *PiecePicker) TryMarkAsRequesting(pieceIndex uint32, blockIndex any, retry bool) bool {
-	block := PieceBlock{PieceIndex: pieceIndex, BlockIndex: testBlockIndex(blockIndex)}
-	pp.mu.Lock()
-	claim, ok := pp.registerClaimUnsafe(block, pp.nextClaimToken+1, retry)
-	pp.mu.Unlock()
-	if !ok {
-		return false
+func (p *pickerTestPeer) pick(req PickRequest) []BlockClaim {
+	req.PeerID = p.id
+	claims := p.pp.PickAndClaim(nil, req)
+	for _, claim := range claims {
+		p.owned[claim.token] = claim
 	}
-	legacyTestClaims.Lock()
-	claims := legacyTestClaims.m[pp]
-	if claims == nil {
-		claims = make(map[PieceBlock][]BlockClaim)
-		legacyTestClaims.m[pp] = claims
-	}
-	claims[block] = append(claims[block], claim)
-	legacyTestClaims.Unlock()
-	return true
+	return claims
 }
 
-func (pp *PiecePicker) MarkAsResponded(pieceIndex uint32, blockIndex any) {
-	block := PieceBlock{PieceIndex: pieceIndex, BlockIndex: testBlockIndex(blockIndex)}
-	claim, ok := popLegacyTestClaim(pp, block)
-	if ok {
-		pp.AcceptResponse(claim)
+func (p *pickerTestPeer) pickPiece(pieceIndex uint32, numBlocks int) []BlockClaim {
+	bitfield := bm.New(p.pp.info.NumPieces)
+	bitfield.Set(pieceIndex)
+	claims := make([]BlockClaim, 0, numBlocks)
+	for len(claims) < numBlocks {
+		picked := p.pick(PickRequest{
+			Bitfield:      bitfield,
+			BlockedPieces: bm.NewLockFreeBitmap(p.pp.info.NumPieces),
+			NumBlocks:     numBlocks - len(claims),
+		})
+		if len(picked) == 0 {
+			break
+		}
+		claims = append(claims, picked...)
 	}
+	return claims
 }
 
-func (pp *PiecePicker) AbortDownload(pieceIndex uint32, blockIndex any) {
-	block := PieceBlock{PieceIndex: pieceIndex, BlockIndex: testBlockIndex(blockIndex)}
-	claim, ok := popLegacyTestClaim(pp, block)
-	if ok {
-		pp.ReleaseClaim(claim)
+func (p *pickerTestPeer) claimBlock(t testing.TB, pieceIndex, blockIndex uint32) BlockClaim {
+	t.Helper()
+	claims := p.pickPiece(pieceIndex, p.pp.info.PieceBlockCount(pieceIndex))
+	var selected BlockClaim
+	for _, claim := range claims {
+		if claim.Block.BlockIndex == blockIndex {
+			selected = claim
+			continue
+		}
+		p.release(claim)
 	}
+	if selected != (BlockClaim{}) {
+		return selected
+	}
+	t.Fatalf("picker did not claim piece=%d block=%d", pieceIndex, blockIndex)
+	return BlockClaim{}
 }
 
-func popLegacyTestClaim(pp *PiecePicker, block PieceBlock) (BlockClaim, bool) {
-	legacyTestClaims.Lock()
-	defer legacyTestClaims.Unlock()
-	claims := legacyTestClaims.m[pp][block]
-	if len(claims) == 0 {
-		return BlockClaim{}, false
+func (p *pickerTestPeer) accept(claim BlockClaim) bool {
+	delete(p.owned, claim.token)
+	return p.pp.AcceptResponse(claim)
+}
+
+func (p *pickerTestPeer) release(claim BlockClaim) bool {
+	delete(p.owned, claim.token)
+	return p.pp.ReleaseClaim(claim)
+}
+
+func respondPieceForTest(t testing.TB, pp *PiecePicker, pieceIndex uint32, peerID uint64) {
+	t.Helper()
+	p := newPickerTestPeer(t, pp, peerID)
+	claims := p.pickPiece(pieceIndex, pp.info.PieceBlockCount(pieceIndex))
+	if len(claims) != pp.info.PieceBlockCount(pieceIndex) {
+		t.Fatalf("picker claimed %d blocks for piece %d, want %d", len(claims), pieceIndex, pp.info.PieceBlockCount(pieceIndex))
 	}
-	claim := claims[0]
-	legacyTestClaims.m[pp][block] = claims[1:]
-	return claim, true
+	for _, claim := range claims {
+		if !p.accept(claim) {
+			t.Fatalf("picker rejected live claim %+v", claim.Block)
+		}
+	}
 }
 
 func (pp *PiecePicker) PickPieces(

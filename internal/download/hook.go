@@ -8,10 +8,13 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog/log"
+	"mvdan.cc/sh/v3/expand"
+	"mvdan.cc/sh/v3/interp"
+	"mvdan.cc/sh/v3/syntax"
 )
 
 // runHook executes a shell command asynchronously with torrent metadata
@@ -23,6 +26,9 @@ import (
 //	NEPTUNE_SIZE       — total size in bytes
 //
 // An empty cmd is a no-op. If timeout > 0, the command is killed after timeout.
+//
+// Commands are interpreted as POSIX shell via mvdan.cc/sh, providing
+// consistent behavior across platforms.
 func (d *Download) runHook(cmd string, timeout time.Duration) {
 	if cmd == "" {
 		return
@@ -39,13 +45,34 @@ func (d *Download) runHook(cmd string, timeout time.Duration) {
 			runCtx, cancel = context.WithTimeout(d.ctx, timeout)
 			defer cancel()
 		}
-		command := exec.CommandContext(runCtx, "/bin/sh", "-c", cmd)
 
-		command.Env = append(os.Environ(), hookVars...)
+		file, err := syntax.NewParser().Parse(strings.NewReader(cmd), "")
+		if err != nil {
+			log.Warn().
+				Str("name", name).
+				Str("info_hash", infoHash).
+				Str("hook", cmd).
+				Err(err).
+				Msg("hook parse failed")
+			return
+		}
+
 		var stderr bytes.Buffer
-		command.Stderr = &stderr
+		runner, err := interp.New(
+			interp.Env(expand.ListEnviron(append(os.Environ(), hookVars...)...)),
+			interp.StdIO(os.Stdin, os.Stdout, &stderr),
+		)
+		if err != nil {
+			log.Warn().
+				Str("name", name).
+				Str("info_hash", infoHash).
+				Str("hook", cmd).
+				Err(err).
+				Msg("hook runner creation failed")
+			return
+		}
 
-		err := command.Run()
+		err = runner.Run(runCtx, file)
 		if err != nil {
 			log.Warn().
 				Str("name", name).

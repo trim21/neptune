@@ -69,6 +69,12 @@ type TransitionError struct {
 	To   State
 }
 
+type stateTransition struct {
+	from    State
+	to      State
+	changed bool
+}
+
 func (e *TransitionError) Error() string {
 	if msg := e.userMessage(); msg != "" {
 		return msg
@@ -90,39 +96,49 @@ func (e *TransitionError) userMessage() string {
 	return ""
 }
 
-func (d *Download) transition(to State) error {
+func (d *Download) transition(to State) (stateTransition, error) {
 	d.transitionMu.Lock()
 	defer d.transitionMu.Unlock()
 
 	old := State(d.state.Load())
+	result := stateTransition{from: old, to: to}
 	if old == to {
-		return nil
+		// Checking and Moving are exclusive operations, not idempotent states.
+		if old == Moving || old == Checking {
+			return result, &TransitionError{From: old, To: to}
+		}
+		return result, nil
 	}
 	if !validTransition(old, to) {
-		return &TransitionError{From: old, To: to}
+		return result, &TransitionError{From: old, To: to}
 	}
 
-	picker := d.picker.Load()
-	if old != Downloading && to == Downloading {
-		picker.EnableRequests()
-	}
+	d.commitStateTransition(old, to)
+	result.changed = true
+	return result, nil
+}
+
+// commitStateTransition publishes the new state and starts terminal cleanup.
+// Caller must hold transitionMu.
+func (d *Download) commitStateTransition(from, to State) {
 	d.state.Store(uint32(to))
 
-	if old == Downloading && to == PendingDownloading {
-		picker.PauseRequests()
+	fromAcceptsResponses := from == Downloading || from == PendingDownloading
+	toAcceptsResponses := to == Downloading || to == PendingDownloading
+	if fromAcceptsResponses && !toAcceptsResponses {
+		d.picker.Load().ReleaseAllClaims()
+		d.clearPeerDownloadRequests()
 	}
-	oldAcceptsResponses := old == Downloading || old == PendingDownloading
-	newAcceptsResponses := to == Downloading || to == PendingDownloading
-	if oldAcceptsResponses && !newAcceptsResponses {
-		picker.DisableRequests()
-		if d.peers != nil {
-			d.peers.Range(func(_ uint64, p Peer) bool {
-				p.ClearDownloadRequests()
-				return true
-			})
-		}
+}
+
+func (d *Download) clearPeerDownloadRequests() {
+	if d.peers == nil {
+		return
 	}
-	return nil
+	d.peers.Range(func(_ uint64, p Peer) bool {
+		p.ClearDownloadRequests()
+		return true
+	})
 }
 
 func validTransition(from, to State) bool {
@@ -290,7 +306,7 @@ func (d *Download) setError(err error) {
 	}
 
 	d.err.Store(&err)
-	if err := d.transition(Error); err != nil {
+	if _, err := d.transition(Error); err != nil {
 		d.log.Warn().Err(err).Msg("failed to transition state in setError")
 	}
 }

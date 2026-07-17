@@ -10,8 +10,8 @@ import (
 	"neptune/internal/pkg/bm"
 )
 
-// FuzzPiecePicker exercises the picker with random peer arrivals and block
-// completions, verifying that all blocks are eventually picked and completed.
+// FuzzPiecePicker drives the named-claim flow with random choke, allowed-fast,
+// and response timing, verifying that all blocks are eventually completed.
 func FuzzPiecePicker(f *testing.F) {
 	f.Add(uint32(5), uint32(4), uint64(42))
 
@@ -27,7 +27,7 @@ func FuzzPiecePicker(f *testing.F) {
 		initComplete := rng.IntN(int(numPieces/3 + 1))
 		initPieces := randomPieces(rng, int(numPieces), initComplete)
 		for _, pi := range initPieces {
-			setPieceResponded(pp, pi, int(blocksPerPiece))
+			respondPieceForTest(t, pp, pi, uint64(pi)+100)
 			pp.missingBm.Unset(pi)
 			pp.WeHave(pi)
 		}
@@ -43,17 +43,14 @@ func FuzzPiecePicker(f *testing.F) {
 			pieceDone[pi] = int(blocksPerPiece)
 		}
 
-		last := PickResult{
-			FreeBlocks: make([]PieceBlock, 0, 16),
-			BusyBlocks: make([]PieceBlock, 0, 16),
-		}
-
 		// Use a fixed peer that has all pieces, refcount set once.
 		fullPeer := bm.New(numPieces)
 		fullPeer.Fill()
 		for i := range numPieces {
 			pp.IncRefcount(i)
 		}
+		peer := newPickerTestPeer(t, pp, 1)
+		pending := make([]BlockClaim, 0, 16)
 
 		const maxIters = 5000
 		for range maxIters {
@@ -64,35 +61,36 @@ func FuzzPiecePicker(f *testing.F) {
 			choked := rng.IntN(2) == 0
 			fastBm := randomFastBitmap(rng, numPieces, fullPeer)
 			desired := min(4+int(blocksPerPiece), 16)
-			maxNumReq := 4 + int(blocksPerPiece)
-			outstanding := rng.IntN(maxNumReq)
-			queued := rng.IntN(maxNumReq)
+			capacity := desired - len(pending)
+			if capacity > 0 {
+				pending = append(pending, peer.pick(PickRequest{
+					Bitfield:      fullPeer,
+					AllowedFast:   fastBm,
+					BlockedPieces: bm.NewLockFreeBitmap(numPieces),
+					NumBlocks:     capacity,
+					Choked:        choked,
+				})...)
+			}
 
-			last = pp.RequestABlock(last, desired, outstanding, queued, choked, fullPeer, fastBm, bm.NewLockFreeBitmap(numPieces), false, 0)
-
-			if len(last.FreeBlocks) == 0 && len(last.BusyBlocks) == 0 {
+			if len(pending) == 0 {
 				continue
 			}
 
-			// Simulate receiving blocks: randomly complete 1-N blocks.
-			pickFrom := last.FreeBlocks
-			if len(pickFrom) == 0 {
-				pickFrom = last.BusyBlocks
-			}
-			n := 1 + rng.IntN(min(len(pickFrom), 3))
-			for i := 0; i < n && i < len(pickFrom); i++ {
-				fb := pickFrom[i]
-				if pieceDone[fb.PieceIndex] == 0 {
-					pp.AddDownloadingPiece(fb.PieceIndex)
+			// Simulate receiving blocks: randomly complete 1-N pending claims.
+			n := 1 + rng.IntN(min(len(pending), 3))
+			responded := pending[:n]
+			pending = pending[n:]
+			for _, claim := range responded {
+				block := claim.Block
+				if !peer.accept(claim) {
+					t.Fatalf("seed=%d: live claim became stale: %+v", seed, block)
 				}
-				pp.MarkAsRequesting(fb.PieceIndex, fb.BlockIndex)
-				pp.MarkAsResponded(fb.PieceIndex, fb.BlockIndex)
-				pieceDone[fb.PieceIndex]++
+				pieceDone[block.PieceIndex]++
 
-				if pieceDone[fb.PieceIndex] == int(blocksPerPiece) {
-					pp.missingBm.Unset(fb.PieceIndex)
-					pp.WeHave(fb.PieceIndex)
-					completed.Set(fb.PieceIndex)
+				if pieceDone[block.PieceIndex] == int(blocksPerPiece) {
+					pp.missingBm.Unset(block.PieceIndex)
+					pp.WeHave(block.PieceIndex)
+					completed.Set(block.PieceIndex)
 				}
 			}
 		}
@@ -148,11 +146,4 @@ func randomFastBitmap(rng *rand.Rand, numPieces uint32, peerBf *bm.Bitmap) *bm.B
 		fast.Set(pi)
 	}
 	return fast
-}
-
-func setPieceResponded(pp *PiecePicker, pieceIndex uint32, blocksPerPiece int) {
-	for bi := range blocksPerPiece {
-		pp.MarkAsRequesting(pieceIndex, bi)
-		pp.MarkAsResponded(pieceIndex, bi)
-	}
 }

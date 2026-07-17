@@ -82,29 +82,44 @@ func TestRequestABlock_UnchokedNormal(t *testing.T) {
 	require.NotEmpty(t, result.FreeBlocks, "unchoked peer should get free blocks")
 }
 
-func TestAbortDownloadDoesNotRollbackRespondedBlock(t *testing.T) {
+func TestLateReleaseDoesNotRollbackRespondedBlock(t *testing.T) {
 	pp := newTestPicker(1, 4)
+	peer := newPickerTestPeer(t, pp, 1)
+	claim := peer.claimBlock(t, 0, 0)
 
-	require.True(t, pp.MarkAsRequesting(0, 0))
-	pp.MarkAsResponded(0, 0)
-	pp.AbortDownload(0, 0)
+	require.True(t, peer.accept(claim))
+	require.False(t, peer.release(claim))
 
 	require.True(t, pp.IsFinished(0, 0), "late timeout must not turn a responded block back into free")
 	require.Equal(t, 0, pp.DebugStats().DownloadQueue)
 }
 
-func TestAbortDownloadKeepsOtherEndgameRequest(t *testing.T) {
+func TestReleaseClaimKeepsOtherEndgameRequest(t *testing.T) {
 	pp := newTestPicker(1, 4)
+	firstPeer := newPickerTestPeer(t, pp, 1)
+	firstClaims := firstPeer.pickPiece(0, 4)
+	require.Len(t, firstClaims, 4)
+	secondPeer := newPickerTestPeer(t, pp, 2)
+	secondClaims := secondPeer.pickPiece(0, 1)
+	require.Len(t, secondClaims, 1)
+	duplicate := secondClaims[0]
 
-	require.True(t, pp.MarkAsRequesting(0, 0))
-	require.True(t, pp.TryMarkAsRequesting(0, 0, true))
+	var original BlockClaim
+	for _, claim := range firstClaims {
+		if claim.Block == duplicate.Block {
+			original = claim
+			continue
+		}
+		require.True(t, firstPeer.release(claim))
+	}
+	require.NotEqual(t, BlockClaim{}, original)
 
-	pp.AbortDownload(0, 0)
+	require.True(t, firstPeer.release(original))
 	stats := pp.DebugStats()
 	require.Equal(t, 1, stats.RequestedBlocks)
 	require.Equal(t, 1, stats.DownloadQueue)
 
-	pp.AbortDownload(0, 0)
+	require.True(t, secondPeer.release(duplicate))
 	stats = pp.DebugStats()
 	require.Equal(t, 0, stats.RequestedBlocks)
 	require.Equal(t, 0, stats.DownloadQueue)
@@ -118,10 +133,15 @@ func TestStalePickCannotRollbackRespondedBlock(t *testing.T) {
 	result := pp.RequestABlock(PickResult{}, 1, 0, 0, false, peerBitfield, nil, bm.NewLockFreeBitmap(1), false, 1)
 	require.Len(t, result.FreeBlocks, 1)
 	block := result.FreeBlocks[0]
+	peer := newPickerTestPeer(t, pp, 1)
+	claim := peer.claimBlock(t, block.PieceIndex, block.BlockIndex)
 
-	require.True(t, pp.TryMarkAsRequesting(block.PieceIndex, block.BlockIndex, false))
-	pp.MarkAsResponded(block.PieceIndex, block.BlockIndex)
-	require.False(t, pp.TryMarkAsRequesting(block.PieceIndex, block.BlockIndex, false))
+	require.True(t, peer.accept(claim))
+	otherPeer := newPickerTestPeer(t, pp, 2)
+	for _, other := range otherPeer.pickPiece(block.PieceIndex, pp.info.PieceBlockCount(block.PieceIndex)) {
+		require.NotEqual(t, block, other.Block)
+		otherPeer.release(other)
+	}
 	require.True(t, pp.IsFinished(block.PieceIndex, block.BlockIndex))
 }
 

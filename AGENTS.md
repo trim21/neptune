@@ -70,8 +70,28 @@ etc/
 
 ## Download
 - [internal/download/](../internal/download/) 单个下载的全生命周期：文件校验、peer 管理、piece 调度、BEP 协议交互。
-- 状态机：Stopped / Downloading / Seeding / Checking / Moving / Error。
+- 状态机：Stopped / Downloading / PendingDownloading / Seeding / Checking / Moving / Error。
 - 支持 BEP 6 (Fast)、BEP 10 (Extension)、BEP 11 (PEX)。
+
+### 分布式调度与最终一致性
+
+单个 torrent 内的 `Download`、`PiecePicker` 和多个 peer scheduler 是一组并发、异步协作的调度组件。peer 是远端参与者，不知道 Neptune 的本地 Download 状态；不要把这些组件当作一个要求瞬时 ACID 一致性的事务系统。
+
+**一致性模型**：
+- `Download` 状态表示本地调度意图，不要求状态写入的瞬间所有 picker/peer 操作立刻停止。
+- 状态转移期间允许已经开始的 pick、入队、wire request 或 response 继续竞态；短暂多 claim、重复请求和迟到响应是正常情况，最多造成有限的额外带宽或 stale 统计。
+- 不要为了消除这些可收敛的竞态引入全局锁、跨组件事务或 barrier。组件锁只保护组件内部数据；只有存在不可恢复的资源泄漏、错误写盘或用户可见语义破坏时才要求更强同步。
+- 避免在多个组件中镜像同一份生命周期状态并依赖脆弱的调用顺序保持同步。需要判断 Download 状态时，优先读取单一状态源或它的只读 gate。
+
+**必须保持的强不变量**：
+- `PickAndClaim` 返回的每个 `BlockClaim` 都必须携带原 token，并最终由且仅由一个终止路径消费：`AcceptResponse`、`ReleaseClaim`、`ReleasePeerClaims` 或批量清理。
+- peer 入队失败、状态变化、timeout、reject、choke、peer close 和 response handoff 都必须消费或转交原 claim；禁止根据 piece/block 坐标重建 ownership。
+- stale token 是正常竞态结果；`AcceptResponse` / `ReleaseClaim` 返回 false 时不得修改较新的 claim 或 block 状态。
+- terminal 状态清理用于尽快释放当时可见的 claim，不要求清理返回后绝对不会出现竞态中的新 claim；这些 claim 必须由后续 peer/response/timeout 路径最终收敛。
+
+**测试规则**：
+- 并发测试应在停止新的调度并等待竞态收敛后断言无 active claim、无永久 Requested block、无 peer-local request 泄漏。
+- 除非测试的目标明确是某个线性化点，否则不要断言状态 atomic Store 的瞬间 claim/request 数量必须为零。
 
 ### Peer 类型双态（interface vs concrete）
 `Peer` 类型通过 build tag 在两种形态间切换：

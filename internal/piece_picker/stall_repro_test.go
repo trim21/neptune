@@ -17,16 +17,12 @@ func TestStallZombiePiece(t *testing.T) {
 	pp := newTestPicker(10, 4)
 
 	// Complete piece 1 to avoid startup mode.
-	pp.MarkAsRequesting(1, 0)
-	pp.MarkAsResponded(1, 0)
+	respondPieceForTest(t, pp, 1, 1)
 	pp.missingBm.Unset(1)
 	pp.WeHave(1)
 
 	// Piece 0 fully received, all blocks responded, hash check pending.
-	for bi := range 4 {
-		pp.MarkAsRequesting(0, bi)
-		pp.MarkAsResponded(0, bi)
-	}
+	respondPieceForTest(t, pp, 0, 2)
 	pp.AddDownloadingPiece(0)
 
 	// Manually remove from downloadingPieces (simulating picker swap race).
@@ -62,8 +58,11 @@ func TestStallCompletedBmRace(t *testing.T) {
 	peerBitfield.Fill()
 
 	// Add piece 0 to downloadingPieces with some free blocks.
-	pp.MarkAsRequesting(0, 0)
-	pp.MarkAsRequesting(0, 1)
+	peer := newPickerTestPeer(t, pp, 1)
+	claims := peer.pickPiece(0, 2)
+	if len(claims) != 2 {
+		t.Fatalf("claimed %d blocks for piece 0, want 2", len(claims))
+	}
 	pp.AddDownloadingPiece(0)
 
 	// Simulate the race: SetX runs but weHave hasn't removed from downloadingPieces yet.
@@ -91,18 +90,14 @@ func TestStall_NewPickerDoesntInheritDownloadingPieces(t *testing.T) {
 	oldPicker := newTestPicker(10, 4)
 
 	// Add piece 0 to OLD picker's downloadingPieces.
-	for bi := range 4 {
-		oldPicker.MarkAsRequesting(0, bi)
-		oldPicker.MarkAsResponded(0, bi)
-	}
+	respondPieceForTest(t, oldPicker, 0, 1)
 	oldPicker.AddDownloadingPiece(0)
 	oldPicker.missingBm.Unset(0)
 
 	// Create NEW picker.
 	newPicker := newTestPicker(10, 4)
 	newPicker.missingBm = oldPicker.missingBm // share missingBm
-	newPicker.MarkAsRequesting(1, 0)
-	newPicker.MarkAsResponded(1, 0)
+	respondPieceForTest(t, newPicker, 1, 2)
 	newPicker.missingBm.Unset(1)
 	newPicker.WeHave(1)
 	newPicker.WeHave(0) // piece 0 not in newPicker's downloadingPieces → no-op
@@ -133,23 +128,24 @@ func TestStallEndgamePicksFreeZeroPieces(t *testing.T) {
 	pp := newTestPicker(3, 4)
 
 	// Complete piece 0 to avoid startup mode.
-	pp.MarkAsRequesting(0, 0)
-	pp.MarkAsResponded(0, 0)
+	respondPieceForTest(t, pp, 0, 1)
 	pp.missingBm.Unset(0)
 	pp.WeHave(0)
 
 	// Piece 1: 0 free, 1 requested, 3 responded (stalled near completion).
-	pp.MarkAsRequesting(1, 0)
-	for bi := 1; bi < 4; bi++ {
-		pp.MarkAsRequesting(1, bi)
-		pp.MarkAsResponded(1, bi)
+	peer := newPickerTestPeer(t, pp, 2)
+	claims := peer.pickPiece(1, 4)
+	if len(claims) != 4 {
+		t.Fatalf("claimed %d blocks for piece 1, want 4", len(claims))
+	}
+	for _, claim := range claims[1:] {
+		if !peer.accept(claim) {
+			t.Fatalf("failed to accept claim %+v", claim.Block)
+		}
 	}
 
 	// Piece 2: complete it so numWantLeft goes to 0 (triggers endgame).
-	for bi := range 4 {
-		pp.MarkAsRequesting(2, bi)
-		pp.MarkAsResponded(2, bi)
-	}
+	respondPieceForTest(t, pp, 2, 3)
 	pp.missingBm.Unset(2)
 	pp.WeHave(2)
 
@@ -178,53 +174,57 @@ func TestPiecePickStrategy_Sequential(t *testing.T) {
 
 	peerBitfield := bm.New(pp.info.NumPieces)
 	peerBitfield.Fill()
-
-	var result PickResult
+	peer := newPickerTestPeer(t, pp, 1)
+	pick := func(numBlocks int) []BlockClaim {
+		return peer.pick(PickRequest{
+			Bitfield:      peerBitfield,
+			BlockedPieces: bm.NewLockFreeBitmap(pp.info.NumPieces),
+			NumBlocks:     numBlocks,
+		})
+	}
 
 	// Sequential: should always pick block 0 of piece 0 first.
-	result = pp.PickPieces(peerBitfield, false, nil, bm.NewLockFreeBitmap(pp.info.NumPieces), 1, 0, nil, false, 0, result)
-	if len(result.FreeBlocks) != 1 {
-		t.Fatalf("expected 1 free block, got %d", len(result.FreeBlocks))
+	claims := pick(1)
+	if len(claims) != 1 {
+		t.Fatalf("expected 1 claim, got %d", len(claims))
 	}
-	if result.FreeBlocks[0].PieceIndex != 0 {
-		t.Fatalf("expected piece 0, got %d", result.FreeBlocks[0].PieceIndex)
+	if claims[0].Block.PieceIndex != 0 {
+		t.Fatalf("expected piece 0, got %d", claims[0].Block.PieceIndex)
 	}
-	if result.FreeBlocks[0].BlockIndex != 0 {
-		t.Fatalf("expected block 0, got %d", result.FreeBlocks[0].BlockIndex)
+	if claims[0].Block.BlockIndex != 0 {
+		t.Fatalf("expected block 0, got %d", claims[0].Block.BlockIndex)
 	}
-
-	// Mark block 0 of piece 0 as requesting.
-	pp.MarkAsRequesting(0, 0)
-	pp.AddDownloadingPiece(0)
 
 	// Next request: should be block 1 of piece 0 (still sequential).
-	result.FreeBlocks = result.FreeBlocks[:0]
-	result.BusyBlocks = result.BusyBlocks[:0]
-	result = pp.PickPieces(peerBitfield, false, nil, bm.NewLockFreeBitmap(pp.info.NumPieces), 1, 0, nil, false, 0, result)
-	if len(result.FreeBlocks) != 1 {
-		t.Fatalf("expected 1 free block, got %d", len(result.FreeBlocks))
+	second := pick(1)
+	if len(second) != 1 {
+		t.Fatalf("expected 1 claim, got %d", len(second))
 	}
-	if result.FreeBlocks[0].PieceIndex != 0 {
-		t.Fatalf("expected piece 0, got %d", result.FreeBlocks[0].PieceIndex)
+	if second[0].Block.PieceIndex != 0 {
+		t.Fatalf("expected piece 0, got %d", second[0].Block.PieceIndex)
 	}
-	if result.FreeBlocks[0].BlockIndex != 1 {
-		t.Fatalf("expected block 1 of piece 0, got block %d", result.FreeBlocks[0].BlockIndex)
+	if second[0].Block.BlockIndex != 1 {
+		t.Fatalf("expected block 1 of piece 0, got block %d", second[0].Block.BlockIndex)
 	}
+	claims = append(claims, second...)
 
-	// Complete piece 0 — mark all blocks as responded.
-	for i := range 10 {
-		pp.MarkAsResponded(0, i)
+	claims = append(claims, peer.pickPiece(0, 8)...)
+	if len(claims) != 10 {
+		t.Fatalf("claimed %d blocks for piece 0, want 10", len(claims))
+	}
+	for _, claim := range claims {
+		if !peer.accept(claim) {
+			t.Fatalf("failed to accept claim %+v", claim.Block)
+		}
 	}
 	pp.WeHave(0)
 
 	// Next request: piece 1, block 0.
-	result.FreeBlocks = result.FreeBlocks[:0]
-	result.BusyBlocks = result.BusyBlocks[:0]
-	result = pp.PickPieces(peerBitfield, false, nil, bm.NewLockFreeBitmap(pp.info.NumPieces), 1, 0, nil, false, 0, result)
-	if len(result.FreeBlocks) != 1 {
-		t.Fatalf("expected 1 free block, got %d", len(result.FreeBlocks))
+	next := pick(1)
+	if len(next) != 1 {
+		t.Fatalf("expected 1 claim, got %d", len(next))
 	}
-	if result.FreeBlocks[0].PieceIndex != 1 {
-		t.Fatalf("expected piece 1, got %d", result.FreeBlocks[0].PieceIndex)
+	if next[0].Block.PieceIndex != 1 {
+		t.Fatalf("expected piece 1, got %d", next[0].Block.PieceIndex)
 	}
 }

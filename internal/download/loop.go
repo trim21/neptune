@@ -12,16 +12,19 @@ import (
 
 func (d *Download) Start() error {
 	if d.isComplete() {
-		if err := d.transition(Seeding); err != nil {
+		if _, err := d.transition(Seeding); err != nil {
 			d.log.Error().Err(err).Msg("failed to transition state in Start")
 			return err
 		}
 	} else {
-		if err := d.transition(Downloading); err != nil {
+		transition, err := d.transition(Downloading)
+		if err != nil {
 			d.log.Error().Err(err).Msg("failed to transition state in Start")
 			return err
 		}
-		d.fireStartedHook()
+		if transition.changed {
+			d.fireStartedHook()
+		}
 	}
 
 	d.stateCond.Broadcast()
@@ -30,7 +33,7 @@ func (d *Download) Start() error {
 }
 
 func (d *Download) Stop() error {
-	if err := d.transition(Stopped); err != nil {
+	if _, err := d.transition(Stopped); err != nil {
 		d.log.Error().Err(err).Msg("failed to transition state in Stop")
 		return err
 	}
@@ -45,7 +48,7 @@ func (d *Download) Stop() error {
 // The download loop skips peer connections in this state,
 // but trackers keep running so peers continue to accumulate.
 func (d *Download) DemoteToQueued() {
-	if err := d.transition(PendingDownloading); err != nil {
+	if _, err := d.transition(PendingDownloading); err != nil {
 		d.log.Error().Err(err).Msg("failed to demote to PendingDownloading")
 		return
 	}
@@ -57,7 +60,7 @@ func (d *Download) DemoteToQueued() {
 // PromoteFromQueued transitions a PendingDownloading torrent back to Downloading,
 // letting the download loop resume peer connections and block requests.
 func (d *Download) PromoteFromQueued() {
-	if err := d.transition(Downloading); err != nil {
+	if _, err := d.transition(Downloading); err != nil {
 		d.log.Error().Err(err).Msg("failed to promote from PendingDownloading")
 		return
 	}
@@ -77,7 +80,7 @@ func (d *Download) PromoteFromQueued() {
 }
 
 func (d *Download) AsyncCheck() error {
-	if err := d.transition(Checking); err != nil {
+	if _, err := d.transition(Checking); err != nil {
 		return err
 	}
 

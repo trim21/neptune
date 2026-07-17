@@ -20,30 +20,25 @@ func TestEndgameNoFreeBlocks(t *testing.T) {
 
 	// Complete pieces 0-2.
 	for pi := range uint32(3) {
-		pp.AddDownloadingPiece(pi)
-		for bi := range pp.info.PieceBlockCount(pi) {
-			pp.MarkAsRequesting(pi, bi)
-			pp.MarkAsResponded(pi, bi)
-		}
+		respondPieceForTest(t, pp, pi, uint64(pi+1))
 		pp.missingBm.Unset(pi)
 		pp.WeHave(pi)
 	}
 
 	// Piece 3: all blocks responded (pending hash check).
-	pp.AddDownloadingPiece(3)
-	for bi := range 4 {
-		pp.MarkAsRequesting(3, bi)
-		pp.MarkAsResponded(3, bi)
-	}
+	respondPieceForTest(t, pp, 3, 4)
 
 	// Piece 4: 2 requested, 2 responded, 0 free.
-	pp.AddDownloadingPiece(4)
-	pp.MarkAsRequesting(4, 0)
-	pp.MarkAsRequesting(4, 1)
-	pp.MarkAsResponded(4, 0)
-	pp.MarkAsResponded(4, 1)
-	pp.MarkAsRequesting(4, 2)
-	pp.MarkAsRequesting(4, 3)
+	peer := newPickerTestPeer(t, pp, 5)
+	claims := peer.pickPiece(4, 4)
+	if len(claims) != 4 {
+		t.Fatalf("claimed %d blocks for piece 4, want 4", len(claims))
+	}
+	for _, claim := range claims[:2] {
+		if !peer.accept(claim) {
+			t.Fatalf("failed to accept claim %+v", claim.Block)
+		}
+	}
 
 	result := pp.PickPieces(bitfield, false, nil, bm.NewLockFreeBitmap(pp.info.NumPieces), 4, 0, nil, false, 0, PickResult{})
 

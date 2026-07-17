@@ -111,7 +111,7 @@ func newTestEnv(t *testing.T, numPieces, blocksPerPiece uint32, failPieces []uin
 	d.missingBm = missingBm
 	d.wantedBm = wantedBm
 	d.peerList = newPeerList(d)
-	d.picker.Store(NewPiecePicker(info, missingBm, nil, nil))
+	d.picker.Store(NewPiecePicker(info, missingBm, nil, nil, NewRequestGate(&d.state, uint32(Downloading))))
 	d.state.Store(uint32(Downloading))
 
 	return &testEnv{t: t, d: d, env: memStore.(*piece_store.MemStore)}

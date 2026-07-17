@@ -39,6 +39,7 @@ response therefore cannot terminate a newer claim for the same peer/block.
 ```text
 peer scheduler
   -> PiecePicker.PickAndClaim(peer, capacity)
+       a read-only gate checks the owning Download's atomic state
        selection and claim registration occur under one picker lock
   -> requestQueue stores BlockClaim
   -> myRequests stores {BlockClaim, sentAt} before sending Request
@@ -60,10 +61,12 @@ original `BlockClaim`.
   only after its final live claim is released.
 - `ReleasePeerClaims(peerID)` releases queued, in-flight, and response-handoff
   claims owned by a peer.
-- `PauseRequests()` prevents new claims while preserving live claims when a
-  Download moves from Downloading to PendingDownloading.
-- `DisableRequests()` prevents new claims and releases all live claims when a
-  Download leaves both Downloading and PendingDownloading.
+- `RequestGate` holds a read-only reference to the owning Download's atomic
+  state. It is the single source used for best-effort admission of new claims;
+  the picker does not mirror lifecycle state in a mutable boolean.
+- `ReleaseAllClaims()` promptly releases claims visible while it holds the
+  picker lock. A racing `PickAndClaim` may return claims afterward, and its
+  caller remains responsible for consuming those exact tokens.
 
 False from `AcceptResponse` or `ReleaseClaim` means the token is stale. This is
 normal for late endgame responses and racing termination paths; it must not
@@ -75,11 +78,13 @@ modify block state.
   call `ReleaseClaim` with its stored token.
 - Peer close or snub: under `requestMu`, call `ReleasePeerClaims`, clear
   `myRequests`, and clear `requestQueue`.
-- Download becomes PendingDownloading: pause new claims but continue accepting,
-  writing, and verifying responses for existing claims.
-- Download leaves Downloading/PendingDownloading: serialize the transition,
-  call `DisableRequests`, and clear each peer's download-side tracking while
-  keeping the connections.
+- Download becomes PendingDownloading: publishing the atomic state closes the
+  request gate. Racing picks may still return claims; peer enqueue consumes or
+  releases them, while existing in-flight responses remain valid.
+- Download leaves Downloading/PendingDownloading: publish the terminal state,
+  call `ReleaseAllClaims`, and clear each peer's download-side tracking while
+  keeping the connections. This cleanup accelerates convergence and is not a
+  global barrier.
 - Accepted response: sibling tokens become stale immediately; their peer-local
   entries disappear later through response, timeout, or bulk clear.
 - Hash succeeds: `WeHave` marks the piece Responded and invalidates claims.
@@ -94,5 +99,6 @@ modify block state.
    None only after the last release.
 4. Peer-local request deletion and claim extraction occur under `requestMu`, so
    timeout/reject/response races have one winner.
-5. PendingDownloading creates no new claims but may retain live claims until
-   response, timeout, peer close, or a terminal state transition.
+5. PendingDownloading does not intentionally schedule new claims, but racing
+   picks are allowed. Once scheduling quiesces, every such token must converge
+   through response, release, timeout, peer close, or terminal cleanup.

@@ -20,6 +20,9 @@ type PickRequest = piece_picker.PickRequest
 // PiecePickStrategy is imported from the piece_picker package.
 type PiecePickStrategy = piece_picker.PiecePickStrategy
 
+// RequestGate is imported from the piece_picker package.
+type RequestGate = piece_picker.RequestGate
+
 // PickerStats is imported from the piece_picker package.
 type PickerStats = piece_picker.PickerStats
 
@@ -34,6 +37,9 @@ const (
 
 // NewPiecePicker is imported from the piece_picker package.
 var NewPiecePicker = piece_picker.NewPiecePicker
+
+// NewRequestGate is imported from the piece_picker package.
+var NewRequestGate = piece_picker.NewRequestGate
 
 // PiecePickStrategyFromString is imported from the piece_picker package.
 var PiecePickStrategyFromString = piece_picker.PiecePickStrategyFromString

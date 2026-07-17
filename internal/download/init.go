@@ -302,13 +302,14 @@ func (d *Download) checkNew(skipHashCheck bool) {
 	allDone := d.isComplete()
 	if allDone {
 		d.completedAt.Store(time.Now().UnixNano())
-		if err := d.transition(Seeding); err != nil {
+		if _, err := d.transition(Seeding); err != nil {
 			d.log.Error().Err(err).Msg("failed to transition state after init check")
 		}
 	} else {
-		if err := d.transition(Downloading); err != nil {
+		transition, err := d.transition(Downloading)
+		if err != nil {
 			d.log.Error().Err(err).Msg("failed to transition state after init check")
-		} else {
+		} else if transition.changed {
 			d.fireStartedHook()
 		}
 	}

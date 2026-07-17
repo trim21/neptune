@@ -4,6 +4,7 @@
 package piece_picker
 
 import (
+	"runtime"
 	"sync"
 	"testing"
 
@@ -102,18 +103,67 @@ func TestStaleClaimCannotReleaseReclaimedBlock(t *testing.T) {
 	require.True(t, pp.AcceptResponse(newClaim))
 }
 
-func TestDisableAndResetInvalidateClaimsWithoutReusingTokens(t *testing.T) {
+func TestRequestGateControlsPickAndClaim(t *testing.T) {
+	pp, state := newTestPickerWithState(1, 1)
+	pp.AddDownloadingPiece(0)
+
+	state.Store(2)
+	require.Empty(t, pp.PickAndClaim(nil, pickRequestForTest(pp, 1, 1)))
+
+	state.Store(1)
+	claim := pp.PickAndClaim(nil, pickRequestForTest(pp, 1, 1))
+	require.Len(t, claim, 1)
+	require.True(t, pp.ReleaseClaim(claim[0]))
+}
+
+func TestRequestGateRaceEventuallyReleasesClaims(t *testing.T) {
+	pp, state := newTestPickerWithState(4, 4)
+	for pieceIndex := range uint32(4) {
+		pp.AddDownloadingPiece(pieceIndex)
+	}
+
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	for peerID := uint64(1); peerID <= 4; peerID++ {
+		wg.Go(func() {
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				claims := pp.PickAndClaim(nil, pickRequestForTest(pp, peerID, 4))
+				for _, claim := range claims {
+					pp.ReleaseClaim(claim)
+				}
+			}
+		})
+	}
+
+	for range 1_000 {
+		state.Store(2)
+		runtime.Gosched()
+		state.Store(1)
+	}
+	close(stop)
+	wg.Wait()
+	pp.ReleaseAllClaims()
+
+	stats := pp.DebugStats()
+	require.Zero(t, stats.ActiveClaims)
+	require.Zero(t, stats.RequestedBlocks)
+}
+
+func TestReleaseAllAndResetInvalidateClaimsWithoutReusingTokens(t *testing.T) {
 	pp := newTestPicker(2, 4)
 	pp.AddDownloadingPiece(0)
 	claims := pp.PickAndClaim(nil, pickRequestForTest(pp, 7, 4))
 	require.Len(t, claims, 4)
 	lastToken := claims[len(claims)-1].token
-	require.Equal(t, 4, pp.DisableRequests())
-	require.Empty(t, pp.PickAndClaim(nil, pickRequestForTest(pp, 8, 1)))
+	require.Equal(t, 4, pp.ReleaseAllClaims())
 	require.Zero(t, pp.DebugStats().ActiveClaims)
 
 	pp.ResetAll()
-	pp.EnableRequests()
 	pp.AddDownloadingPiece(0)
 	claim := pp.PickAndClaim(nil, pickRequestForTest(pp, 7, 1))[0]
 	require.Greater(t, claim.token, lastToken)

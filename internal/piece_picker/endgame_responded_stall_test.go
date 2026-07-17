@@ -19,23 +19,16 @@ func TestEndgameAllBlocksResponded_EmptyResult(t *testing.T) {
 	pp := newTestPicker(3, 4)
 
 	// Piece 0: completed.
-	pp.MarkAsRequesting(0, 0)
-	pp.MarkAsResponded(0, 0)
+	respondPieceForTest(t, pp, 0, 1)
 	pp.missingBm.Unset(0)
 	pp.WeHave(0)
 
 	// Piece 1: all blocks responded, hash check pending.
-	for bi := range 4 {
-		pp.MarkAsRequesting(1, bi)
-		pp.MarkAsResponded(1, bi)
-	}
+	respondPieceForTest(t, pp, 1, 2)
 	pp.AddDownloadingPiece(1)
 
 	// Piece 2: completed → numWantLeft goes to 0.
-	for bi := range 4 {
-		pp.MarkAsRequesting(2, bi)
-		pp.MarkAsResponded(2, bi)
-	}
+	respondPieceForTest(t, pp, 2, 3)
 	pp.missingBm.Unset(2)
 	pp.WeHave(2)
 
@@ -69,10 +62,7 @@ func TestResetPieceRestoresPiece(t *testing.T) {
 	pp.WeHave(2)
 
 	// Piece 1: all blocks responded, then hash check fails.
-	for bi := range 4 {
-		pp.MarkAsRequesting(1, bi)
-		pp.MarkAsResponded(1, bi)
-	}
+	respondPieceForTest(t, pp, 1, 1)
 	pp.AddDownloadingPiece(1)
 
 	// Verify piece is NOT pickable (all responded = pending hash check).

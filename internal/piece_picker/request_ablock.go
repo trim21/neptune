@@ -10,17 +10,17 @@ import (
 
 // PickAndClaim selects blocks and records peer ownership in one critical
 // section. Every returned claim must be consumed by AcceptResponse,
-// ReleaseClaim, ReleasePeerClaims, or DisableRequests.
+// ReleaseClaim, ReleasePeerClaims, or ReleaseAllClaims.
 func (pp *PiecePicker) PickAndClaim(reuse []BlockClaim, req PickRequest) []BlockClaim {
 	reuse = reuse[:0]
-	if pp == nil || req.NumBlocks <= 0 {
+	if pp == nil || req.NumBlocks <= 0 || !pp.requestGate.enabled() {
 		return reuse
 	}
 
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
 
-	if !pp.requestsEnabled || pp.missingBm.Count() == 0 {
+	if pp.missingBm.Count() == 0 {
 		return reuse
 	}
 
@@ -89,7 +89,7 @@ func (pp *PiecePicker) chunkAlreadyDoneUnsafe(block PieceBlock) bool {
 }
 
 func (pp *PiecePicker) registerClaimUnsafe(block PieceBlock, owner uint64, retry bool) (BlockClaim, bool) {
-	if !pp.requestsEnabled || block.PieceIndex >= pp.numPieces || block.BlockIndex >= uint32(pp.numBlocksInPiece(block.PieceIndex)) {
+	if block.PieceIndex >= pp.numPieces || block.BlockIndex >= uint32(pp.numBlocksInPiece(block.PieceIndex)) {
 		return BlockClaim{}, false
 	}
 

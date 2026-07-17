@@ -652,7 +652,7 @@ func (d *Download) checkDone(done, pending *bm.NilSafeLockFreeBitmap) {
 		return
 	}
 
-	if err := d.transition(Seeding); err != nil {
+	if _, err := d.transition(Seeding); err != nil {
 		d.completedOnce.Store(false)
 		d.log.Error().Err(err).Msg("failed to transition state in checkDone")
 		return
@@ -660,22 +660,24 @@ func (d *Download) checkDone(done, pending *bm.NilSafeLockFreeBitmap) {
 	// Release per-block bitmaps — no longer needed once seeding.
 	done.Release()
 	pending.Release()
+	d.finalizeDownloadCompletion()
+}
+
+func (d *Download) finalizeDownloadCompletion() {
 	d.completedAt.Store(time.Now().UnixNano())
 	d.pieceDownloadRate.Reset()
-
 	d.fireCompletedHook()
 
 	d.peers.Range(func(_ uint64, p Peer) bool {
 		if p.PeerBitmap().Count() == d.info.NumPieces {
 			p.Close()
 		}
-
 		return true
 	})
 
 	d.tracker.Announce(tracker.EventCompleted)
 
-	// Release picker memory — no longer needed when seeding.
+	// Release picker memory — no longer needed once seeding.
 	d.picker.Store(nil)
 }
 
@@ -683,7 +685,7 @@ func (d *Download) checkDone(done, pending *bm.NilSafeLockFreeBitmap) {
 // completes the download (Seeding + announce) when all pass, or goes back to
 // Downloading so corrupt pieces are re-fetched.
 func (d *Download) recheckAfterComplete() {
-	if err := d.transition(Checking); err != nil {
+	if _, err := d.transition(Checking); err != nil {
 		d.completedOnce.Store(false)
 		d.log.Error().Err(err).Msg("failed to start completion recheck")
 		return
@@ -694,26 +696,12 @@ func (d *Download) recheckAfterComplete() {
 	d.completed.Store(0)
 	d.stateCond.Broadcast()
 
-	d.runHashCheck(func() {
-		d.completedAt.Store(time.Now().UnixNano())
-
-		d.fireCompletedHook()
-
-		d.peers.Range(func(_ uint64, p Peer) bool {
-			if p.PeerBitmap().Count() == d.info.NumPieces {
-				p.Close()
-			}
-			return true
-		})
-
-		d.tracker.Announce(tracker.EventCompleted)
-		d.picker.Store(nil)
-	})
+	d.runHashCheck(d.finalizeDownloadCompletion)
 }
 
 // runHashCheck spawns a goroutine that re-hashes all pieces via initCheck.
-// When all pieces pass, onSeeding is called right before transition(Seeding).
-func (d *Download) runHashCheck(onSeeding func()) {
+// When all pieces pass, afterSeeding is called after transition(Seeding).
+func (d *Download) runHashCheck(afterSeeding func()) {
 	go func() {
 		if err := d.initCheck(); err != nil {
 			if d.ctx.Err() != nil {
@@ -729,16 +717,16 @@ func (d *Download) runHashCheck(onSeeding func()) {
 		d.pieceDownloadRate.Reset()
 
 		if allDone {
-			if onSeeding != nil {
-				onSeeding()
-			}
-			if err := d.transition(Seeding); err != nil {
+			if _, err := d.transition(Seeding); err != nil {
 				d.log.Error().Err(err).Msg("failed to transition after hash check")
 				return
 			}
+			if afterSeeding != nil {
+				afterSeeding()
+			}
 		} else {
 			d.completedOnce.Store(false)
-			if err := d.transition(Downloading); err != nil {
+			if _, err := d.transition(Downloading); err != nil {
 				d.log.Error().Err(err).Msg("failed to transition after hash check")
 				return
 			}

@@ -18,18 +18,18 @@ func (d *Download) Move(target string) error {
 	ctx, cancel := context.WithCancel(d.ctx)
 	defer cancel()
 
-	originalState := State(d.state.Load())
-
-	if err := d.transition(Moving); err != nil {
+	transition, err := d.transition(Moving)
+	if err != nil {
 		return err
 	}
+	originalState := transition.from
 
 	d.s.mu.Lock()
 	originalBasePath := d.s.basePath
 	selectedFilesSet := d.selectedFilesSet
 	d.s.mu.Unlock()
 
-	err := d.move(ctx, target, originalBasePath, selectedFilesSet)
+	err = d.move(ctx, target, originalBasePath, selectedFilesSet)
 	if err != nil {
 		d.setError(err)
 		return nil
@@ -39,7 +39,7 @@ func (d *Download) Move(target string) error {
 	d.s.basePath = target
 	d.s.mu.Unlock()
 
-	if err := d.transition(originalState); err != nil {
+	if _, err := d.transition(originalState); err != nil {
 		d.log.Error().Err(err).Msg("failed to restore state after move")
 	}
 

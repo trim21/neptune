@@ -28,6 +28,25 @@ const (
 	StrategySequential PiecePickStrategy = 1
 )
 
+// RequestGate provides a read-only view of an owner's atomic state. A picker
+// may create claims only while the state equals enabledValue.
+type RequestGate struct {
+	state        *atomic.Uint32
+	enabledValue uint32
+}
+
+// NewRequestGate creates a read-only admission gate backed by state.
+func NewRequestGate(state *atomic.Uint32, enabledValue uint32) RequestGate {
+	if state == nil {
+		panic("piece picker request gate requires a state")
+	}
+	return RequestGate{state: state, enabledValue: enabledValue}
+}
+
+func (g RequestGate) enabled() bool {
+	return g.state.Load() == g.enabledValue
+}
+
 // String returns the human-readable name of the strategy.
 func (s PiecePickStrategy) String() string {
 	switch s {
@@ -249,25 +268,25 @@ type partialInfo struct {
 //
 // All public methods are safe for concurrent use.
 type PiecePicker struct {
-	strategy               *atomic.Uint32
 	chunkDoneBm            *bm.Bitmap
 	missingBm              *bm.LockFreeBitmap
 	parolePieceOwners      map[uint32]uint64
 	activeClaims           map[uint64]claimRecord
 	claimsByBlock          map[uint32]blockClaims
 	claimsByPeer           map[uint64]map[uint64]struct{}
+	strategy               *atomic.Uint32
+	requestGate            RequestGate
 	pickScratch            PickResult
 	partials               []partialInfo
-	piecePriorities        []uint32
 	downloadingPieces      []downloadingPiece
 	blockInfos             blockStates
 	pieces                 []uint32
 	availability           []uint16
+	piecePriorities        []uint32
 	info                   meta.Info
-	blockSize              int64
-	staleAccepts           uint64
-	downloadQueueSize      int
 	numWantLeft            int
+	diagSkippedDownloading int
+	staleAccepts           uint64
 	diagNumWant            int
 	diagSkippedResponded   int
 	diagSkippedBitfield    int
@@ -276,13 +295,13 @@ type PiecePicker struct {
 	freeBlocks             int
 	diagFreeBlocks         int
 	staleReleases          uint64
-	diagSkippedDownloading int
+	downloadQueueSize      int
 	nextClaimToken         uint64
+	blockSize              int64
 	mu                     sync.Mutex
 	blocksPerPiece         uint32
 	numPieces              uint32
 	numCompletedPieces     uint32
-	requestsEnabled        bool
 	diagDirty              bool
 	dirty                  bool
 	partialsDirty          bool
@@ -291,7 +310,16 @@ type PiecePicker struct {
 // NewPiecePicker creates a new piece picker for the given torrent info.
 // missingBm is the Download's missing bitmap (wantedBm & ~completedBm) — the
 // picker uses it for lock-free reads in the hot path.
-func NewPiecePicker(info meta.Info, missingBm *bm.LockFreeBitmap, chunkDoneBm *bm.Bitmap, strategy *atomic.Uint32) *PiecePicker {
+func NewPiecePicker(
+	info meta.Info,
+	missingBm *bm.LockFreeBitmap,
+	chunkDoneBm *bm.Bitmap,
+	strategy *atomic.Uint32,
+	requestGate RequestGate,
+) *PiecePicker {
+	if requestGate.state == nil {
+		panic("piece picker requires a request gate")
+	}
 	numPieces := info.NumPieces
 	blocksPerPiece := uint32((info.PieceLength + meta.DefaultBlockSize - 1) / meta.DefaultBlockSize)
 
@@ -316,10 +344,10 @@ func NewPiecePicker(info meta.Info, missingBm *bm.LockFreeBitmap, chunkDoneBm *b
 		missingBm:         missingBm,
 		chunkDoneBm:       chunkDoneBm,
 		strategy:          strategy,
+		requestGate:       requestGate,
 		dirty:             true,
 		partialsDirty:     true,
 		blockInfos:        newBlockStates(int(numPieces) * int(blocksPerPiece)),
-		requestsEnabled:   true,
 	}
 
 	// initialize pieces array
@@ -447,37 +475,16 @@ func (pp *PiecePicker) WeHave(pieceIndex uint32) {
 	pp.dirty = true
 }
 
-// EnableRequests allows PickAndClaim to create new claims.
-func (pp *PiecePicker) EnableRequests() {
-	if pp == nil {
-		return
-	}
-	pp.mu.Lock()
-	pp.requestsEnabled = true
-	pp.mu.Unlock()
-}
-
-// PauseRequests prevents new claims without releasing existing ones. It is
-// used while a download is queued so already-sent requests can still finish.
-func (pp *PiecePicker) PauseRequests() {
-	if pp == nil {
-		return
-	}
-	pp.mu.Lock()
-	pp.requestsEnabled = false
-	pp.mu.Unlock()
-}
-
-// DisableRequests prevents new claims and releases every active claim. Blocks
-// with no accepted response return to the free state.
-func (pp *PiecePicker) DisableRequests() int {
+// ReleaseAllClaims releases every claim active while it holds the picker lock.
+// A racing PickAndClaim may create claims afterward; its caller still owns and
+// must consume every returned token.
+func (pp *PiecePicker) ReleaseAllClaims() int {
 	if pp == nil {
 		return 0
 	}
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
 
-	pp.requestsEnabled = false
 	released := len(pp.activeClaims)
 	for token, record := range pp.activeClaims {
 		pp.releaseClaimUnsafe(BlockClaim{Block: record.block, token: token})
@@ -827,6 +834,11 @@ func (pp *PiecePicker) pickPiecesUnsafe(
 	for _, p := range pp.partials {
 		if numBlocks <= 0 {
 			break
+		}
+		// missingBm is owned by Download and can change without invalidating
+		// the cached partial ordering.
+		if !pp.missingBm.Contains(p.pieceIndex) {
+			continue
 		}
 		dp := pp.findDownloadingPiece(p.pieceIndex)
 		if dp == nil {
