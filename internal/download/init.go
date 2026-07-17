@@ -17,7 +17,6 @@ import (
 	"github.com/trim21/errgo"
 
 	"neptune/internal/pkg/fadvise"
-	"neptune/internal/pkg/fallocate"
 	"neptune/internal/pkg/global"
 )
 
@@ -174,10 +173,6 @@ func tryAllocFile(index int, path string, size int64, doAlloc bool, selected boo
 		}
 		defer f.Close()
 
-		if doAlloc && selected {
-			return nil, fallocate.Fallocate(f, 0, size)
-		}
-
 		return nil, f.Truncate(size)
 	}
 
@@ -194,7 +189,7 @@ func tryAllocFile(index int, path string, size int64, doAlloc bool, selected boo
 		}
 		defer f.Close()
 
-		return nil, errgo.Wrap(fallocate.Fallocate(f, fs, size-fs), "failed to alloc file")
+		return nil, f.Truncate(size)
 	}
 
 	return ef, nil

@@ -26,6 +26,7 @@ type FileStore struct {
 	fp               *filepool.FilePool
 	ioc              *gfs.IOContext
 	selectedFilesSet *bm.Bitmap
+	fallocatedBm     *bm.LockFreeBitmap
 	basePath         string
 	info             meta.Info
 	fallocate        bool
@@ -39,6 +40,7 @@ func NewFileStore(info meta.Info, basePath string, fp *filepool.FilePool, ioc *g
 		fp:               fp,
 		ioc:              ioc,
 		selectedFilesSet: selectedFilesSet,
+		fallocatedBm:     bm.NewLockFreeBitmap(uint32(len(info.Files))),
 		fallocate:        fallocate,
 	}
 }

@@ -32,7 +32,10 @@ func (s *FileStore) WriteChunk(ctx context.Context, pieceIndex uint32, begin uin
 		if fresh {
 			_ = fadvise.Random(f.File, 0, 0)
 			if s.fallocate && s.selectedFilesSet.Contains(uint32(chunk.FileIndex)) {
-				_ = fallocate.Fallocate(f.File, 0, s.info.Files[chunk.FileIndex].Length)
+				if !s.fallocatedBm.Contains(uint32(chunk.FileIndex)) {
+					_ = fallocate.Fallocate(f.File, 0, s.info.Files[chunk.FileIndex].Length)
+					s.fallocatedBm.Set(uint32(chunk.FileIndex))
+				}
 			}
 		}
 		_, err = gfs.WriteAtCtx(ctx, s.ioc, f.File, data[off:off+chunk.Length], chunk.OffsetOfFile)
