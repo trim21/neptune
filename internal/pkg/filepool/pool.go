@@ -4,44 +4,43 @@
 package filepool
 
 import (
+	"container/list"
 	"os"
 	"sync"
 	"time"
 
-	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/rs/zerolog/log"
-	"go.uber.org/atomic"
 )
 
-// FilePool keeps at most one live fd per cacheKey. Active handles (ref>0) are
-// pinned in the active map. When Release makes ref==0, the handle moves to the
-// idle LRU and may be closed on eviction. This avoids reopening a file that is
-// already open while still closing unused fds.
+const maxIdleFiles = 5000
+
+type openCall struct {
+	done chan struct{}
+	err  error
+}
+
+// FilePool keeps one canonical fd per cacheKey. Every file state transition is
+// protected by mu; the actual open and close syscalls happen without the lock.
+// Idle expiration is processed lazily by subsequent pool operations.
 type FilePool struct {
-	idle   *expirable.LRU[cacheKey, *File]
-	active map[cacheKey]*File
-	mu     sync.Mutex
+	// nextExpiry may refer to an entry that has since become active. In that
+	// case the next maintenance pass simply recomputes the actual minimum.
+	nextExpiry time.Time
+	openFile   func(string, int, os.FileMode) (*os.File, error)
+	now        func() time.Time
+	files      map[cacheKey]*File
+	opening    map[cacheKey]*openCall
+	idle       list.List
+	mu         sync.Mutex
 }
 
 func New() *FilePool {
 	return &FilePool{
-		idle:   expirable.NewLRU[cacheKey, *File](5000, onEvict, time.Minute*5),
-		active: make(map[cacheKey]*File, 64),
+		openFile: os.OpenFile,
+		now:      time.Now,
+		files:    make(map[cacheKey]*File, 64),
+		opening:  make(map[cacheKey]*openCall),
 	}
-}
-
-func onEvict(key cacheKey, value *File) {
-	if value == nil {
-		return
-	}
-	if value.ref.Load() > 0 {
-		return
-	}
-	log.Debug().Str("path", key.path).Msg("close file")
-	if err := value.File.Close(); err != nil {
-		log.Warn().Err(err).Str("path", key.path).Msg("failed to close evicted file")
-	}
-	value.pool = nil
 }
 
 type cacheKey struct {
@@ -51,84 +50,230 @@ type cacheKey struct {
 	ttl  time.Duration
 }
 
-// Open returns a handle and bumps its ref. It prefers an active handle, then an
-// idle one, and only opens a new fd if none exist.
-// fresh is true when a new fd was created (rather than taken from the cache).
+// Open returns a handle and increments its reference count. Concurrent misses
+// for the same key share one os.OpenFile call, while different keys may still
+// be opened concurrently.
+//
+// fresh is true only for the caller that created the canonical fd.
 func (pool *FilePool) Open(path string, flag int, perm os.FileMode, ttl time.Duration) (file *File, fresh bool, err error) {
 	key := cacheKey{path: path, flag: flag, perm: perm, ttl: ttl}
 
-	pool.mu.Lock()
-	if f, ok := pool.active[key]; ok {
-		f.ref.Add(1)
+	for {
+		pool.mu.Lock()
+		toClose := pool.expireIdleLocked(pool.now())
+		if f, ok := pool.files[key]; ok {
+			if f.initializing {
+				ready := f.ready
+				pool.mu.Unlock()
+				closeFiles(toClose)
+				<-ready
+				continue
+			}
+			pool.activateLocked(f)
+			pool.mu.Unlock()
+			closeFiles(toClose)
+			return f, false, nil
+		}
+
+		if call, ok := pool.opening[key]; ok {
+			pool.mu.Unlock()
+			closeFiles(toClose)
+			<-call.done
+			if call.err != nil {
+				return nil, false, call.err
+			}
+			continue
+		}
+
+		call := &openCall{done: make(chan struct{})}
+		pool.opening[key] = call
 		pool.mu.Unlock()
-		return f, false, nil
-	}
-	if f, ok := pool.idle.Get(key); ok {
-		f.ref.Store(1)
-		pool.active[key] = f
-		pool.idle.Remove(key)
+		closeFiles(toClose)
+
+		fd, openErr := pool.openFile(path, flag, perm)
+
+		pool.mu.Lock()
+		delete(pool.opening, key)
+		call.err = openErr
+		if openErr == nil {
+			file = &File{
+				File:         fd,
+				pool:         pool,
+				key:          key,
+				ready:        make(chan struct{}),
+				refs:         1,
+				initializing: true,
+			}
+			pool.files[key] = file
+		}
+		close(call.done)
 		pool.mu.Unlock()
-		return f, false, nil
+
+		if openErr != nil {
+			return nil, false, openErr
+		}
+		return file, true, nil
 	}
-	pool.mu.Unlock()
-
-	fd, err := os.OpenFile(path, flag, perm)
-	if err != nil {
-		return nil, false, err
-	}
-
-	f := &File{File: fd, key: key, pool: pool}
-	f.ref.Store(1)
-
-	pool.mu.Lock()
-	pool.active[key] = f
-	pool.mu.Unlock()
-
-	return f, true, nil
 }
 
-// File wraps an *os.File with ref counting.
+// File wraps an *os.File with a reference count managed by FilePool.
 type File struct {
-	File *os.File
-	pool *FilePool
-	key  cacheKey
-	ref  atomic.Int32
+	expiresAt    time.Time
+	File         *os.File
+	pool         *FilePool
+	idleElem     *list.Element
+	ready        chan struct{}
+	key          cacheKey
+	refs         int
+	initializing bool
+	invalid      bool
+	closed       bool
 }
 
-// Release decrements the ref. When it reaches zero, the fd moves to the idle
-// cache and may be closed later on eviction.
+// Release releases one reference. The final reference moves a valid file into
+// the idle LRU, or closes a file that has previously been invalidated.
 func (f *File) Release() {
 	if f == nil || f.pool == nil {
 		return
 	}
 
-	if f.ref.Add(-1) != 0 {
+	pool := f.pool
+	pool.mu.Lock()
+	toClose := pool.expireIdleLocked(pool.now())
+	if f.closed || f.refs == 0 {
+		pool.mu.Unlock()
+		closeFiles(toClose)
 		return
 	}
 
-	p := f.pool
-	p.mu.Lock()
-	delete(p.active, f.key)
-	// Only idle handles live in LRU; eviction will close them.
-	p.idle.Add(f.key, f)
-	p.mu.Unlock()
+	pool.finishInitializationLocked(f)
+	f.refs--
+	if f.refs == 0 {
+		if f.invalid {
+			pool.markClosedLocked(f)
+			toClose = append(toClose, f)
+		} else {
+			pool.makeIdleLocked(f, pool.now())
+			toClose = append(toClose, pool.evictOverflowLocked()...)
+		}
+	}
+	pool.mu.Unlock()
+	closeFiles(toClose)
 }
 
-// Close forcibly closes and removes the fd from both active and idle caches.
+// Close invalidates the canonical fd and releases the caller's reference. New
+// Open calls create a replacement fd. Existing users may finish before the old
+// fd is closed by the final Release.
 func (f *File) Close() {
 	if f == nil || f.pool == nil {
 		return
 	}
 
-	p := f.pool
-	p.mu.Lock()
-	delete(p.active, f.key)
-	p.idle.Remove(f.key)
-	p.mu.Unlock()
-
-	f.ref.Store(0)
-	if err := f.File.Close(); err != nil {
-		log.Warn().Err(err).Str("path", f.key.path).Msg("failed to close file")
+	pool := f.pool
+	pool.mu.Lock()
+	toClose := pool.expireIdleLocked(pool.now())
+	if f.closed {
+		pool.mu.Unlock()
+		closeFiles(toClose)
+		return
 	}
-	f.pool = nil
+
+	if !f.invalid {
+		pool.finishInitializationLocked(f)
+		f.invalid = true
+		if pool.files[f.key] == f {
+			delete(pool.files, f.key)
+		}
+		pool.removeIdleLocked(f)
+	}
+	if f.refs > 0 {
+		f.refs--
+	}
+	if f.refs == 0 {
+		pool.markClosedLocked(f)
+		toClose = append(toClose, f)
+	}
+	pool.mu.Unlock()
+	closeFiles(toClose)
+}
+
+func (pool *FilePool) activateLocked(f *File) {
+	pool.removeIdleLocked(f)
+	f.refs++
+}
+
+func (pool *FilePool) finishInitializationLocked(f *File) {
+	if f.initializing {
+		f.initializing = false
+		close(f.ready)
+	}
+}
+
+func (pool *FilePool) makeIdleLocked(f *File, now time.Time) {
+	f.idleElem = pool.idle.PushFront(f)
+	if f.key.ttl > 0 {
+		f.expiresAt = now.Add(f.key.ttl)
+		if pool.nextExpiry.IsZero() || f.expiresAt.Before(pool.nextExpiry) {
+			pool.nextExpiry = f.expiresAt
+		}
+	}
+}
+
+func (pool *FilePool) removeIdleLocked(f *File) {
+	if f.idleElem != nil {
+		pool.idle.Remove(f.idleElem)
+		f.idleElem = nil
+	}
+	f.expiresAt = time.Time{}
+}
+
+func (pool *FilePool) markClosedLocked(f *File) {
+	pool.finishInitializationLocked(f)
+	pool.removeIdleLocked(f)
+	if pool.files[f.key] == f {
+		delete(pool.files, f.key)
+	}
+	f.invalid = true
+	f.closed = true
+	f.refs = 0
+}
+
+func (pool *FilePool) expireIdleLocked(now time.Time) (toClose []*File) {
+	if pool.nextExpiry.IsZero() || now.Before(pool.nextExpiry) {
+		return nil
+	}
+
+	pool.nextExpiry = time.Time{}
+	for elem := pool.idle.Front(); elem != nil; {
+		next := elem.Next()
+		f := elem.Value.(*File)
+		switch {
+		case f.expiresAt.IsZero():
+		case !now.Before(f.expiresAt):
+			pool.markClosedLocked(f)
+			toClose = append(toClose, f)
+		case pool.nextExpiry.IsZero() || f.expiresAt.Before(pool.nextExpiry):
+			pool.nextExpiry = f.expiresAt
+		}
+		elem = next
+	}
+	return toClose
+}
+
+func (pool *FilePool) evictOverflowLocked() (toClose []*File) {
+	for pool.idle.Len() > maxIdleFiles {
+		f := pool.idle.Back().Value.(*File)
+		pool.markClosedLocked(f)
+		toClose = append(toClose, f)
+	}
+	return toClose
+}
+
+func closeFiles(files []*File) {
+	for _, f := range files {
+		log.Debug().Str("path", f.key.path).Msg("close file")
+		if err := f.File.Close(); err != nil {
+			log.Warn().Err(err).Str("path", f.key.path).Msg("failed to close file")
+		}
+	}
 }
