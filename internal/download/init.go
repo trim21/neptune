@@ -18,7 +18,6 @@ import (
 
 	"neptune/internal/pkg/fadvise"
 	"neptune/internal/pkg/fallocate"
-	"neptune/internal/pkg/gfs"
 	"neptune/internal/pkg/global"
 )
 
@@ -65,22 +64,56 @@ func (d *Download) initCheck() error {
 
 	var sha1Sum = make([]byte, sha1.Size)
 
+	var buf [256 * 1024]byte
+	var currentFile *os.File
+	var currentFileIndex = -1
+
+	defer func() {
+		if currentFile != nil {
+			currentFile.Close()
+		}
+	}()
+
 	for _, pieceIndex := range h {
 		if d.ctx.Err() != nil {
 			return d.ctx.Err()
 		}
 
 		for chunk := range d.info.PieceFileChunks(pieceIndex) {
-			p := filepath.Join(d.s.basePath, d.info.Files[chunk.FileIndex].Path)
-			f, err := os.OpenFile(p, os.O_RDONLY, 0)
-			if err != nil {
-				return errgo.Wrap(err, fmt.Sprintf("failed to open file %q", p))
+			if chunk.FileIndex != currentFileIndex {
+				if currentFile != nil {
+					currentFile.Close()
+					currentFile = nil
+				}
+				p := filepath.Join(d.s.basePath, d.info.Files[chunk.FileIndex].Path)
+				f, err := os.OpenFile(p, os.O_RDONLY, 0)
+				if err != nil {
+					return errgo.Wrap(err, fmt.Sprintf("failed to open file %q", p))
+				}
+				_ = fadvise.Sequential(f, 0, 0)
+				currentFile = f
+				currentFileIndex = chunk.FileIndex
 			}
-			_ = fadvise.Sequential(f, 0, 0)
-			_, err = d.pieceDownloadRate.IO64(gfs.CopyReaderAt(w, f, chunk.OffsetOfFile, chunk.Length))
-			f.Close()
-			if err != nil {
-				return errgo.Wrap(err, "failed to read file "+f.Name())
+
+			remaining := chunk.Length
+			off := chunk.OffsetOfFile
+			for remaining > 0 {
+				toRead := min(remaining, int64(len(buf)))
+				n, err := currentFile.ReadAt(buf[:toRead], off)
+				if n > 0 {
+					d.pieceDownloadRate.Update(n)
+					if _, werr := w.Write(buf[:n]); werr != nil {
+						return errgo.Wrap(werr, "failed to hash data")
+					}
+					off += int64(n)
+					remaining -= int64(n)
+				}
+				if err != nil {
+					if err == io.EOF && remaining == 0 {
+						break
+					}
+					return errgo.Wrap(err, "failed to read file "+currentFile.Name())
+				}
 			}
 		}
 		sha1Sum = sum.Sum(sha1Sum[:0])
