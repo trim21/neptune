@@ -259,6 +259,7 @@ func flushContiguousFromHeap(d *Download, h *heap.Heap[responseChunk], pc *peerC
 	head := h.Pop()
 	headPi := head.pi
 	headPiece := head.res.PieceIndex
+	headBegin := head.res.Begin
 
 	mergedChunk := pieceChunksPool.Get()
 	defer pieceChunksPool.Put(mergedChunk)
@@ -302,7 +303,7 @@ func flushContiguousFromHeap(d *Download, h *heap.Heap[responseChunk], pc *peerC
 		proto.PiecePool.Put(peak.res)
 	}
 
-	err := d.store.WriteChunk(d.ctx, headPiece, head.res.Begin, mergedChunk.B)
+	err := d.store.WriteChunk(d.ctx, headPiece, headBegin, mergedChunk.B)
 	if err != nil {
 		d.setError(err)
 		return
