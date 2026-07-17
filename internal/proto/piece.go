@@ -41,7 +41,7 @@ func SendPiece(conn io.Writer, r *ChunkResponse) error {
 	buf := smallBufPool.Get()
 	defer smallBufPool.Put(buf)
 
-	buf.B = binary.BigEndian.AppendUint32(buf.B, uint32(len(r.Data)+sizeByte+sizeUint32*2))
+	buf.B = binary.BigEndian.AppendUint32(buf.B, uint32(len(r.Data)+sizeByte+SizeUint32*2))
 	buf.B = append(buf.B, byte(Piece))
 	buf.B = binary.BigEndian.AppendUint32(buf.B, r.PieceIndex)
 	buf.B = binary.BigEndian.AppendUint32(buf.B, r.Begin)
@@ -62,7 +62,7 @@ var PiecePool = gsync.NewPool(func() *ChunkResponse {
 })
 
 func ReadPiecePayload(conn io.Reader, size uint32) (*ChunkResponse, error) {
-	var b [sizeUint32 * 2]byte
+	var b [SizeUint32 * 2]byte
 
 	_, err := io.ReadFull(conn, b[:])
 	if err != nil {
@@ -72,8 +72,8 @@ func ReadPiecePayload(conn io.Reader, size uint32) (*ChunkResponse, error) {
 	var payload = PiecePool.Get()
 
 	payload.PieceIndex = binary.BigEndian.Uint32(b[:])
-	payload.Begin = binary.BigEndian.Uint32(b[sizeUint32 : sizeUint32*2])
-	payload.Data = slices.Grow(payload.Data[:0], int(size-sizeUint32*2))[:size-sizeUint32*2]
+	payload.Begin = binary.BigEndian.Uint32(b[SizeUint32 : SizeUint32*2])
+	payload.Data = slices.Grow(payload.Data[:0], int(size-SizeUint32*2))[:size-SizeUint32*2]
 
 	_, err = io.ReadFull(conn, payload.Data)
 

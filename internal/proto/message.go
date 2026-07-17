@@ -75,4 +75,4 @@ func SendIndexOnly(conn io.Writer, e Message, index uint32) error {
 }
 
 const sizeByte = 1
-const sizeUint32 = 4
+const SizeUint32 = 4

@@ -30,7 +30,7 @@ func sendRequestPayload(conn io.Writer, id Message, request ChunkRequest) error 
 	buf := smallBufPool.Get()
 	defer smallBufPool.Put(buf)
 
-	buf.B = binary.BigEndian.AppendUint32(buf.B, sizeByte+sizeUint32*3)
+	buf.B = binary.BigEndian.AppendUint32(buf.B, sizeByte+SizeUint32*3)
 	buf.B = append(buf.B, byte(id))
 	buf.B = binary.BigEndian.AppendUint32(buf.B, request.PieceIndex)
 	buf.B = binary.BigEndian.AppendUint32(buf.B, request.Begin)
@@ -41,7 +41,7 @@ func sendRequestPayload(conn io.Writer, id Message, request ChunkRequest) error 
 }
 
 func ReadRequestPayload(conn io.Reader) (payload ChunkRequest, err error) {
-	var b [sizeUint32 * 3]byte
+	var b [SizeUint32 * 3]byte
 
 	_, err = io.ReadFull(conn, b[:])
 	if err != nil {
@@ -49,8 +49,8 @@ func ReadRequestPayload(conn io.Reader) (payload ChunkRequest, err error) {
 	}
 
 	payload.PieceIndex = binary.BigEndian.Uint32(b[:])
-	payload.Begin = binary.BigEndian.Uint32(b[sizeUint32:])
-	payload.Length = binary.BigEndian.Uint32(b[sizeUint32*2:])
+	payload.Begin = binary.BigEndian.Uint32(b[SizeUint32:])
+	payload.Length = binary.BigEndian.Uint32(b[SizeUint32*2:])
 
 	return
 }

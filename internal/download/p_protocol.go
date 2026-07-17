@@ -195,7 +195,7 @@ func (p *peerImpl) decodeReject() (Event, error) {
 }
 
 func (p *peerImpl) decodePiece(size uint32) (Event, error) {
-	if size >= defaultBlockSize*2 {
+	if size < proto.SizeUint32*2 || size >= defaultBlockSize*2 {
 		return Event{}, ErrPeerSendInvalidData
 	}
 
