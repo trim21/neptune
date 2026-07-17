@@ -34,6 +34,7 @@ func (c *Client) Shutdown() {
 	wg.Wait()
 
 	c.session.Cancel()
+	c.session.IOContext.Close()
 }
 
 func (c *Client) saveSessionUnsafe() *panics.Recovered {

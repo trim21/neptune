@@ -1,18 +1,32 @@
 // Copyright 2024 trim21 <trim21.me@gmail.com>
 // SPDX-License-Identifier: GPL-3.0-only
 
-//go:build linux
+//go:build linux && neptune_uring
 
 package gfs
 
 import (
 	"context"
+	"errors"
 	"os"
 	"sync"
 	"testing"
+	"time"
 )
 
 const benchFileSize = 64 << 20 // 64 MiB.
+
+var benchBufferSizes = []struct {
+	name string
+	size int64
+}{
+	{name: "16K", size: 16 << 10},
+	{name: "32K", size: 32 << 10},
+	{name: "64K", size: 64 << 10},
+	{name: "128K", size: 128 << 10},
+	{name: "256K", size: 256 << 10},
+	{name: "512K", size: 512 << 10},
+}
 
 func newBenchFile(b *testing.B) *os.File {
 	b.Helper()
@@ -40,6 +54,9 @@ func benchReadUring(b *testing.B, bufSize int64) {
 
 	ioc := NewIOContext()
 	defer ioc.Close()
+	if ioc.ring == nil {
+		b.Skip("io_uring is unavailable")
+	}
 	ctx := context.Background()
 
 	b.SetBytes(bufSize)
@@ -84,14 +101,18 @@ func benchReadPlain(b *testing.B, bufSize int64) {
 	})
 }
 
-func BenchmarkReadUring4K(b *testing.B)   { benchReadUring(b, 4096) }
-func BenchmarkReadPlain4K(b *testing.B)   { benchReadPlain(b, 4096) }
-func BenchmarkReadUring16K(b *testing.B)  { benchReadUring(b, 16*1024) }
-func BenchmarkReadPlain16K(b *testing.B)  { benchReadPlain(b, 16*1024) }
-func BenchmarkReadUring64K(b *testing.B)  { benchReadUring(b, 64*1024) }
-func BenchmarkReadPlain64K(b *testing.B)  { benchReadPlain(b, 64*1024) }
-func BenchmarkReadUring256K(b *testing.B) { benchReadUring(b, 256*1024) }
-func BenchmarkReadPlain256K(b *testing.B) { benchReadPlain(b, 256*1024) }
+func BenchmarkReadAt(b *testing.B) {
+	for _, size := range benchBufferSizes {
+		b.Run(size.name, func(b *testing.B) {
+			b.Run("io_uring", func(b *testing.B) {
+				benchReadUring(b, size.size)
+			})
+			b.Run("pread", func(b *testing.B) {
+				benchReadPlain(b, size.size)
+			})
+		})
+	}
+}
 
 // ---------------------------------------------------------------------------
 // Write benchmarks.
@@ -109,6 +130,9 @@ func benchWriteUring(b *testing.B, bufSize int64) {
 
 	ioc := NewIOContext()
 	defer ioc.Close()
+	if ioc.ring == nil {
+		b.Skip("io_uring is unavailable")
+	}
 	ctx := context.Background()
 	fill := make([]byte, bufSize)
 
@@ -158,14 +182,18 @@ func benchWritePlain(b *testing.B, bufSize int64) {
 	})
 }
 
-func BenchmarkWriteUring4K(b *testing.B)   { benchWriteUring(b, 4096) }
-func BenchmarkWritePlain4K(b *testing.B)   { benchWritePlain(b, 4096) }
-func BenchmarkWriteUring16K(b *testing.B)  { benchWriteUring(b, 16*1024) }
-func BenchmarkWritePlain16K(b *testing.B)  { benchWritePlain(b, 16*1024) }
-func BenchmarkWriteUring64K(b *testing.B)  { benchWriteUring(b, 64*1024) }
-func BenchmarkWritePlain64K(b *testing.B)  { benchWritePlain(b, 64*1024) }
-func BenchmarkWriteUring256K(b *testing.B) { benchWriteUring(b, 256*1024) }
-func BenchmarkWritePlain256K(b *testing.B) { benchWritePlain(b, 256*1024) }
+func BenchmarkWriteAt(b *testing.B) {
+	for _, size := range benchBufferSizes {
+		b.Run(size.name, func(b *testing.B) {
+			b.Run("io_uring", func(b *testing.B) {
+				benchWriteUring(b, size.size)
+			})
+			b.Run("pwrite", func(b *testing.B) {
+				benchWritePlain(b, size.size)
+			})
+		})
+	}
+}
 
 // ---------------------------------------------------------------------------
 // Concurrency stress.
@@ -205,4 +233,67 @@ func TestIOContextConcurrency(t *testing.T) {
 		}(w)
 	}
 	wg.Wait()
+}
+
+func TestIOContextCloseRejectsNewIO(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "gfs_close")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+
+	ioc := NewIOContext()
+	ioc.Close()
+
+	_, err = WriteAtCtx(context.Background(), ioc, f, []byte("x"), 0)
+	if !errors.Is(err, ErrIOContextClosed) {
+		t.Fatalf("WriteAtCtx error = %v, want %v", err, ErrIOContextClosed)
+	}
+}
+
+func TestIOContextCloseWaitsForInflightIO(t *testing.T) {
+	ioc := NewIOContext()
+	if !ioc.beginIO() {
+		t.Fatal("failed to begin I/O")
+	}
+	ioEnded := false
+	defer func() {
+		if !ioEnded {
+			ioc.endIO()
+		}
+	}()
+
+	closeDone := make(chan struct{})
+	go func() {
+		ioc.Close()
+		close(closeDone)
+	}()
+
+	deadline := time.Now().Add(time.Second)
+	for {
+		ioc.submitMu.Lock()
+		closed := ioc.closed
+		ioc.submitMu.Unlock()
+		if closed {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("Close did not start")
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	select {
+	case <-closeDone:
+		t.Fatal("Close returned with I/O still in flight")
+	default:
+	}
+
+	ioc.endIO()
+	ioEnded = true
+	select {
+	case <-closeDone:
+	case <-time.After(time.Second):
+		t.Fatal("Close did not return after I/O completed")
+	}
 }

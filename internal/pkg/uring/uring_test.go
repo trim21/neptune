@@ -340,6 +340,18 @@ func TestCancelOpPrepSQE(t *testing.T) {
 	}
 }
 
+func TestNopPrepSQE(t *testing.T) {
+	var sqe SQEntry
+	Nop().PrepSQE(&sqe)
+
+	if sqe.OpCode != opNop {
+		t.Errorf("OpCode = %d, expected %d", sqe.OpCode, opNop)
+	}
+	if sqe.Fd != -1 {
+		t.Errorf("Fd = %d, expected -1", sqe.Fd)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // ReadWriteOp interface satisfaction.
 // ---------------------------------------------------------------------------

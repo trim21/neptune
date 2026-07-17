@@ -371,6 +371,7 @@ func (r *Ring) getCQEvent(toSubmit uint32) (*CQEvent, error) {
 
 // opcodes from io_uring.h.
 const (
+	opNop         uint8 = 0  // IORING_OP_NOP
 	opRead        uint8 = 22 // IORING_OP_READ
 	opWrite       uint8 = 23 // IORING_OP_WRITE
 	opAsyncCancel uint8 = 14 // IORING_OP_ASYNC_CANCEL
@@ -379,6 +380,15 @@ const (
 // ReadWriteOp is implemented by ReadOp, WriteOp, and CancelOp.
 type ReadWriteOp interface {
 	PrepSQE(sqe *SQEntry)
+}
+
+// Nop creates an operation that completes without performing I/O.
+func Nop() ReadWriteOp { return nopOp{} }
+
+type nopOp struct{}
+
+func (nopOp) PrepSQE(sqe *SQEntry) {
+	sqe.fill(opNop, -1, 0, 0, 0)
 }
 
 // ReadOp is an io_uring IORING_OP_READ operation (equivalent to pread).
