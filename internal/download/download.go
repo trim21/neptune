@@ -641,12 +641,19 @@ func (d *Download) checkDone(done, pending *bm.NilSafeLockFreeBitmap) {
 		return
 	}
 
+	// Guard against concurrent checkPiece calls for the last pieces:
+	// only one goroutine may execute the completion sequence.
+	if !d.completedOnce.CompareAndSwap(false, true) {
+		return
+	}
+
 	if d.session.RecheckOnComplete.Load() {
 		d.recheckAfterComplete()
 		return
 	}
 
 	if err := d.transition(Seeding); err != nil {
+		d.completedOnce.Store(false)
 		d.log.Error().Err(err).Msg("failed to transition state in checkDone")
 		return
 	}
@@ -677,6 +684,7 @@ func (d *Download) checkDone(done, pending *bm.NilSafeLockFreeBitmap) {
 // Downloading so corrupt pieces are re-fetched.
 func (d *Download) recheckAfterComplete() {
 	if err := d.transition(Checking); err != nil {
+		d.completedOnce.Store(false)
 		d.log.Error().Err(err).Msg("failed to start completion recheck")
 		return
 	}
@@ -729,6 +737,7 @@ func (d *Download) runHashCheck(onSeeding func()) {
 				return
 			}
 		} else {
+			d.completedOnce.Store(false)
 			if err := d.transition(Downloading); err != nil {
 				d.log.Error().Err(err).Msg("failed to transition after hash check")
 				return

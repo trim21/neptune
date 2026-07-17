@@ -93,11 +93,8 @@ func (s *FileStore) VerifyPiece(ctx context.Context, pieceIndex uint32, expected
 				left -= int64(n)
 			}
 			if err != nil {
-				if n == 0 {
-					f.Release()
-					return false, err
-				}
-				break
+				f.Release()
+				return false, err
 			}
 		}
 		f.Release()

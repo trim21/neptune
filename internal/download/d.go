@@ -198,6 +198,7 @@ type Download struct {
 	selectedSize           atomic.Int64
 	unchokeCycleOffset     int
 	queueWeight            atomic.Int64
+	completedOnce          atomic.Bool
 	transitionMu           sync.Mutex
 	bannedAddrsMu          sync.Mutex
 	corruptedPiecesMu      sync.Mutex
