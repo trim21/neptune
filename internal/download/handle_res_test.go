@@ -19,6 +19,7 @@ import (
 
 	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/rs/zerolog"
+	"github.com/stretchr/testify/assert"
 	"golang.org/x/sync/semaphore"
 
 	"neptune/internal/client/tracker"
@@ -170,29 +171,29 @@ func dumpState(d *Download, h *heap.Heap[responseChunk], doneBm, pendingBm *bm.N
 	return sb.String()
 }
 
-func allDone(d *Download, doneBm *bm.NilSafeLockFreeBitmap) bool {
-	for pi := range d.info.NumPieces {
-		total := (d.info.PieceBlockCount(pi))
-		done := 0
-		start := pi * d.normalChunkLen
-		end := start + uint32(total)
-		for i := start; i < end; i++ {
-			if doneBm.Contains(i) {
-				done++
-			}
-		}
-		if done != total {
-			return false
-		}
+func assertHandleResCompleted(
+	t *testing.T,
+	d *Download,
+	h *heap.Heap[responseChunk],
+	doneBm, pendingBm *bm.NilSafeLockFreeBitmap,
+	label string,
+) {
+	t.Helper()
+	if h.Len() != 0 {
+		t.Errorf("FAIL %s: heap=%d\n%s", label, h.Len(), dumpState(d, h, doneBm, pendingBm))
+		return
 	}
-	return true
+
+	if !assert.Eventually(t, func() bool {
+		return d.completedBm.Count() == d.info.NumPieces && d.GetState() == Seeding
+	}, 2*time.Second, time.Millisecond, "download did not complete for %s", label) {
+		t.Log(dumpState(d, h, doneBm, pendingBm))
+	}
 }
 
 // TestHandleResOrder sends all chunks in various orders through handleRes
-// using an in-memory store for writes. Async checkPiece runs against
-// empty temp files and fails, which is fine — we verify the synchronous
-// state machine invariants: heap must be empty and all done bits set
-// after all chunks are processed.
+// using an in-memory store for writes. The heap is drained synchronously;
+// piece verification and the final transition to Seeding are asynchronous.
 func TestHandleResOrder(t *testing.T) {
 	const numPieces = 5
 	const blocksPerPiece = 4
@@ -278,11 +279,7 @@ func TestHandleResOrder(t *testing.T) {
 					peerID: 0,
 				}))
 			}
-			if h.Len() != 0 || !allDone(d, doneBm) {
-				t.Errorf("FAIL %s: heap=%d\n%s", name, h.Len(), dumpState(d, &h, doneBm, pendingBm))
-			} else {
-				t.Logf("PASS %s", name)
-			}
+			assertHandleResCompleted(t, d, &h, doneBm, pendingBm, name)
 		})
 	}
 }
@@ -338,11 +335,7 @@ func TestHandleResLargePiece(t *testing.T) {
 		}}))
 	}
 
-	if h.Len() != 0 || !allDone(d, doneBm) {
-		t.Errorf("FAIL large: heap=%d\n%s", h.Len(), dumpState(d, &h, doneBm, pendingBm))
-	} else {
-		t.Logf("PASS large (%d chunks)", len(order))
-	}
+	assertHandleResCompleted(t, d, &h, doneBm, pendingBm, "large")
 }
 
 // FuzzHandleRes uses Go's fuzzing engine to randomize chunk arrival order
