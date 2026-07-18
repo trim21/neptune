@@ -47,6 +47,7 @@ type Session struct {
 	IOContext                  *gfs.IOContext
 	HTTP                       *resty.Client
 	ConnSem                    *semaphore.Weighted
+	DialSem                    *semaphore.Weighted
 	IPv6                       atomic.Pointer[netip.Addr]
 	PieceUploadRate            *flowrate.Monitor
 	UploadLimiter              *ratelimit.Limiter
@@ -128,6 +129,7 @@ func New(cfg config.Config, sessionPath string, debug bool) *Session {
 		}).SetHeader("User-Agent", global.UserAgent).SetRedirectPolicy(resty.NoRedirectPolicy()),
 
 		ConnSem: semaphore.NewWeighted(int64(cfg.App.GlobalConnectionLimit)),
+		DialSem: semaphore.NewWeighted(int64(cfg.App.GlobalConnectionLimit)),
 
 		DownloadLimiter: ratelimit.New(cfg.App.GlobalDownloadSpeedLimit),
 		UploadLimiter:   ratelimit.New(cfg.App.GlobalUploadSpeedLimit),

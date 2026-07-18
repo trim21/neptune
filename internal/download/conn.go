@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	peerConnectTimeout = 15 * time.Second
+	peerConnectTimeout = 60 * time.Second
 	addrBanDuration    = 24 * time.Hour
 )
 
@@ -69,14 +69,13 @@ func (d *Download) connectToPeers(maxSlots int) int {
 				d.peerList.clearDialing(candidate)
 				continue
 			}
-			if !d.session.ConnSem.TryAcquire(1) {
+			if !d.session.DialSem.TryAcquire(1) {
 				d.peerList.clearDialing(candidate)
 				semFull = true
 				// Continue the inner loop to clearDialing remaining
 				// candidates, then stop: no point retrying until slots free up.
 				continue
 			}
-			d.session.ConnCount.Add(1)
 			go d.tryDial(candidate)
 			connected++
 			if connected >= maxSlots {
@@ -93,9 +92,13 @@ func (d *Download) connectToPeers(maxSlots int) int {
 }
 
 // tryDial attempts a TCP connect to a candidate peer.
+// DialSem is held by the caller; it is released on every exit path.
+// ConnSem is acquired only after a successful TCP connect.
 // On success, registers the connection in the peer list.
 // On failure, increments failcount and releases the semaphore.
 func (d *Download) tryDial(pp *persistentPeer) {
+	defer d.session.DialSem.Release(1)
+
 	ctx, cancel := context.WithTimeout(d.ctx, peerConnectTimeout)
 	defer cancel()
 
@@ -104,8 +107,6 @@ func (d *Download) tryDial(pp *persistentPeer) {
 	conn, err := global.Dial(ctx, "tcp", pp.addrPort.String())
 	if err != nil {
 		d.peerList.incFailcount(pp, err.Error())
-		d.session.ConnSem.Release(1)
-		d.session.ConnCount.Sub(1)
 		// Wake up connection loop to try next candidate.
 		select {
 		case d.pendingPeersSignal <- empty.Empty{}:
@@ -113,6 +114,18 @@ func (d *Download) tryDial(pp *persistentPeer) {
 		}
 		return
 	}
+
+	// TCP connected. Try to grab a global connection slot.
+	if !d.session.ConnSem.TryAcquire(1) {
+		_ = conn.Close()
+		d.peerList.incFailcount(pp, "connection limit reached")
+		select {
+		case d.pendingPeersSignal <- empty.Empty{}:
+		default:
+		}
+		return
+	}
+	d.session.ConnCount.Add(1)
 
 	_ = conn.SetDeadline(time.Now().Add(global.ConnTimeout))
 
