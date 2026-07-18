@@ -7,30 +7,56 @@ package gfs
 
 import (
 	"context"
-	"os"
+	"fmt"
+	"sync"
+
+	"neptune/internal/pkg/disk_io"
 )
 
-// IOContext is a no-op when the io_uring backend is disabled.
-type IOContext struct{}
-
-// NewIOContext returns a no-op I/O context.
-func NewIOContext() *IOContext { return &IOContext{} }
-
-// Close is a no-op for the fallback implementation.
-func (*IOContext) Close() {}
-
-// ReadAtCtx reads from f at off. Cancellation after submission is not supported.
-func ReadAtCtx(ctx context.Context, _ *IOContext, f *os.File, p []byte, off int64) (int, error) {
-	if err := ctx.Err(); err != nil {
-		return 0, err
-	}
-	return f.ReadAt(p, off)
+type portableBackend struct {
+	inflight sync.WaitGroup
+	mu       sync.Mutex
+	closed   bool
 }
 
-// WriteAtCtx writes to f at off. Cancellation after submission is not supported.
-func WriteAtCtx(ctx context.Context, _ *IOContext, f *os.File, p []byte, off int64) (int, error) {
+func newBackend() ioBackend {
+	return &portableBackend{}
+}
+
+func (b *portableBackend) Execute(ctx context.Context, operation disk_io.Operation) disk_io.Result {
 	if err := ctx.Err(); err != nil {
-		return 0, err
+		return disk_io.Result{Err: err}
 	}
-	return f.WriteAt(p, off)
+	if !b.beginIO() {
+		return disk_io.Result{Err: ErrIOContextClosed}
+	}
+	defer b.inflight.Done()
+
+	switch op := operation.(type) {
+	case disk_io.PRead:
+		n, err := op.File.ReadAt(op.Buffer, op.Offset)
+		return disk_io.Result{N: n, Err: err}
+	case disk_io.PWrite:
+		n, err := op.File.WriteAt(op.Buffer, op.Offset)
+		return disk_io.Result{N: n, Err: err}
+	default:
+		return disk_io.Result{Err: fmt.Errorf("unsupported disk IO operation %T", operation)}
+	}
+}
+
+func (b *portableBackend) beginIO() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.closed {
+		return false
+	}
+	b.inflight.Add(1)
+	return true
+}
+
+func (b *portableBackend) Close() {
+	b.mu.Lock()
+	b.closed = true
+	b.mu.Unlock()
+	b.inflight.Wait()
 }

@@ -187,6 +187,7 @@ func (s *Session) Enqueue(fn func()) bool {
 }
 
 func (s *Session) InitMetrics() {
+	prometheus.MustRegister(s.IOContext.Collectors()...)
 	prometheus.MustRegister(prometheus.NewGaugeFunc(prometheus.GaugeOpts{
 		Name: "neptune_client_connections",
 		Help: "Current number connections tracked by client",

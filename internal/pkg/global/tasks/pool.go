@@ -8,8 +8,9 @@ import (
 	"github.com/samber/lo"
 )
 
-// ioPool handles file I/O tasks: piece verification, disk reads/writes.
-var ioPool = lo.Must(ants.NewPool(64, ants.WithPreAlloc(true)))
+// verifyDispatchPool dispatches asynchronous piece verification callers. Actual disk
+// concurrency is controlled by gfs.IOContext.
+var verifyDispatchPool = lo.Must(ants.NewPool(64, ants.WithPreAlloc(true)))
 
 // netPool handles network I/O tasks: connection handshake, HAVE broadcasts.
 var netPool = lo.Must(ants.NewPool(200, ants.WithPreAlloc(true)))
