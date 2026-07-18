@@ -14,7 +14,7 @@ import (
 	"syscall"
 	"unsafe"
 
-	"neptune/internal/pkg/diskio"
+	"neptune/internal/pkg/disk_io"
 	"neptune/internal/pkg/sys"
 	"neptune/internal/pkg/uring"
 )
@@ -59,35 +59,35 @@ func newBackend() ioBackend {
 	return b
 }
 
-func (b *uringBackend) Execute(ctx context.Context, operation diskio.Operation) diskio.Result {
+func (b *uringBackend) Execute(ctx context.Context, operation disk_io.Operation) disk_io.Result {
 	if err := ctx.Err(); err != nil {
-		return diskio.Result{Err: err}
+		return disk_io.Result{Err: err}
 	}
 	if !b.beginIO() {
-		return diskio.Result{Err: ErrIOContextClosed}
+		return disk_io.Result{Err: ErrIOContextClosed}
 	}
 	defer b.endIO()
 
 	switch op := operation.(type) {
-	case diskio.PRead:
+	case disk_io.PRead:
 		if b.ring == nil {
 			n, err := op.File.ReadAt(op.Buffer, op.Offset)
-			return diskio.Result{N: n, Err: err}
+			return disk_io.Result{N: n, Err: err}
 		}
 		n, err := b.submitAndWait(ctx, uring.Read(op.File.Fd(), op.Buffer, uint64(op.Offset)))
-		return diskio.Result{N: n, Err: err}
-	case diskio.PWrite:
+		return disk_io.Result{N: n, Err: err}
+	case disk_io.PWrite:
 		if b.ring == nil {
 			n, err := op.File.WriteAt(op.Buffer, op.Offset)
-			return diskio.Result{N: n, Err: err}
+			return disk_io.Result{N: n, Err: err}
 		}
 		n, err := b.submitAndWait(ctx, uring.Write(op.File.Fd(), op.Buffer, uint64(op.Offset)))
 		if err == nil && n != len(op.Buffer) {
 			err = io.ErrShortWrite
 		}
-		return diskio.Result{N: n, Err: err}
+		return disk_io.Result{N: n, Err: err}
 	default:
-		return diskio.Result{Err: fmt.Errorf("unsupported disk IO operation %T", operation)}
+		return disk_io.Result{Err: fmt.Errorf("unsupported disk IO operation %T", operation)}
 	}
 }
 

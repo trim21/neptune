@@ -6,7 +6,6 @@
 package disk_io
 
 import (
-	"bufio"
 	"errors"
 	"os"
 	"path/filepath"
@@ -43,17 +42,15 @@ func discoverPathLinux(path string) (deviceInfo, bool) {
 }
 
 func discoverDevicesLinux() []deviceInfo {
-	f, err := os.Open(mountInfoPath)
+	data, err := os.ReadFile(mountInfoPath)
 	if err != nil {
 		return nil
 	}
-	defer f.Close()
 
 	seen := make(map[DeviceID]struct{})
 	var devices []deviceInfo
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		fields := strings.Fields(scanner.Text())
+	for line := range strings.SplitSeq(string(data), "\n") {
+		fields := strings.Fields(line)
 		if len(fields) < 3 {
 			continue
 		}
