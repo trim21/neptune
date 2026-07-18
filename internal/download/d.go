@@ -169,7 +169,7 @@ type Download struct {
 	ctx                    context.Context
 	store                  piece_store.PieceStore           // Never nil.
 	connectedAddrs         *xsync.Map[netip.AddrPort, Peer] // Never nil.
-	picker                 atomic.Pointer[PiecePicker]      // nil when download is complete (seeding or stopped after completion)
+	picker                 atomic.Pointer[PiecePicker]      // nil during initial checking or when the download is complete
 	session                *session.Session                 // Never nil.
 	pieceDownloadRate      *flowrate.Monitor                // Never nil.
 	ioDownloadRate         *flowrate.Monitor                // Never nil.

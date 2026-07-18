@@ -157,49 +157,6 @@ func (d *Download) buildPieceToCheck(efs map[int]*existingFile) []uint32 {
 	return r
 }
 
-// validateResume checks that pieces marked complete in completedBm still have
-// their backing files on disk. Pieces whose file data is missing or truncated
-// are cleared from the bitmap.
-func (d *Download) validateResume() error {
-	var efs = make(map[int]*existingFile, len(d.info.Files)+1)
-	for i, tf := range d.info.Files {
-		if !d.isFileSelected(i) {
-			continue
-		}
-		p := filepath.Join(d.s.basePath, tf.Path)
-		stat, err := os.Stat(p)
-		if err != nil {
-			if os.IsNotExist(err) {
-				continue
-			}
-			return errgo.Wrap(err, fmt.Sprintf("failed to stat %q", tf.Path))
-		}
-		if stat.Size() > 0 {
-			efs[i] = &existingFile{index: i, size: stat.Size()}
-		}
-	}
-
-	for i := range d.info.NumPieces {
-		if !d.completedBm.Contains(i) {
-			continue
-		}
-		valid := true
-		for chunk := range d.info.PieceFileChunks(i) {
-			ef, ok := efs[chunk.FileIndex]
-			if !ok || chunk.OffsetOfFile+chunk.Length > ef.size {
-				valid = false
-				break
-			}
-		}
-		if !valid {
-			d.completedBm.Unset(i)
-			d.missingBm.Set(i)
-			d.completed.Add(-d.info.PieceLen(i))
-		}
-	}
-	return nil
-}
-
 func tryAllocFile(index int, path string, size int64, doAlloc bool, selected bool) (*existingFile, error) {
 	stat, err := os.Stat(path)
 	if err != nil {
@@ -270,7 +227,6 @@ func (d *Download) verifyFileSizes() error {
 
 func (d *Download) checkNew(skipHashCheck bool) {
 	d.log.Debug().Msg("initializing download")
-	d.state.Store(uint32(Checking))
 
 	if skipHashCheck {
 		if err := d.verifyFileSizes(); err != nil {

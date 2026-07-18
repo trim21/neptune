@@ -163,18 +163,16 @@ func (c *Client) AddTorrent(raw []byte, m *metainfo.MetaInfo, info meta.Info, do
 		return errgo.Wrap(err, "failed to save torrent to disk")
 	}
 
-	d := c.NewDownload(m, info, downloadPath, tags, custom, selectedFiles)
-
 	c.m.Lock()
 	defer c.m.Unlock()
-
 	if _, ok := c.downloadMap[info.Hash]; ok {
 		return fmt.Errorf("torrent %s exists", info.Hash)
 	}
 
-	// Start Init before making the download visible in downloadMap,
-	// so that no other goroutine can access d before Init begins.
-	go d.Init(false, skipHashCheck)
+	d, err := c.NewDownload(m, info, downloadPath, tags, custom, selectedFiles, skipHashCheck)
+	if err != nil {
+		return err
+	}
 
 	c.downloads = append(c.downloads, d)
 
@@ -188,7 +186,7 @@ func (c *Client) AddTorrent(raw []byte, m *metainfo.MetaInfo, info meta.Info, do
 	c.mseKeys.Store(&keys)
 
 	// If download slots are configured, trigger a rebalance after a short
-	// delay so Init has time to set the initial state.
+	// delay so the initial file check can settle.
 	if c.session.DownloadSlots.Load() > 0 {
 		c.triggerQueueRebalance()
 	}

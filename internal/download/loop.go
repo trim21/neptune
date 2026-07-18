@@ -98,40 +98,10 @@ func (d *Download) AsyncCheck() error {
 	return nil
 }
 
-// Init check existing files.
-func (d *Download) Init(resumed bool, skipHashCheck bool) {
-	if resumed {
-		if err := d.validateResume(); err != nil {
-			d.setError(err)
-			d.log.Err(err).Msg("resume validation failed")
-		}
-	} else {
-		d.checkNew(skipHashCheck)
-	}
-
-	// Now that completedBm and missingBm are finalized, create the picker
-	// from the correct state — no WeHave patching needed.
-	if d.isComplete() {
-		d.picker.Store(nil)
-	} else {
-		d.picker.Store(NewPiecePicker(
-			d.info,
-			d.missingBm,
-			nil,
-			&d.piecePickStrategy,
-			NewRequestGate(&d.state, uint32(Downloading)),
-		))
-	}
-
-	go d.startBackground()
+func (d *Download) startRuntime() {
+	d.startBackground()
 	d.goBackground(d.tracker.Run)
-
-	if !resumed {
-		d.TrkStagger(60 * time.Second)
-	}
-
 	d.tracker.Announce(tracker.EventStarted)
-
 	d.saveResume()
 }
 
