@@ -28,13 +28,12 @@ func (d *Download) RequestMove(target string) error {
 	}
 
 	ctx, cancel := context.WithCancel(d.ctx)
-	d.moveMu.Lock()
+	d.moveCancelMu.Lock()
 	d.moveCancel = cancel
-	d.moveProgress = piece_store.MoveProgress{Phase: piece_store.MoveWaiting}
 	if d.pieceDownloadRate != nil {
 		d.pieceDownloadRate.Reset()
 	}
-	d.moveMu.Unlock()
+	d.moveCancelMu.Unlock()
 	if d.GetState() != Moving {
 		cancel()
 	}
@@ -44,15 +43,23 @@ func (d *Download) RequestMove(target string) error {
 		if d.pieceDownloadRate != nil {
 			d.pieceDownloadRate.Reset()
 		}
-		d.moveMu.Lock()
+		d.moveCancelMu.Lock()
 		d.moveCancel = nil
-		d.moveMu.Unlock()
+		d.moveCancelMu.Unlock()
 		if !finished {
 			d.finishMove(originalState)
 		}
 	}()
 
-	if err := d.store.Move(ctx, target, d.updateMoveProgress); err != nil {
+	var copiedBytes int64
+	report := func(progress piece_store.MoveProgress) {
+		delta := progress.BytesCopied - copiedBytes
+		copiedBytes = progress.BytesCopied
+		if delta > 0 && d.pieceDownloadRate != nil {
+			d.pieceDownloadRate.Update(int(delta))
+		}
+	}
+	if err := d.store.Move(ctx, target, report); err != nil {
 		return err
 	}
 
@@ -68,42 +75,11 @@ func (d *Download) RequestMove(target string) error {
 }
 
 func (d *Download) CancelMove() {
-	d.moveMu.RLock()
+	d.moveCancelMu.RLock()
 	cancel := d.moveCancel
-	d.moveMu.RUnlock()
+	d.moveCancelMu.RUnlock()
 	if cancel != nil {
 		cancel()
-	}
-}
-
-type MoveStatus struct {
-	Progress piece_store.MoveProgress
-	Rate     int64
-	Active   bool
-}
-
-func (d *Download) MoveStatus() MoveStatus {
-	d.moveMu.RLock()
-	progress := d.moveProgress
-	active := d.moveCancel != nil
-	d.moveMu.RUnlock()
-	status := MoveStatus{
-		Progress: progress,
-		Active:   active,
-	}
-	if d.pieceDownloadRate != nil {
-		status.Rate = d.pieceDownloadRate.Status().CurRate
-	}
-	return status
-}
-
-func (d *Download) updateMoveProgress(progress piece_store.MoveProgress) {
-	d.moveMu.Lock()
-	delta := progress.BytesCopied - d.moveProgress.BytesCopied
-	d.moveProgress = progress
-	d.moveMu.Unlock()
-	if delta > 0 && d.pieceDownloadRate != nil {
-		d.pieceDownloadRate.Update(int(delta))
 	}
 }
 

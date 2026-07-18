@@ -41,7 +41,6 @@ func TestMoveFailureRestoresStateAndReturnsError(t *testing.T) {
 	require.ErrorIs(t, err, errMoveTest)
 	require.Equal(t, Downloading, d.GetState())
 	require.Empty(t, d.ErrorMsg())
-	require.False(t, d.MoveStatus().Active)
 }
 
 func TestStopCancelsMoveAndKeepsStoppedState(t *testing.T) {
@@ -66,7 +65,6 @@ func TestStopCancelsMoveAndKeepsStoppedState(t *testing.T) {
 	require.NoError(t, d.Stop())
 	require.ErrorIs(t, <-done, context.Canceled)
 	require.Equal(t, Stopped, d.GetState())
-	require.False(t, d.MoveStatus().Active)
 }
 
 func TestPruneEmptyDirectories_EmptyDir(t *testing.T) {

@@ -195,7 +195,6 @@ type Download struct {
 	moveCancel             context.CancelFunc
 	s                      downloadState
 	info                   meta.Info
-	moveProgress           piece_store.MoveProgress
 	backgroundWg           sync.WaitGroup
 	unchokeSlotIdx         int
 	wastedDupe             atomic.Int64
@@ -217,7 +216,7 @@ type Download struct {
 	unchokeCycleOffset     int
 	queueWeight            atomic.Int64
 	completedOnce          atomic.Bool
-	moveMu                 sync.RWMutex
+	moveCancelMu           sync.RWMutex
 	transitionMu           sync.Mutex
 	bannedAddrsMu          sync.Mutex
 	corruptedPiecesMu      sync.Mutex
