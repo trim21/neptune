@@ -1,7 +1,7 @@
 // Copyright 2026 trim21 <trim21.me@gmail.com>
 // SPDX-License-Identifier: GPL-3.0-only
 
-package diskio
+package disk_io
 
 import (
 	"context"

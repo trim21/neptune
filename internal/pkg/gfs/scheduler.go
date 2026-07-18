@@ -9,15 +9,15 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
-	"neptune/internal/pkg/diskio"
+	"neptune/internal/pkg/disk_io"
 )
 
 type ioScheduler struct {
-	manager *diskio.Manager
+	manager *disk_io.Manager
 }
 
-func newIOScheduler(executor diskio.Executor) ioScheduler {
-	return ioScheduler{manager: diskio.New(executor)}
+func newIOScheduler(executor disk_io.Executor) ioScheduler {
+	return ioScheduler{manager: disk_io.New(executor)}
 }
 
 func (s *ioScheduler) close() {
@@ -27,7 +27,7 @@ func (s *ioScheduler) close() {
 // PathIO routes pread and pwrite calls through the device queue selected for
 // one torrent base path. A torrent is assumed not to span filesystems.
 type PathIO struct {
-	queue *diskio.Queue
+	queue *disk_io.Queue
 }
 
 func (ioc *IOContext) ForPath(path string) *PathIO {
@@ -39,7 +39,7 @@ func (ioc *IOContext) Collectors() []prometheus.Collector {
 }
 
 func (p *PathIO) ReadAtCtx(ctx context.Context, f *os.File, buf []byte, off int64) (int, error) {
-	result := p.queue.Do(ctx, diskio.PRead{
+	result := p.queue.Do(ctx, disk_io.PRead{
 		File:   f,
 		Buffer: buf,
 		Offset: off,
@@ -48,7 +48,7 @@ func (p *PathIO) ReadAtCtx(ctx context.Context, f *os.File, buf []byte, off int6
 }
 
 func (p *PathIO) WriteAtCtx(ctx context.Context, f *os.File, buf []byte, off int64) (int, error) {
-	result := p.queue.Do(ctx, diskio.PWrite{
+	result := p.queue.Do(ctx, disk_io.PWrite{
 		File:   f,
 		Buffer: buf,
 		Offset: off,

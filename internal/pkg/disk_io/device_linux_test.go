@@ -3,7 +3,7 @@
 
 //go:build linux
 
-package diskio
+package disk_io
 
 import (
 	"path/filepath"

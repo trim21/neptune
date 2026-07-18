@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"sync"
 
-	"neptune/internal/pkg/diskio"
+	"neptune/internal/pkg/disk_io"
 )
 
 type portableBackend struct {
@@ -23,24 +23,24 @@ func newBackend() ioBackend {
 	return &portableBackend{}
 }
 
-func (b *portableBackend) Execute(ctx context.Context, operation diskio.Operation) diskio.Result {
+func (b *portableBackend) Execute(ctx context.Context, operation disk_io.Operation) disk_io.Result {
 	if err := ctx.Err(); err != nil {
-		return diskio.Result{Err: err}
+		return disk_io.Result{Err: err}
 	}
 	if !b.beginIO() {
-		return diskio.Result{Err: ErrIOContextClosed}
+		return disk_io.Result{Err: ErrIOContextClosed}
 	}
 	defer b.inflight.Done()
 
 	switch op := operation.(type) {
-	case diskio.PRead:
+	case disk_io.PRead:
 		n, err := op.File.ReadAt(op.Buffer, op.Offset)
-		return diskio.Result{N: n, Err: err}
-	case diskio.PWrite:
+		return disk_io.Result{N: n, Err: err}
+	case disk_io.PWrite:
 		n, err := op.File.WriteAt(op.Buffer, op.Offset)
-		return diskio.Result{N: n, Err: err}
+		return disk_io.Result{N: n, Err: err}
 	default:
-		return diskio.Result{Err: fmt.Errorf("unsupported disk IO operation %T", operation)}
+		return disk_io.Result{Err: fmt.Errorf("unsupported disk IO operation %T", operation)}
 	}
 }
 

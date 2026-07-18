@@ -9,14 +9,14 @@ import (
 	"os"
 	"sync"
 
-	"neptune/internal/pkg/diskio"
+	disk_io "neptune/internal/pkg/disk_io"
 )
 
 // ErrIOContextClosed is returned when IO is attempted after Close begins.
 var ErrIOContextClosed = errors.New("io context closed")
 
 type ioBackend interface {
-	diskio.Executor
+	disk_io.Executor
 	Close()
 }
 
@@ -45,12 +45,12 @@ func (ioc *IOContext) Close() {
 
 // ReadAtCtx executes a positional read directly on the backend.
 func ReadAtCtx(ctx context.Context, ioc *IOContext, f *os.File, p []byte, off int64) (int, error) {
-	result := ioc.backend.Execute(ctx, diskio.PRead{File: f, Buffer: p, Offset: off})
+	result := ioc.backend.Execute(ctx, disk_io.PRead{File: f, Buffer: p, Offset: off})
 	return result.N, result.Err
 }
 
 // WriteAtCtx executes a positional write directly on the backend.
 func WriteAtCtx(ctx context.Context, ioc *IOContext, f *os.File, p []byte, off int64) (int, error) {
-	result := ioc.backend.Execute(ctx, diskio.PWrite{File: f, Buffer: p, Offset: off})
+	result := ioc.backend.Execute(ctx, disk_io.PWrite{File: f, Buffer: p, Offset: off})
 	return result.N, result.Err
 }

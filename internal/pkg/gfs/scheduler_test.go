@@ -10,7 +10,7 @@ import (
 	"os"
 	"testing"
 
-	"neptune/internal/pkg/diskio"
+	"neptune/internal/pkg/disk_io"
 )
 
 func TestPathIOIsOwnedByIOContext(t *testing.T) {
@@ -35,8 +35,8 @@ func TestPathIOIsOwnedByIOContext(t *testing.T) {
 	}
 
 	ioc.Close()
-	if _, err = pathIO.ReadAtCtx(context.Background(), f, buf, 0); !errors.Is(err, diskio.ErrClosed) {
-		t.Fatalf("operation after IOContext.Close error = %v, want %v", err, diskio.ErrClosed)
+	if _, err = pathIO.ReadAtCtx(context.Background(), f, buf, 0); !errors.Is(err, disk_io.ErrClosed) {
+		t.Fatalf("operation after IOContext.Close error = %v, want %v", err, disk_io.ErrClosed)
 	}
 	if _, err = ReadAtCtx(context.Background(), ioc, f, buf, 0); !errors.Is(err, ErrIOContextClosed) {
 		t.Fatalf("direct backend operation after Close error = %v, want %v", err, ErrIOContextClosed)
