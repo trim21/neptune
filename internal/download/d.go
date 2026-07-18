@@ -167,32 +167,32 @@ type Download struct {
 	log                    zerolog.Logger
 	AddAt                  time.Time
 	ctx                    context.Context
-	store                  piece_store.PieceStore
-	connectedAddrs         *xsync.Map[netip.AddrPort, Peer]
-	picker                 atomic.Pointer[PiecePicker]
-	session                *session.Session
-	pieceDownloadRate      *flowrate.Monitor // non-nil for the Download lifetime
-	ioDownloadRate         *flowrate.Monitor
-	pieceUploadRate        *flowrate.Monitor
-	resChan                chan chunkSubmit
-	uploadLimiter          *ratelimit.Limiter
-	peersCh                chan []tracker.DiscoveredPeer
-	peers                  *xsync.Map[uint64, Peer]
-	bannedAddrs            map[netip.Addr]time.Time
-	stateCond              *gsync.Cond
-	peerList               *peerList
-	downloadLimiter        *ratelimit.Limiter
-	err                    atomic.Pointer[error]
-	cancel                 context.CancelFunc
-	scheduleResponseSignal chan empty.Empty
-	pendingPeersSignal     chan empty.Empty
-	tracker                *tracker.Trackers
-	completedBm            *bm.Bitmap
-	missingBm              *bm.LockFreeBitmap
-	wantedBm               *bm.Bitmap
-	selectedFilesSet       *bm.Bitmap
-	corruptedPieces        map[uint32]int
-	moveCancel             context.CancelFunc
+	store                  piece_store.PieceStore           // Never nil.
+	connectedAddrs         *xsync.Map[netip.AddrPort, Peer] // Never nil.
+	picker                 atomic.Pointer[PiecePicker]      // nil when download is complete (seeding or stopped after completion)
+	session                *session.Session                 // Never nil.
+	pieceDownloadRate      *flowrate.Monitor                // Never nil.
+	ioDownloadRate         *flowrate.Monitor                // Never nil.
+	pieceUploadRate        *flowrate.Monitor                // Never nil.
+	resChan                chan chunkSubmit                 // Never nil.
+	uploadLimiter          *ratelimit.Limiter               // Never nil.
+	peersCh                chan []tracker.DiscoveredPeer    // Never nil.
+	peers                  *xsync.Map[uint64, Peer]         // Never nil.
+	bannedAddrs            map[netip.Addr]time.Time         // Never nil.
+	stateCond              *gsync.Cond                      // Never nil.
+	peerList               *peerList                        // Never nil.
+	downloadLimiter        *ratelimit.Limiter               // Never nil.
+	err                    atomic.Pointer[error]            // nil unless download enters Error state
+	cancel                 context.CancelFunc               // Never nil after New().
+	scheduleResponseSignal chan empty.Empty                 // Never nil.
+	pendingPeersSignal     chan empty.Empty                 // Never nil.
+	tracker                *tracker.Trackers                // Never nil.
+	completedBm            *bm.Bitmap                       // Never nil.
+	missingBm              *bm.LockFreeBitmap               // Never nil.
+	wantedBm               *bm.Bitmap                       // Never nil.
+	selectedFilesSet       *bm.Bitmap                       // Never nil.
+	corruptedPieces        map[uint32]int                   // Never nil.
+	moveCancel             context.CancelFunc               // nil unless a move operation is in progress
 	s                      downloadState
 	info                   meta.Info
 	backgroundWg           sync.WaitGroup
