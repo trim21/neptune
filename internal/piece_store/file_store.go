@@ -12,7 +12,6 @@ import (
 
 	"neptune/internal/pkg/fadvise"
 	"neptune/internal/pkg/fallocate"
-	"neptune/internal/pkg/gfs"
 )
 
 func (s *FileStore) filePath(fileIndex int) string {
@@ -38,7 +37,7 @@ func (s *FileStore) WriteChunk(ctx context.Context, pieceIndex uint32, begin uin
 				}
 			}
 		}
-		_, err = gfs.WriteAtCtx(ctx, s.ioc, f.File, data[off:off+chunk.Length], chunk.OffsetOfFile)
+		_, err = s.diskIO.WriteAtCtx(ctx, f.File, data[off:off+chunk.Length], chunk.OffsetOfFile)
 		if err != nil {
 			f.Close()
 			return err
@@ -61,7 +60,7 @@ func (s *FileStore) ReadChunk(ctx context.Context, pieceIndex uint32, begin uint
 		if fresh {
 			_ = fadvise.Random(f.File, 0, 0)
 		}
-		rn, err := gfs.ReadAtCtx(ctx, s.ioc, f.File, data[n:n+int(chunk.Length)], chunk.OffsetOfFile)
+		rn, err := s.diskIO.ReadAtCtx(ctx, f.File, data[n:n+int(chunk.Length)], chunk.OffsetOfFile)
 		n += rn
 		f.Release()
 		if err != nil || rn < int(chunk.Length) {
@@ -89,7 +88,7 @@ func (s *FileStore) VerifyPiece(ctx context.Context, pieceIndex uint32, expected
 		left := chunk.Length
 		for left > 0 {
 			toRead := min(left, int64(len(buf)))
-			n, err := gfs.ReadAtCtx(ctx, s.ioc, f.File, buf[:toRead], fileOff)
+			n, err := s.diskIO.ReadAtCtx(ctx, f.File, buf[:toRead], fileOff)
 			if n > 0 {
 				hasher.Write(buf[:n])
 				fileOff += int64(n)

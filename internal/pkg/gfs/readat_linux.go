@@ -32,8 +32,9 @@ var ErrIOContextClosed = errors.New("io context closed")
 // All file I/O for one download session shares this ring.
 // SQE user_data carries the completion channel pointer — no pending map needed.
 type IOContext struct {
-	chPool sync.Pool
-	ring   *uring.Ring
+	chPool    sync.Pool
+	ring      *uring.Ring
+	scheduler ioScheduler
 
 	// submitMu serializes SQ access and gates request admission during Close.
 	submitMu      sync.Mutex
@@ -55,6 +56,7 @@ type ioResult struct {
 func NewIOContext() *IOContext {
 	ioc := &IOContext{
 		pollerDone: make(chan struct{}),
+		scheduler:  newIOScheduler(),
 	}
 
 	major, minor := sys.KernelVersion()
@@ -144,6 +146,8 @@ func (ioc *IOContext) Close() {
 }
 
 func (ioc *IOContext) close() {
+	ioc.scheduler.close()
+
 	ioc.submitMu.Lock()
 	ioc.closed = true
 	ioc.submitMu.Unlock()

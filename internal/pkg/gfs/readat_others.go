@@ -10,14 +10,15 @@ import (
 	"os"
 )
 
-// IOContext is a no-op when the io_uring backend is disabled.
-type IOContext struct{}
+// IOContext uses the portable file backend with the shared disk scheduler.
+type IOContext struct {
+	scheduler ioScheduler
+}
 
-// NewIOContext returns a no-op I/O context.
-func NewIOContext() *IOContext { return &IOContext{} }
+// NewIOContext creates a context backed by portable file operations.
+func NewIOContext() *IOContext { return &IOContext{scheduler: newIOScheduler()} }
 
-// Close is a no-op for the fallback implementation.
-func (*IOContext) Close() {}
+func (ioc *IOContext) Close() { ioc.scheduler.close() }
 
 // ReadAtCtx reads from f at off. Cancellation after submission is not supported.
 func ReadAtCtx(ctx context.Context, _ *IOContext, f *os.File, p []byte, off int64) (int, error) {

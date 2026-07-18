@@ -24,9 +24,9 @@ type Store interface {
 // FileStore is the production implementation backed by real files via filepool.
 type FileStore struct {
 	fp               *filepool.FilePool
-	ioc              *gfs.IOContext
 	selectedFilesSet *bm.Bitmap
 	fallocatedBm     *bm.LockFreeBitmap
+	diskIO           *gfs.PathIO
 	basePath         string
 	info             meta.Info
 	fallocate        bool
@@ -38,7 +38,7 @@ func NewFileStore(info meta.Info, basePath string, fp *filepool.FilePool, ioc *g
 		info:             info,
 		basePath:         basePath,
 		fp:               fp,
-		ioc:              ioc,
+		diskIO:           ioc.ForPath(basePath),
 		selectedFilesSet: selectedFilesSet,
 		fallocatedBm:     bm.NewLockFreeBitmap(uint32(len(info.Files))),
 		fallocate:        fallocate,
