@@ -48,5 +48,5 @@ type Result struct {
 
 // Executor runs structured operations after a device queue dispatches them.
 type Executor interface {
-	Execute(context.Context, Operation) Result
+	Execute(ctx context.Context, op Operation) Result
 }
