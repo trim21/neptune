@@ -50,7 +50,7 @@ type Bitmap struct {
 
 func (b *Bitmap) Clear() {
 	b.m.Lock()
-	b.bm.Clear()
+	clear(b.bm)
 	b.m.Unlock()
 }
 

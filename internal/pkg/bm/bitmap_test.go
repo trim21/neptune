@@ -59,3 +59,15 @@ func TestBitfield(t *testing.T) {
 
 	require.Equal(t, []byte{1 << 7, 0, 0, 0, 0, 0, 0, 0}, bytes)
 }
+
+func TestClearPreservesBitfieldSize(t *testing.T) {
+	b := bm.New(65)
+	b.Fill()
+	b.Clear()
+
+	require.Zero(t, b.Count())
+	require.Equal(t, make([]byte, 9), b.Bitfield())
+
+	b.Set(0)
+	require.Equal(t, append([]byte{1 << 7}, make([]byte, 8)...), b.Bitfield())
+}
