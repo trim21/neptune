@@ -109,6 +109,20 @@ func (d *Download) Init(resumed bool, skipHashCheck bool) {
 		d.checkNew(skipHashCheck)
 	}
 
+	// Now that completedBm and missingBm are finalized, create the picker
+	// from the correct state — no WeHave patching needed.
+	if d.isComplete() {
+		d.picker.Store(nil)
+	} else {
+		d.picker.Store(NewPiecePicker(
+			d.info,
+			d.missingBm,
+			nil,
+			&d.piecePickStrategy,
+			NewRequestGate(&d.state, uint32(Downloading)),
+		))
+	}
+
 	go d.startBackground()
 	d.goBackground(d.tracker.Run)
 

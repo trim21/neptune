@@ -66,16 +66,6 @@ func ResumeFromData(sess *session.Session, data []byte) (*Download, error) {
 	d.completedBm.OR(bm.FromBitfields(r.Bitfield, d.info.NumPieces))
 	d.setMissingFromWantedSync()
 	d.completed.Store(d.computeCompletedUnsafe())
-
-	if d.isComplete() {
-		d.picker.Store(nil)
-	} else {
-		for i := range d.info.NumPieces {
-			if d.completedBm.Contains(i) {
-				d.picker.Load().WeHave(i)
-			}
-		}
-	}
 	// Restore state from resume data. ResumeStopped maps to Stopped;
 	// anything else (including historical raw State values from old resume
 	// files) is treated as active.

@@ -132,13 +132,6 @@ func New(sess *session.Session, m *metainfo.MetaInfo, info meta.Info, basePath s
 
 	strategy := defaultStrategy(sess.Config.App.PiecePickStrategy)
 	d.piecePickStrategy.Store(uint32(strategy))
-	d.picker.Store(NewPiecePicker(
-		info,
-		missingBm,
-		nil,
-		&d.piecePickStrategy,
-		NewRequestGate(&d.state, uint32(Downloading)),
-	))
 
 	d.peerList.d = d
 

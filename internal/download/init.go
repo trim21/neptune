@@ -123,7 +123,6 @@ func (d *Download) initCheck() error {
 		if [sha1.Size]byte(sha1Sum[:sha1.Size]) == d.info.Pieces[pieceIndex] {
 			d.completedBm.Set(pieceIndex)
 			d.missingBm.Unset(pieceIndex)
-			d.picker.Load().WeHave(pieceIndex)
 			d.completed.Add(d.info.PieceLen(pieceIndex))
 		}
 
@@ -281,9 +280,6 @@ func (d *Download) checkNew(skipHashCheck bool) {
 		}
 		d.completedBm.Fill()
 		d.missingBm.Clear()
-		for i := range d.info.NumPieces {
-			d.picker.Load().WeHave(i)
-		}
 	} else {
 		if err := d.initCheck(); err != nil {
 			d.setError(err)
