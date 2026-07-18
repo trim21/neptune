@@ -7,7 +7,6 @@ import (
 	"runtime"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -193,11 +192,11 @@ func TestEmptyPickDiagnosticsAreRateLimited(t *testing.T) {
 	require.Equal(t, first.DiagSkippedBitfield, limited.DiagSkippedBitfield)
 
 	pp.mu.Lock()
-	pp.lastDiagAt = time.Now().Add(-diagnosticInterval)
+	pp.lastDiagAt = first.DiagAt.Add(-diagnosticInterval)
 	pp.mu.Unlock()
 	require.Empty(t, pp.PickAndClaim(nil, req))
 	refreshed := pp.DebugStats()
-	require.True(t, refreshed.DiagAt.After(first.DiagAt))
+	require.False(t, refreshed.DiagAt.Before(first.DiagAt))
 	require.Zero(t, refreshed.DiagSkippedBitfield)
 	require.Equal(t, 4, refreshed.DiagSkippedChoked)
 }

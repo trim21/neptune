@@ -234,5 +234,13 @@ func newMoveTestStore(t *testing.T, info meta.Info, basePath string, selected []
 			selectedFiles.Set(index)
 		}
 	}
-	return NewFileStore(info, basePath, filepool.New(), ioc, selectedFiles, false)
+	store := NewFileStore(info, basePath, filepool.New(), ioc, selectedFiles, false)
+	t.Cleanup(func() {
+		paths := make([]string, 0, len(store.info.Files))
+		for fileIndex := range store.info.Files {
+			paths = append(paths, store.filePath(fileIndex))
+		}
+		store.fp.InvalidatePaths(paths)
+	})
+	return store
 }
