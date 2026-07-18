@@ -7,31 +7,56 @@ package gfs
 
 import (
 	"context"
-	"os"
+	"fmt"
+	"sync"
+
+	"neptune/internal/pkg/diskio"
 )
 
-// IOContext uses the portable file backend with the shared disk scheduler.
-type IOContext struct {
-	scheduler ioScheduler
+type portableBackend struct {
+	inflight sync.WaitGroup
+	mu       sync.Mutex
+	closed   bool
 }
 
-// NewIOContext creates a context backed by portable file operations.
-func NewIOContext() *IOContext { return &IOContext{scheduler: newIOScheduler()} }
-
-func (ioc *IOContext) Close() { ioc.scheduler.close() }
-
-// ReadAtCtx reads from f at off. Cancellation after submission is not supported.
-func ReadAtCtx(ctx context.Context, _ *IOContext, f *os.File, p []byte, off int64) (int, error) {
-	if err := ctx.Err(); err != nil {
-		return 0, err
-	}
-	return f.ReadAt(p, off)
+func newBackend() ioBackend {
+	return &portableBackend{}
 }
 
-// WriteAtCtx writes to f at off. Cancellation after submission is not supported.
-func WriteAtCtx(ctx context.Context, _ *IOContext, f *os.File, p []byte, off int64) (int, error) {
+func (b *portableBackend) Execute(ctx context.Context, operation diskio.Operation) diskio.Result {
 	if err := ctx.Err(); err != nil {
-		return 0, err
+		return diskio.Result{Err: err}
 	}
-	return f.WriteAt(p, off)
+	if !b.beginIO() {
+		return diskio.Result{Err: ErrIOContextClosed}
+	}
+	defer b.inflight.Done()
+
+	switch op := operation.(type) {
+	case diskio.PRead:
+		n, err := op.File.ReadAt(op.Buffer, op.Offset)
+		return diskio.Result{N: n, Err: err}
+	case diskio.PWrite:
+		n, err := op.File.WriteAt(op.Buffer, op.Offset)
+		return diskio.Result{N: n, Err: err}
+	default:
+		return diskio.Result{Err: fmt.Errorf("unsupported disk IO operation %T", operation)}
+	}
+}
+
+func (b *portableBackend) beginIO() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.closed {
+		return false
+	}
+	b.inflight.Add(1)
+	return true
+}
+
+func (b *portableBackend) Close() {
+	b.mu.Lock()
+	b.closed = true
+	b.mu.Unlock()
+	b.inflight.Wait()
 }

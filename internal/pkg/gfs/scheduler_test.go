@@ -38,4 +38,7 @@ func TestPathIOIsOwnedByIOContext(t *testing.T) {
 	if _, err = pathIO.ReadAtCtx(context.Background(), f, buf, 0); !errors.Is(err, diskio.ErrClosed) {
 		t.Fatalf("operation after IOContext.Close error = %v, want %v", err, diskio.ErrClosed)
 	}
+	if _, err = ReadAtCtx(context.Background(), ioc, f, buf, 0); !errors.Is(err, ErrIOContextClosed) {
+		t.Fatalf("direct backend operation after Close error = %v, want %v", err, ErrIOContextClosed)
+	}
 }

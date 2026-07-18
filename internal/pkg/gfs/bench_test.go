@@ -54,7 +54,7 @@ func benchReadUring(b *testing.B, bufSize int64) {
 
 	ioc := NewIOContext()
 	defer ioc.Close()
-	if ioc.ring == nil {
+	if ioc.backend.(*uringBackend).ring == nil {
 		b.Skip("io_uring is unavailable")
 	}
 	ctx := context.Background()
@@ -130,7 +130,7 @@ func benchWriteUring(b *testing.B, bufSize int64) {
 
 	ioc := NewIOContext()
 	defer ioc.Close()
-	if ioc.ring == nil {
+	if ioc.backend.(*uringBackend).ring == nil {
 		b.Skip("io_uring is unavailable")
 	}
 	ctx := context.Background()
@@ -253,13 +253,14 @@ func TestIOContextCloseRejectsNewIO(t *testing.T) {
 
 func TestIOContextCloseWaitsForInflightIO(t *testing.T) {
 	ioc := NewIOContext()
-	if !ioc.beginIO() {
+	backend := ioc.backend.(*uringBackend)
+	if !backend.beginIO() {
 		t.Fatal("failed to begin I/O")
 	}
 	ioEnded := false
 	defer func() {
 		if !ioEnded {
-			ioc.endIO()
+			backend.endIO()
 		}
 	}()
 
@@ -271,9 +272,9 @@ func TestIOContextCloseWaitsForInflightIO(t *testing.T) {
 
 	deadline := time.Now().Add(time.Second)
 	for {
-		ioc.submitMu.Lock()
-		closed := ioc.closed
-		ioc.submitMu.Unlock()
+		backend.submitMu.Lock()
+		closed := backend.closed
+		backend.submitMu.Unlock()
 		if closed {
 			break
 		}
@@ -289,7 +290,7 @@ func TestIOContextCloseWaitsForInflightIO(t *testing.T) {
 	default:
 	}
 
-	ioc.endIO()
+	backend.endIO()
 	ioEnded = true
 	select {
 	case <-closeDone:

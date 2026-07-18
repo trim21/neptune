@@ -11,12 +11,34 @@ import (
 	"time"
 )
 
-func newTestQueue(t *testing.T, workers, queueOps int, queuedBytes int64) *Queue {
+type executorFunc func(context.Context, Operation) Result
+
+func (fn executorFunc) Execute(ctx context.Context, op Operation) Result {
+	return fn(ctx, op)
+}
+
+func successfulExecutor(_ context.Context, op Operation) Result {
+	return Result{N: int(op.operationInfo().bytes)}
+}
+
+func writeOperation(bytes int) PWrite {
+	return PWrite{Buffer: make([]byte, bytes)}
+}
+
+func readOperation(bytes int) PRead {
+	return PRead{Buffer: make([]byte, bytes)}
+}
+
+func newTestQueue(t *testing.T, workers, queueOps int, queuedBytes int64, executor Executor) *Queue {
 	t.Helper()
+	if executor == nil {
+		executor = executorFunc(successfulExecutor)
+	}
 	q := newQueueWithProfile(
 		DeviceID{Major: 1, Minor: 2},
 		DeviceHDD,
 		profile{workers: workers, queueOps: queueOps, queuedBytes: queuedBytes},
+		executor,
 		newMetrics(),
 	)
 	t.Cleanup(q.Close)
@@ -24,55 +46,81 @@ func newTestQueue(t *testing.T, workers, queueOps int, queuedBytes int64) *Queue
 }
 
 func TestQueueDoWaitsForCompletion(t *testing.T) {
-	q := newTestQueue(t, 1, 1, 1024)
 	started := make(chan struct{})
 	release := make(chan struct{})
-	done := make(chan error, 1)
+	q := newTestQueue(t, 1, 1, 1024, executorFunc(func(_ context.Context, op Operation) Result {
+		close(started)
+		<-release
+		return successfulExecutor(context.Background(), op)
+	}))
+	done := make(chan Result, 1)
 
 	go func() {
-		done <- q.Do(context.Background(), ClassWrite, 10, func() error {
-			close(started)
-			<-release
-			return nil
-		})
+		done <- q.Do(context.Background(), writeOperation(10))
 	}()
 
 	<-started
 	select {
-	case err := <-done:
-		t.Fatalf("Do returned before completion: %v", err)
+	case result := <-done:
+		t.Fatalf("Do returned before completion: %+v", result)
 	default:
 	}
 	close(release)
-	if err := <-done; err != nil {
-		t.Fatal(err)
+	result := <-done
+	if result.Err != nil || result.N != 10 {
+		t.Fatalf("Do result = %+v", result)
 	}
 }
 
 func TestQueueDoDrainsPooledResultChannel(t *testing.T) {
-	q := newTestQueue(t, 1, 1, 1024)
 	want := errors.New("write failed")
-	if err := q.Do(context.Background(), ClassWrite, 1, func() error { return want }); !errors.Is(err, want) {
-		t.Fatalf("first Do error = %v, want %v", err, want)
+	var calls atomic.Int32
+	q := newTestQueue(t, 1, 1, 1024, executorFunc(func(_ context.Context, _ Operation) Result {
+		if calls.Add(1) == 1 {
+			return Result{Err: want}
+		}
+		return Result{N: 1}
+	}))
+
+	if result := q.Do(context.Background(), writeOperation(1)); !errors.Is(result.Err, want) {
+		t.Fatalf("first Do result = %+v, want error %v", result, want)
 	}
-	if err := q.Do(context.Background(), ClassWrite, 1, func() error { return nil }); err != nil {
-		t.Fatalf("second Do received stale pooled result: %v", err)
+	if result := q.Do(context.Background(), writeOperation(1)); result.Err != nil || result.N != 1 {
+		t.Fatalf("second Do received stale pooled result: %+v", result)
+	}
+}
+
+func TestQueuePassesStructuredOperationToExecutor(t *testing.T) {
+	want := PRead{Buffer: make([]byte, 4), Offset: 42}
+	seen := make(chan Operation, 1)
+	q := newTestQueue(t, 1, 1, 1024, executorFunc(func(_ context.Context, op Operation) Result {
+		seen <- op
+		return Result{N: 4}
+	}))
+
+	result := q.Do(context.Background(), want)
+	if result.Err != nil || result.N != 4 {
+		t.Fatalf("Do result = %+v", result)
+	}
+	got, ok := (<-seen).(PRead)
+	if !ok || got.Offset != want.Offset || len(got.Buffer) != len(want.Buffer) {
+		t.Fatalf("executor operation = %#v", got)
 	}
 }
 
 func TestQueueBoundsConcurrency(t *testing.T) {
-	q := newTestQueue(t, 2, 4, 1024)
 	started := make(chan struct{}, 3)
 	release := make(chan struct{})
-	done := make(chan error, 3)
+	q := newTestQueue(t, 2, 4, 1024, executorFunc(func(_ context.Context, op Operation) Result {
+		started <- struct{}{}
+		<-release
+		return successfulExecutor(context.Background(), op)
+	}))
+	done := make(chan Result, 3)
 
 	for range 3 {
 		go func() {
-			done <- q.Do(context.Background(), ClassRead, 1, func() error {
-				started <- struct{}{}
-				<-release
-				return nil
-			})
+			done <- q.Do(context.Background(), readOperation(1))
 		}()
 	}
 
@@ -90,60 +138,54 @@ func TestQueueBoundsConcurrency(t *testing.T) {
 		t.Fatal("third operation did not start after capacity was released")
 	}
 	for range 3 {
-		if err := <-done; err != nil {
-			t.Fatal(err)
+		if result := <-done; result.Err != nil {
+			t.Fatal(result.Err)
 		}
 	}
 }
 
 func TestQueueBoundsAdmittedBytes(t *testing.T) {
-	q := newTestQueue(t, 1, 2, 10)
 	started := make(chan struct{})
 	release := make(chan struct{})
-	done := make(chan error, 1)
+	q := newTestQueue(t, 1, 2, 10, executorFunc(func(_ context.Context, op Operation) Result {
+		close(started)
+		<-release
+		return successfulExecutor(context.Background(), op)
+	}))
+	done := make(chan Result, 1)
 	go func() {
-		done <- q.Do(context.Background(), ClassWrite, 10, func() error {
-			close(started)
-			<-release
-			return nil
-		})
+		done <- q.Do(context.Background(), writeOperation(10))
 	}()
 	<-started
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
-	err := q.Do(ctx, ClassWrite, 1, func() error { return nil })
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("Submit error = %v, want deadline exceeded", err)
+	result := q.Do(ctx, writeOperation(1))
+	if !errors.Is(result.Err, context.DeadlineExceeded) {
+		t.Fatalf("Do result = %+v, want deadline exceeded", result)
 	}
 	close(release)
-	if err := <-done; err != nil {
-		t.Fatal(err)
+	if result = <-done; result.Err != nil {
+		t.Fatal(result.Err)
 	}
 }
 
 func TestQueueCloseDrainsAcceptedOperations(t *testing.T) {
-	q := newTestQueue(t, 1, 2, 1024)
 	release := make(chan struct{})
 	started := make(chan struct{})
-	done := make(chan error, 2)
-	var completed atomic.Int32
-
-	go func() {
-		done <- q.Do(context.Background(), ClassRead, 1, func() error {
+	var calls atomic.Int32
+	q := newTestQueue(t, 1, 2, 1024, executorFunc(func(_ context.Context, op Operation) Result {
+		if calls.Add(1) == 1 {
 			close(started)
 			<-release
-			completed.Add(1)
-			return nil
-		})
-	}()
+		}
+		return successfulExecutor(context.Background(), op)
+	}))
+	done := make(chan Result, 2)
+
+	go func() { done <- q.Do(context.Background(), readOperation(1)) }()
 	<-started
-	go func() {
-		done <- q.Do(context.Background(), ClassRead, 1, func() error {
-			completed.Add(1)
-			return nil
-		})
-	}()
+	go func() { done <- q.Do(context.Background(), readOperation(1)) }()
 	deadline := time.Now().Add(time.Second)
 	for len(q.jobs) != 1 && time.Now().Before(deadline) {
 		time.Sleep(time.Millisecond)
@@ -164,16 +206,16 @@ func TestQueueCloseDrainsAcceptedOperations(t *testing.T) {
 	}
 	close(release)
 	<-closed
-	if got := completed.Load(); got != 2 {
-		t.Fatalf("completed = %d, want 2", got)
+	if got := calls.Load(); got != 2 {
+		t.Fatalf("executed operations = %d, want 2", got)
 	}
 	for range 2 {
-		if err := <-done; err != nil {
-			t.Fatal(err)
+		if result := <-done; result.Err != nil {
+			t.Fatal(result.Err)
 		}
 	}
-	if err := q.Do(context.Background(), ClassRead, 1, func() error { return nil }); !errors.Is(err, ErrClosed) {
-		t.Fatalf("Do after Close error = %v, want %v", err, ErrClosed)
+	if result := q.Do(context.Background(), readOperation(1)); !errors.Is(result.Err, ErrClosed) {
+		t.Fatalf("Do after Close result = %+v, want %v", result, ErrClosed)
 	}
 }
 
@@ -192,7 +234,7 @@ func TestManagerGroupsQueuesByDevice(t *testing.T) {
 		discoverDevices = oldDevices
 	})
 
-	m := New()
+	m := New(executorFunc(successfulExecutor))
 	t.Cleanup(m.Close)
 	ssd := m.QueueForPath("/ssd")
 	if ssd != m.QueueForPath("/ssd") {

@@ -27,24 +27,6 @@ const (
 // ErrClosed is returned when an operation is submitted after shutdown begins.
 var ErrClosed = errors.New("disk IO scheduler closed")
 
-type Class uint8
-
-const (
-	ClassRead Class = iota
-	ClassWrite
-)
-
-func (c Class) String() string {
-	switch c {
-	case ClassRead:
-		return "read"
-	case ClassWrite:
-		return "write"
-	default:
-		return "unknown"
-	}
-}
-
 type DeviceClass uint8
 
 const (
@@ -139,7 +121,7 @@ func newMetrics() metrics {
 		}, append(labels, "result")),
 		processed: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "neptune_disk_io_processed_bytes_total",
-			Help: "Estimated bytes processed by completed disk IO operations.",
+			Help: "Bytes processed by completed disk IO operations.",
 		}, labels),
 		deviceQueues: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "neptune_disk_io_device_queues",
@@ -163,6 +145,7 @@ func (m metrics) collectors() []prometheus.Collector {
 
 type Manager struct {
 	metrics      metrics
+	executor     Executor
 	devices      map[DeviceID]DeviceClass
 	queues       map[DeviceID]*Queue
 	defaultQueue *Queue
@@ -170,18 +153,19 @@ type Manager struct {
 	mu           sync.Mutex
 }
 
-func New() *Manager {
+func New(executor Executor) *Manager {
 	m := &Manager{
-		metrics: newMetrics(),
-		devices: make(map[DeviceID]DeviceClass),
-		queues:  make(map[DeviceID]*Queue),
+		metrics:  newMetrics(),
+		executor: executor,
+		devices:  make(map[DeviceID]DeviceClass),
+		queues:   make(map[DeviceID]*Queue),
 	}
 	if discoverDevices != nil {
 		for _, device := range discoverDevices() {
 			m.devices[device.id] = device.class
 		}
 	}
-	m.defaultQueue = newQueue(DeviceID{}, DeviceHDD, m.metrics)
+	m.defaultQueue = newQueue(DeviceID{}, DeviceHDD, m.executor, m.metrics)
 	return m
 }
 
@@ -212,7 +196,7 @@ func (m *Manager) QueueForPath(path string) *Queue {
 	if q, exists := m.queues[device.id]; exists {
 		return q
 	}
-	q := newQueue(device.id, device.class, m.metrics)
+	q := newQueue(device.id, device.class, m.executor, m.metrics)
 	m.queues[device.id] = q
 	return q
 }
@@ -238,15 +222,14 @@ func (m *Manager) Close() {
 
 type job struct {
 	ctx      context.Context
-	fn       func() error
-	result   chan error
+	op       Operation
+	result   chan Result
 	enqueued time.Time
-	class    Class
-	bytes    int64
 }
 
 type Queue struct {
 	metrics    metrics
+	executor   Executor
 	resultPool sync.Pool
 	ctx        context.Context
 	jobs       chan job
@@ -261,11 +244,11 @@ type Queue struct {
 	closed     bool
 }
 
-func newQueue(id DeviceID, class DeviceClass, m metrics) *Queue {
-	return newQueueWithProfile(id, class, profileFor(class), m)
+func newQueue(id DeviceID, class DeviceClass, executor Executor, m metrics) *Queue {
+	return newQueueWithProfile(id, class, profileFor(class), executor, m)
 }
 
-func newQueueWithProfile(id DeviceID, class DeviceClass, p profile, m metrics) *Queue {
+func newQueueWithProfile(id DeviceID, class DeviceClass, p profile, executor Executor, m metrics) *Queue {
 	ctx, cancel := context.WithCancel(context.Background())
 	device := id.String()
 	if id == (DeviceID{}) {
@@ -273,6 +256,7 @@ func newQueueWithProfile(id DeviceID, class DeviceClass, p profile, m metrics) *
 	}
 	q := &Queue{
 		metrics:   m,
+		executor:  executor,
 		bytesSem:  semaphore.NewWeighted(p.queuedBytes),
 		jobs:      make(chan job, p.queueOps),
 		ctx:       ctx,
@@ -281,7 +265,7 @@ func newQueueWithProfile(id DeviceID, class DeviceClass, p profile, m metrics) *
 		devClass:  class.String(),
 		byteLimit: p.queuedBytes,
 	}
-	q.resultPool.New = func() any { return make(chan error, 1) }
+	q.resultPool.New = func() any { return make(chan Result, 1) }
 	q.metrics.deviceQueues.WithLabelValues(device, q.devClass).Set(1)
 	for range p.workers {
 		q.workers.Go(q.run)
@@ -289,15 +273,15 @@ func newQueueWithProfile(id DeviceID, class DeviceClass, p profile, m metrics) *
 	return q
 }
 
-func (q *Queue) Do(ctx context.Context, class Class, bytes int64, fn func() error) error {
-	result := q.resultPool.Get().(chan error)
-	if err := q.enqueue(ctx, job{ctx: ctx, fn: fn, result: result, class: class, bytes: bytes}); err != nil {
+func (q *Queue) Do(ctx context.Context, op Operation) Result {
+	result := q.resultPool.Get().(chan Result)
+	if err := q.enqueue(ctx, job{ctx: ctx, op: op, result: result}); err != nil {
 		q.resultPool.Put(result)
-		return err
+		return Result{Err: err}
 	}
-	err := <-result
+	r := <-result
 	q.resultPool.Put(result)
-	return err
+	return r
 }
 
 func (q *Queue) enqueue(ctx context.Context, j job) error {
@@ -305,8 +289,8 @@ func (q *Queue) enqueue(ctx context.Context, j job) error {
 		return err
 	}
 	j.enqueued = time.Now()
-	j.bytes = max(j.bytes, 0)
-	weight := min(max(j.bytes, 1), q.byteLimit)
+	info := j.op.operationInfo()
+	weight := min(max(info.bytes, 1), q.byteLimit)
 
 	waitCtx, cancel := context.WithCancel(ctx)
 	stop := context.AfterFunc(q.ctx, cancel)
@@ -326,22 +310,22 @@ func (q *Queue) enqueue(ctx context.Context, j job) error {
 		q.bytesSem.Release(weight)
 		return ErrClosed
 	}
-	labels := []string{q.device, q.devClass, j.class.String()}
+	labels := []string{q.device, q.devClass, info.name}
 	q.metrics.queuedOps.WithLabelValues(labels...).Inc()
-	q.metrics.queuedBytes.WithLabelValues(labels...).Add(float64(j.bytes))
+	q.metrics.queuedBytes.WithLabelValues(labels...).Add(float64(info.bytes))
 	select {
 	case q.jobs <- j:
 		q.mu.RUnlock()
 		return nil
 	case <-ctx.Done():
 		q.metrics.queuedOps.WithLabelValues(labels...).Dec()
-		q.metrics.queuedBytes.WithLabelValues(labels...).Sub(float64(j.bytes))
+		q.metrics.queuedBytes.WithLabelValues(labels...).Sub(float64(info.bytes))
 		q.mu.RUnlock()
 		q.bytesSem.Release(weight)
 		return ctx.Err()
 	case <-q.ctx.Done():
 		q.metrics.queuedOps.WithLabelValues(labels...).Dec()
-		q.metrics.queuedBytes.WithLabelValues(labels...).Sub(float64(j.bytes))
+		q.metrics.queuedBytes.WithLabelValues(labels...).Sub(float64(info.bytes))
 		q.mu.RUnlock()
 		q.bytesSem.Release(weight)
 		return ErrClosed
@@ -350,34 +334,33 @@ func (q *Queue) enqueue(ctx context.Context, j job) error {
 
 func (q *Queue) run() {
 	for j := range q.jobs {
-		weight := min(max(j.bytes, 1), q.byteLimit)
+		info := j.op.operationInfo()
+		weight := min(max(info.bytes, 1), q.byteLimit)
 		labels := make([]string, 0, 4)
-		labels = append(labels, q.device, q.devClass, j.class.String())
+		labels = append(labels, q.device, q.devClass, info.name)
 		q.metrics.queuedOps.WithLabelValues(labels...).Dec()
-		q.metrics.queuedBytes.WithLabelValues(labels...).Sub(float64(j.bytes))
+		q.metrics.queuedBytes.WithLabelValues(labels...).Sub(float64(info.bytes))
 		q.metrics.wait.WithLabelValues(labels...).Observe(time.Since(j.enqueued).Seconds())
 		q.metrics.inflight.WithLabelValues(labels...).Inc()
 
 		started := time.Now()
-		err := j.ctx.Err()
-		executed := err == nil
-		if err == nil {
-			err = j.fn()
+		result := Result{Err: j.ctx.Err()}
+		executed := result.Err == nil
+		if executed {
+			result = q.executor.Execute(j.ctx, j.op)
 		}
 		q.metrics.duration.WithLabelValues(labels...).Observe(time.Since(started).Seconds())
 		q.metrics.inflight.WithLabelValues(labels...).Dec()
-		result := "success"
-		if err != nil {
-			result = "error"
+		resultLabel := "success"
+		if result.Err != nil {
+			resultLabel = "error"
 		}
-		q.metrics.completed.WithLabelValues(append(labels, result)...).Inc()
-		if executed {
-			q.metrics.processed.WithLabelValues(labels...).Add(float64(j.bytes))
+		q.metrics.completed.WithLabelValues(append(labels, resultLabel)...).Inc()
+		if executed && result.N > 0 {
+			q.metrics.processed.WithLabelValues(labels...).Add(float64(result.N))
 		}
 		q.bytesSem.Release(weight)
-		if j.result != nil {
-			j.result <- err
-		}
+		j.result <- result
 	}
 }
 
