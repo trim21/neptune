@@ -131,7 +131,8 @@ func main() {
 	)
 
 	go func() {
-		<-signalChan
+		sig := <-signalChan
+		log.Info().Str("signal", sig.String()).Msg("received signal, shutting down")
 		done <- empty.Empty{}
 	}()
 
