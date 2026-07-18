@@ -196,7 +196,7 @@ func newPeer(
 
 		peerRequests: xsync.NewMap[proto.ChunkRequest, empty.Empty](),
 
-		r: bufio.NewReaderSize(d.ioDownloadRate.WrapReader(conn), units.KiB*18),
+		r: bufio.NewReaderSize(d.ioDownloadRate.WrapReader(conn), units.KiB*64),
 		w: bufio.NewWriterSize(conn, units.KiB*8),
 
 		allowFast: bm.NewLockFreeBitmap(d.info.NumPieces),

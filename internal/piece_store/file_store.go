@@ -12,7 +12,12 @@ import (
 
 	"neptune/internal/pkg/fadvise"
 	"neptune/internal/pkg/fallocate"
+	"neptune/internal/pkg/mempool"
 )
+
+const verifyReadSize = 1 << 20
+
+var verifyBufferPool mempool.Pool
 
 func (s *FileStore) filePath(fileIndex int) string {
 	return filepath.Join(s.basePath, s.info.Files[fileIndex].Path)
@@ -82,7 +87,8 @@ func (s *FileStore) VerifyPiece(ctx context.Context, pieceIndex uint32, expected
 	defer s.opMu.RUnlock()
 
 	hasher := sha1.New()
-	var buf [16 * 1024]byte
+	buf := mempool.GetWithCapFromPool(&verifyBufferPool, verifyReadSize)
+	defer verifyBufferPool.Put(buf)
 
 	for chunk := range s.info.PieceFileChunks(pieceIndex) {
 		f, fresh, err := s.fp.Open(s.filePath(chunk.FileIndex), os.O_RDONLY, 0, time.Hour)
@@ -96,10 +102,10 @@ func (s *FileStore) VerifyPiece(ctx context.Context, pieceIndex uint32, expected
 		fileOff := chunk.OffsetOfFile
 		left := chunk.Length
 		for left > 0 {
-			toRead := min(left, int64(len(buf)))
-			n, err := s.diskIO.ReadAtCtx(ctx, f.File, buf[:toRead], fileOff)
+			toRead := min(left, int64(len(buf.B)))
+			n, err := s.diskIO.ReadAtCtx(ctx, f.File, buf.B[:toRead], fileOff)
 			if n > 0 {
-				hasher.Write(buf[:n])
+				hasher.Write(buf.B[:n])
 				fileOff += int64(n)
 				left -= int64(n)
 			}

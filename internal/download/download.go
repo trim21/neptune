@@ -240,11 +240,6 @@ func handleRes(d *Download, h *heap.Heap[responseChunk], pc *peerContributors, d
 		return
 	}
 
-	// Refill request queues only after the picker has accepted this response.
-	// Scheduling from the peer read loop races ahead of AcceptResponse and can
-	// see a full queue, leaving no later event to request the next block.
-	d.notifyPeersToRequest()
-
 	// Flush when heap is full or oldest chunk is older than maxChunkAge.
 	oldestAge := time.Since(h.Data[0].recvAt)
 	if h.Len() >= defaultChunkHeapSizeLimit || oldestAge > maxChunkAge {
