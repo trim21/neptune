@@ -9,6 +9,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -17,31 +18,26 @@ import (
 
 const mountInfoPath = "/proc/self/mountinfo"
 
-func init() {
-	discoverPath = discoverPathLinux
-	discoverDevices = discoverDevicesLinux
-}
-
-func discoverPathLinux(path string) (deviceInfo, bool) {
+func discoverPath(path string) deviceInfo {
 	var stat unix.Stat_t
 	for {
 		err := unix.Stat(path, &stat)
 		if err == nil {
 			id := DeviceID{Major: unix.Major(stat.Dev), Minor: unix.Minor(stat.Dev)}
-			return deviceInfo{id: id, class: classifyLinuxDevice(id)}, true
+			return deviceInfo{id: id, class: classifyLinuxDevice(id)}
 		}
 		if !errors.Is(err, unix.ENOENT) {
-			return deviceInfo{}, false
+			return defaultDeviceInfo()
 		}
 		parent := filepath.Dir(path)
 		if parent == path {
-			return deviceInfo{}, false
+			return defaultDeviceInfo()
 		}
 		path = parent
 	}
 }
 
-func discoverDevicesLinux() []deviceInfo {
+func discoverDevices() []deviceInfo {
 	data, err := os.ReadFile(mountInfoPath)
 	if err != nil {
 		return nil
@@ -50,21 +46,35 @@ func discoverDevicesLinux() []deviceInfo {
 	seen := make(map[DeviceID]struct{})
 	var devices []deviceInfo
 	for line := range strings.SplitSeq(string(data), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) < 3 {
-			continue
-		}
-		id, ok := parseDeviceID(fields[2])
+		device, ok := parseMountInfoLine(line)
 		if !ok {
 			continue
 		}
-		if _, ok := seen[id]; ok {
+		if _, ok := seen[device.id]; ok {
 			continue
 		}
-		seen[id] = struct{}{}
-		devices = append(devices, deviceInfo{id: id, class: classifyLinuxDevice(id)})
+		seen[device.id] = struct{}{}
+		device.class = classifyLinuxDevice(device.id)
+		devices = append(devices, device)
 	}
 	return devices
+}
+
+func parseMountInfoLine(line string) (deviceInfo, bool) {
+	fields := strings.Fields(line)
+	separator := slices.Index(fields, "-")
+	if len(fields) < 5 || separator < 0 || separator+1 >= len(fields) {
+		return deviceInfo{}, false
+	}
+	id, ok := parseDeviceID(fields[2])
+	if !ok {
+		return deviceInfo{}, false
+	}
+	return deviceInfo{
+		id:         id,
+		filesystem: fields[separator+1],
+		mountPoint: fields[4],
+	}, true
 }
 
 func parseDeviceID(value string) (DeviceID, bool) {

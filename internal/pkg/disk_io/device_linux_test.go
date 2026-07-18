@@ -22,16 +22,20 @@ func TestParseDeviceID(t *testing.T) {
 	}
 }
 
+func TestParseMountInfoLine(t *testing.T) {
+	device, ok := parseMountInfoLine("36 25 8:1 / /mnt/data rw,relatime - ext4 /dev/sda1 rw")
+	if !ok {
+		t.Fatal("parseMountInfoLine failed")
+	}
+	if device.id != (DeviceID{Major: 8, Minor: 1}) || device.filesystem != "ext4" || device.mountPoint != "/mnt/data" {
+		t.Fatalf("device = %#v", device)
+	}
+}
+
 func TestDiscoverPathUsesNearestExistingParent(t *testing.T) {
 	dir := t.TempDir()
-	want, ok := discoverPathLinux(dir)
-	if !ok {
-		t.Fatal("failed to discover temporary directory")
-	}
-	got, ok := discoverPathLinux(filepath.Join(dir, "missing", "torrent"))
-	if !ok {
-		t.Fatal("failed to discover missing path through its parent")
-	}
+	want := discoverPath(dir)
+	got := discoverPath(filepath.Join(dir, "missing", "torrent"))
 	if got.id != want.id {
 		t.Fatalf("device = %v, want %v", got.id, want.id)
 	}

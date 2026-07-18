@@ -220,27 +220,15 @@ func TestQueueCloseDrainsAcceptedOperations(t *testing.T) {
 }
 
 func TestManagerGroupsQueuesByDevice(t *testing.T) {
-	oldPath := discoverPath
-	oldDevices := discoverDevices
-	discoverDevices = nil
-	discoverPath = func(path string) (deviceInfo, bool) {
-		if path == "/ssd" {
-			return deviceInfo{id: DeviceID{Major: 8, Minor: 1}, class: DeviceSSD}, true
-		}
-		return deviceInfo{id: DeviceID{Major: 8, Minor: 2}, class: DeviceHDD}, true
-	}
-	t.Cleanup(func() {
-		discoverPath = oldPath
-		discoverDevices = oldDevices
-	})
-
 	m := New(executorFunc(successfulExecutor))
 	t.Cleanup(m.Close)
-	ssd := m.QueueForPath("/ssd")
-	if ssd != m.QueueForPath("/ssd") {
+	ssdDevice := deviceInfo{id: DeviceID{Major: 1<<31 - 1, Minor: 1}, class: DeviceSSD}
+	hddDevice := deviceInfo{id: DeviceID{Major: 1<<31 - 1, Minor: 2}, class: DeviceHDD}
+	ssd := m.queueForDevice(ssdDevice)
+	if ssd != m.queueForDevice(ssdDevice) {
 		t.Fatal("same device did not reuse its queue")
 	}
-	if ssd == m.QueueForPath("/hdd") {
+	if ssd == m.queueForDevice(hddDevice) {
 		t.Fatal("different devices shared a queue")
 	}
 	if ssd.devClass != DeviceSSD.String() {

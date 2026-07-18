@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/semaphore"
 )
 
@@ -51,19 +52,15 @@ func (d DeviceID) String() string {
 }
 
 type deviceInfo struct {
-	id    DeviceID
-	class DeviceClass
+	filesystem string
+	mountPoint string
+	id         DeviceID
+	class      DeviceClass
 }
 
-type discoverPathFunc func(string) (deviceInfo, bool)
-type discoverDevicesFunc func() []deviceInfo
-
-// Linux installs these hooks from device_linux.go. Other platforms use the
-// default HDD queue without requiring a platform stub.
-var (
-	discoverPath    discoverPathFunc
-	discoverDevices discoverDevicesFunc
-)
+func defaultDeviceInfo() deviceInfo {
+	return deviceInfo{class: DeviceHDD, filesystem: "unknown", mountPoint: "default"}
+}
 
 type profile struct {
 	workers     int
@@ -160,10 +157,14 @@ func New(executor Executor) *Manager {
 		devices:  make(map[DeviceID]DeviceClass),
 		queues:   make(map[DeviceID]*Queue),
 	}
-	if discoverDevices != nil {
-		for _, device := range discoverDevices() {
-			m.devices[device.id] = device.class
-		}
+	for _, device := range discoverDevices() {
+		m.devices[device.id] = device.class
+		log.Info().
+			Stringer("device", device.id).
+			Str("device_class", device.class.String()).
+			Str("filesystem", device.filesystem).
+			Str("mount", device.mountPoint).
+			Msg("discovered filesystem")
 	}
 	m.defaultQueue = newQueue(DeviceID{}, DeviceHDD, m.executor, m.metrics)
 	return m
@@ -174,15 +175,14 @@ func (m *Manager) Collectors() []prometheus.Collector {
 }
 
 func (m *Manager) QueueForPath(path string) *Queue {
-	if discoverPath == nil {
+	device := discoverPath(path)
+	if device.id == (DeviceID{}) {
 		return m.defaultQueue
 	}
+	return m.queueForDevice(device)
+}
 
-	device, ok := discoverPath(path)
-	if !ok {
-		return m.defaultQueue
-	}
-
+func (m *Manager) queueForDevice(device deviceInfo) *Queue {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.closed {
