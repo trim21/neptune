@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -14,7 +15,7 @@ import (
 )
 
 func pickRequestForTest(pp *PiecePicker, peerID uint64, numBlocks int) PickRequest {
-	bitfield := bm.New(pp.info.NumPieces)
+	bitfield := bm.NewLockFreeBitmap(pp.info.NumPieces)
 	bitfield.Fill()
 	return PickRequest{
 		Bitfield:      bitfield,
@@ -170,6 +171,37 @@ func TestReleaseAllAndResetInvalidateClaimsWithoutReusingTokens(t *testing.T) {
 	require.False(t, pp.ReleaseClaim(claims[0]))
 }
 
+func TestEmptyPickDiagnosticsAreRateLimited(t *testing.T) {
+	pp := newTestPicker(4, 1)
+	empty := bm.NewLockFreeBitmap(pp.numPieces)
+	blocked := bm.NewLockFreeBitmap(pp.numPieces)
+	req := PickRequest{Bitfield: empty, BlockedPieces: blocked, PeerID: 1, NumBlocks: 1}
+
+	require.Empty(t, pp.PickAndClaim(nil, req))
+	first := pp.DebugStats()
+	require.False(t, first.DiagAt.IsZero())
+	require.Equal(t, 4, first.DiagSkippedBitfield)
+
+	full := bm.NewLockFreeBitmap(pp.numPieces)
+	full.Fill()
+	req.Bitfield = full
+	req.AllowedFast = empty
+	req.Choked = true
+	require.Empty(t, pp.PickAndClaim(nil, req))
+	limited := pp.DebugStats()
+	require.Equal(t, first.DiagAt, limited.DiagAt)
+	require.Equal(t, first.DiagSkippedBitfield, limited.DiagSkippedBitfield)
+
+	pp.mu.Lock()
+	pp.lastDiagAt = time.Now().Add(-diagnosticInterval)
+	pp.mu.Unlock()
+	require.Empty(t, pp.PickAndClaim(nil, req))
+	refreshed := pp.DebugStats()
+	require.True(t, refreshed.DiagAt.After(first.DiagAt))
+	require.Zero(t, refreshed.DiagSkippedBitfield)
+	require.Equal(t, 4, refreshed.DiagSkippedChoked)
+}
+
 func BenchmarkPickAndClaimSparse(b *testing.B) {
 	const (
 		numPieces      = 1_000
@@ -191,5 +223,54 @@ func BenchmarkPickAndClaimSparse(b *testing.B) {
 		for _, claim := range claims {
 			pp.ReleaseClaim(claim)
 		}
+	}
+}
+
+func BenchmarkPickAndClaimNoPeerPieces(b *testing.B) {
+	const numPieces = 14_000
+	pp := newTestPicker(numPieces, 16)
+	req := PickRequest{
+		Bitfield:      bm.NewLockFreeBitmap(numPieces),
+		BlockedPieces: bm.NewLockFreeBitmap(numPieces),
+		PeerID:        1,
+		NumBlocks:     2,
+	}
+	pp.PickAndClaim(nil, req) // Prime rate-limited diagnostics.
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		if claims := pp.PickAndClaim(nil, req); len(claims) != 0 {
+			b.Fatalf("claimed %d blocks, want none", len(claims))
+		}
+	}
+}
+
+func BenchmarkPickAndClaimSparseAllowedFast(b *testing.B) {
+	const numPieces = 14_000
+	pp := newTestPicker(numPieces, 16)
+	pp.numCompletedPieces = 1 // Avoid startup mode; exercise the ordered scan.
+	bitfield := bm.NewLockFreeBitmap(numPieces)
+	bitfield.Fill()
+	allowedFast := bm.NewLockFreeBitmap(numPieces)
+	allowedFast.Set(numPieces - 1)
+	req := PickRequest{
+		Bitfield:      bitfield,
+		AllowedFast:   allowedFast,
+		BlockedPieces: bm.NewLockFreeBitmap(numPieces),
+		PeerID:        1,
+		NumBlocks:     1,
+		Choked:        true,
+	}
+	claims := make([]BlockClaim, 0, 1)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		claims = pp.PickAndClaim(claims, req)
+		if len(claims) != 1 {
+			b.Fatalf("claimed %d blocks, want one", len(claims))
+		}
+		pp.ReleaseClaim(claims[0])
 	}
 }

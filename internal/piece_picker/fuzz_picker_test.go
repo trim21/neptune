@@ -44,7 +44,7 @@ func FuzzPiecePicker(f *testing.F) {
 		}
 
 		// Use a fixed peer that has all pieces, refcount set once.
-		fullPeer := bm.New(numPieces)
+		fullPeer := bm.NewLockFreeBitmap(numPieces)
 		fullPeer.Fill()
 		for i := range numPieces {
 			pp.IncRefcount(i)
@@ -126,11 +126,11 @@ func randomPieces(rng *rand.Rand, total, count int) []uint32 {
 	return indices[:count]
 }
 
-func randomFastBitmap(rng *rand.Rand, numPieces uint32, peerBf *bm.Bitmap) *bm.Bitmap {
+func randomFastBitmap(rng *rand.Rand, numPieces uint32, peerBf *bm.LockFreeBitmap) *bm.LockFreeBitmap {
 	if rng.IntN(2) == 0 {
 		return nil
 	}
-	fast := bm.New(numPieces)
+	fast := bm.NewLockFreeBitmap(numPieces)
 	var pieces []uint32
 	peerBf.Range(func(pi uint32) {
 		pieces = append(pieces, pi)

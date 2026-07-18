@@ -71,7 +71,7 @@ func (p *pickerTestPeer) pick(req PickRequest) []BlockClaim {
 }
 
 func (p *pickerTestPeer) pickPiece(pieceIndex uint32, numBlocks int) []BlockClaim {
-	bitfield := bm.New(p.pp.info.NumPieces)
+	bitfield := bm.NewLockFreeBitmap(p.pp.info.NumPieces)
 	bitfield.Set(pieceIndex)
 	claims := make([]BlockClaim, 0, numBlocks)
 	for len(claims) < numBlocks {
@@ -131,9 +131,9 @@ func respondPieceForTest(t testing.TB, pp *PiecePicker, pieceIndex uint32, peerI
 }
 
 func (pp *PiecePicker) PickPieces(
-	bitfield *bm.Bitmap,
+	bitfield *bm.LockFreeBitmap,
 	choked bool,
-	allowedFast *bm.Bitmap,
+	allowedFast *bm.LockFreeBitmap,
 	blockedPieces *bm.LockFreeBitmap,
 	numBlocks int,
 	preferContiguous int,
@@ -143,7 +143,7 @@ func (pp *PiecePicker) PickPieces(
 	result PickResult,
 ) PickResult {
 	if allowedFast == nil {
-		allowedFast = bm.New(0)
+		allowedFast = bm.NewLockFreeBitmap(pp.numPieces)
 	}
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
@@ -156,8 +156,8 @@ func (pp *PiecePicker) RequestABlock(
 	outstanding int,
 	queued int,
 	choked bool,
-	peerBitfield *bm.Bitmap,
-	fastBitmap *bm.Bitmap,
+	peerBitfield *bm.LockFreeBitmap,
+	fastBitmap *bm.LockFreeBitmap,
 	blockedPieces *bm.LockFreeBitmap,
 	onParole bool,
 	peerID uint64,
@@ -169,7 +169,7 @@ func (pp *PiecePicker) RequestABlock(
 		return last
 	}
 	if fastBitmap == nil {
-		fastBitmap = bm.New(0)
+		fastBitmap = bm.NewLockFreeBitmap(pp.numPieces)
 	}
 	return pp.PickPieces(peerBitfield, choked, fastBitmap, blockedPieces, numRequests, 0, nil, onParole, peerID, last)
 }

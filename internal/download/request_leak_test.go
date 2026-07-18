@@ -134,7 +134,7 @@ func TestPendingDownloadingAcceptsInflightResponse(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, picker.DebugStats().ActiveClaims)
 
-	peerPieces := bm.New(d.info.NumPieces)
+	peerPieces := bm.NewLockFreeBitmap(d.info.NumPieces)
 	peerPieces.Fill()
 	require.Empty(t, picker.PickAndClaim(nil, PickRequest{
 		Bitfield:      peerPieces,

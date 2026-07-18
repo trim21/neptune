@@ -16,7 +16,7 @@ import (
 func claimBlockForTest(t testing.TB, d *Download, pieceIndex, blockIndex uint32, peerID uint64) BlockClaim {
 	t.Helper()
 	d.picker.Load().AddDownloadingPiece(pieceIndex)
-	bitfield := bm.New(d.info.NumPieces)
+	bitfield := bm.NewLockFreeBitmap(d.info.NumPieces)
 	bitfield.Set(pieceIndex)
 	claims := d.picker.Load().PickAndClaim(nil, PickRequest{
 		Bitfield:      bitfield,

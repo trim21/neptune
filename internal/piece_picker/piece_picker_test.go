@@ -26,7 +26,7 @@ func TestResetPieceIntoCandidates(t *testing.T) {
 	respondPieceForTest(t, pp, 0, 2)
 
 	// Verify piece 0 is NOT pickable (allBlocksResponded, waiting for hash).
-	bitfield := bm.New(numPieces)
+	bitfield := bm.NewLockFreeBitmap(numPieces)
 	bitfield.Fill()
 	result := PickResult{}
 	result = pp.PickPieces(bitfield, false, nil, bm.NewLockFreeBitmap(numPieces), 100, 0, nil, false, 0, result)

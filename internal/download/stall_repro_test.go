@@ -64,7 +64,7 @@ func TestStallEndgameBusyLoop(t *testing.T) {
 
 	time.Sleep(5 * time.Millisecond) // async checkPiece may be in-flight
 
-	peerBitfield := bm.New(10)
+	peerBitfield := bm.NewLockFreeBitmap(10)
 	peerBitfield.Fill()
 
 	pp := d.picker.Load()

@@ -38,7 +38,7 @@ func TestRequestABlock_QueueFullWithQueued(t *testing.T) {
 func TestRequestABlock_ChokedNoFast(t *testing.T) {
 	pp := newTestPicker(5, 4)
 
-	peerBitfield := bm.New(pp.info.NumPieces)
+	peerBitfield := bm.NewLockFreeBitmap(pp.info.NumPieces)
 	peerBitfield.Fill()
 	for i := range pp.info.NumPieces {
 		pp.IncRefcount(i)
@@ -52,10 +52,10 @@ func TestRequestABlock_ChokedNoFast(t *testing.T) {
 func TestRequestABlock_ChokedWithFast(t *testing.T) {
 	pp := newTestPicker(5, 4)
 
-	peerBitfield := bm.New(pp.info.NumPieces)
+	peerBitfield := bm.NewLockFreeBitmap(pp.info.NumPieces)
 	peerBitfield.Fill()
 
-	fastBm := bm.New(pp.info.NumPieces)
+	fastBm := bm.NewLockFreeBitmap(pp.info.NumPieces)
 	fastBm.Set(0)
 
 	for i := range pp.info.NumPieces {
@@ -72,7 +72,7 @@ func TestRequestABlock_ChokedWithFast(t *testing.T) {
 func TestRequestABlock_UnchokedNormal(t *testing.T) {
 	pp := newTestPicker(5, 4)
 
-	peerBitfield := bm.New(pp.info.NumPieces)
+	peerBitfield := bm.NewLockFreeBitmap(pp.info.NumPieces)
 	peerBitfield.Fill()
 	for i := range pp.info.NumPieces {
 		pp.IncRefcount(i)
@@ -127,7 +127,7 @@ func TestReleaseClaimKeepsOtherEndgameRequest(t *testing.T) {
 
 func TestStalePickCannotRollbackRespondedBlock(t *testing.T) {
 	pp := newTestPicker(1, 4)
-	peerBitfield := bm.New(1)
+	peerBitfield := bm.NewLockFreeBitmap(1)
 	peerBitfield.Fill()
 
 	result := pp.RequestABlock(PickResult{}, 1, 0, 0, false, peerBitfield, nil, bm.NewLockFreeBitmap(1), false, 1)
@@ -148,7 +148,7 @@ func TestStalePickCannotRollbackRespondedBlock(t *testing.T) {
 func TestRequestABlock_LastPickResultReuse(t *testing.T) {
 	pp := newTestPicker(5, 4)
 
-	peerBitfield := bm.New(pp.info.NumPieces)
+	peerBitfield := bm.NewLockFreeBitmap(pp.info.NumPieces)
 	peerBitfield.Fill()
 	for i := range pp.info.NumPieces {
 		pp.IncRefcount(i)

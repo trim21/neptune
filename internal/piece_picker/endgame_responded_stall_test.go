@@ -32,7 +32,7 @@ func TestEndgameAllBlocksResponded_EmptyResult(t *testing.T) {
 	pp.missingBm.Unset(2)
 	pp.WeHave(2)
 
-	peerBitfield := bm.New(pp.info.NumPieces)
+	peerBitfield := bm.NewLockFreeBitmap(pp.info.NumPieces)
 	peerBitfield.Fill()
 
 	result := PickResult{}
@@ -66,7 +66,7 @@ func TestResetPieceRestoresPiece(t *testing.T) {
 	pp.AddDownloadingPiece(1)
 
 	// Verify piece is NOT pickable (all responded = pending hash check).
-	peerBitfield := bm.New(pp.info.NumPieces)
+	peerBitfield := bm.NewLockFreeBitmap(pp.info.NumPieces)
 	peerBitfield.Fill()
 	result := PickResult{}
 	result = pp.PickPieces(peerBitfield, false, nil, bm.NewLockFreeBitmap(pp.info.NumPieces), 4, 0, nil, false, 0, result)

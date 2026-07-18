@@ -34,8 +34,8 @@ type mockPeer struct {
 	ourInterested          *atomic.Bool
 	peerChoking            *atomic.Bool
 	inQueueMap             map[proto.ChunkRequest]bool
-	fastBitmap             *bm.Bitmap
-	bitmap                 *bm.Bitmap
+	fastBitmap             *bm.LockFreeBitmap
+	bitmap                 *bm.LockFreeBitmap
 	disconnecting          *atomic.Bool
 	suspectPieces          *bm.Bitmap
 	blockedPieceTimestamps map[uint32]time.Time
@@ -91,8 +91,8 @@ func newMockPeer() *mockPeer {
 		peerChoking:            atomic.NewBool(false),
 		preferred:              atomic.NewBool(false),
 		lastUnchokeAt:          atomic.NewInt64(time.Now().Unix()),
-		bitmap:                 bm.New(0),
-		fastBitmap:             bm.New(0),
+		bitmap:                 bm.NewLockFreeBitmap(0),
+		fastBitmap:             bm.NewLockFreeBitmap(0),
 		blockedPieces:          bm.NewLockFreeBitmap(0),
 		suspectPieces:          bm.New(0),
 		blockedPieceTimestamps: make(map[uint32]time.Time),
@@ -114,8 +114,8 @@ func (m *mockPeer) setClosed(v bool)     { m.closed.Store(v) }
 func (m *mockPeer) setOutstanding(n int) { m.atomicSetInt32(&m.outstanding, int32(n)) }
 func (m *mockPeer) setDesiredSize(n int) { m.desiredSize = int32(n) }
 func (m *mockPeer) setNumPieces(n uint32) {
-	m.bitmap = bm.New(n)
-	m.fastBitmap = bm.New(n)
+	m.bitmap = bm.NewLockFreeBitmap(n)
+	m.fastBitmap = bm.NewLockFreeBitmap(n)
 	m.blockedPieces = bm.NewLockFreeBitmap(n)
 }
 
@@ -161,10 +161,10 @@ func (m *mockPeer) ClearDownloadRequests() {
 
 // ── Piece availability ──────────────────────────────────────────────
 
-func (m *mockPeer) PeerBitmap() *bm.Bitmap { return m.bitmap }
-func (m *mockPeer) FastBitmap() *bm.Bitmap { return m.fastBitmap }
-func (m *mockPeer) IsSeed() bool           { return m.isSeed.Load() }
-func (m *mockPeer) PieceCount() uint32     { return m.bitmap.Count() }
+func (m *mockPeer) PeerBitmap() *bm.LockFreeBitmap { return m.bitmap }
+func (m *mockPeer) FastBitmap() *bm.LockFreeBitmap { return m.fastBitmap }
+func (m *mockPeer) IsSeed() bool                   { return m.isSeed.Load() }
+func (m *mockPeer) PieceCount() uint32             { return uint32(m.bitmap.Count()) }
 
 // ── Choke / interest state ──────────────────────────────────────────
 

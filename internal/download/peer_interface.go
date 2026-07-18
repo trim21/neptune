@@ -34,8 +34,8 @@ type PeerInterface interface {
 	CloseError() error
 
 	// ── Piece availability ───────────────────────────────────────────
-	PeerBitmap() *bm.Bitmap
-	FastBitmap() *bm.Bitmap
+	PeerBitmap() *bm.LockFreeBitmap
+	FastBitmap() *bm.LockFreeBitmap
 	IsSeed() bool
 	PieceCount() uint32
 

@@ -15,7 +15,7 @@ import (
 // busy blocks so the peer can re-request them.
 func TestEndgameNoFreeBlocks(t *testing.T) {
 	pp := newTestPicker(5, 4)
-	bitfield := bm.New(pp.info.NumPieces)
+	bitfield := bm.NewLockFreeBitmap(pp.info.NumPieces)
 	bitfield.Fill()
 
 	// Complete pieces 0-2.

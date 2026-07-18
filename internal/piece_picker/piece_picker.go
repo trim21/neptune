@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"go.uber.org/atomic"
 
@@ -219,6 +220,8 @@ const maxBlockRetries = 2
 
 const maxClaimsPerBlock = 1 + maxBlockRetries
 
+const diagnosticInterval = time.Minute
+
 // PieceBlock identifies a block within a piece.
 type PieceBlock struct {
 	PieceIndex uint32
@@ -244,8 +247,8 @@ type blockClaims struct {
 
 // PickRequest describes one atomic pick-and-claim operation.
 type PickRequest struct {
-	Bitfield         *bm.Bitmap
-	AllowedFast      *bm.Bitmap
+	Bitfield         *bm.LockFreeBitmap
+	AllowedFast      *bm.LockFreeBitmap
 	BlockedPieces    *bm.LockFreeBitmap
 	SuggestedPieces  []uint32
 	PeerID           uint64
@@ -268,24 +271,27 @@ type partialInfo struct {
 //
 // All public methods are safe for concurrent use.
 type PiecePicker struct {
-	chunkDoneBm            *bm.Bitmap
+	lastDiagAt             time.Time
 	missingBm              *bm.LockFreeBitmap
+	emptyPiecesBm          *bm.LockFreeBitmap
 	parolePieceOwners      map[uint32]uint64
 	activeClaims           map[uint64]claimRecord
 	claimsByBlock          map[uint32]blockClaims
 	claimsByPeer           map[uint64]map[uint64]struct{}
 	strategy               *atomic.Uint32
+	chunkDoneBm            *bm.Bitmap
 	requestGate            RequestGate
 	pickScratch            PickResult
 	partials               []partialInfo
 	downloadingPieces      []downloadingPiece
 	blockInfos             blockStates
+	respondedBlocks        []uint16
 	pieces                 []uint32
 	availability           []uint16
 	piecePriorities        []uint32
 	info                   meta.Info
-	numWantLeft            int
 	diagSkippedDownloading int
+	downloadQueueSize      int
 	staleAccepts           uint64
 	diagNumWant            int
 	diagSkippedResponded   int
@@ -295,7 +301,7 @@ type PiecePicker struct {
 	freeBlocks             int
 	diagFreeBlocks         int
 	staleReleases          uint64
-	downloadQueueSize      int
+	numWantLeft            int
 	nextClaimToken         uint64
 	blockSize              int64
 	mu                     sync.Mutex
@@ -342,12 +348,14 @@ func NewPiecePicker(
 		claimsByBlock:     make(map[uint32]blockClaims),
 		claimsByPeer:      make(map[uint64]map[uint64]struct{}),
 		missingBm:         missingBm,
+		emptyPiecesBm:     bm.NewLockFreeBitmap(numPieces),
 		chunkDoneBm:       chunkDoneBm,
 		strategy:          strategy,
 		requestGate:       requestGate,
 		dirty:             true,
 		partialsDirty:     true,
 		blockInfos:        newBlockStates(int(numPieces) * int(blocksPerPiece)),
+		respondedBlocks:   make([]uint16, numPieces),
 	}
 
 	// initialize pieces array
@@ -468,6 +476,7 @@ func (pp *PiecePicker) WeHave(pieceIndex uint32) {
 		}
 		pp.blockInfos.set(idx+i, blockStateResponded)
 	}
+	pp.respondedBlocks[pieceIndex] = nb
 	pp.removeDownloadingPieceUnsafe(pieceIndex)
 	pp.numCompletedPieces++
 	delete(pp.parolePieceOwners, pieceIndex)
@@ -523,6 +532,7 @@ func (pp *PiecePicker) AcceptResponse(claim BlockClaim) bool {
 	}
 
 	pp.blockInfos.set(idx, blockStateResponded)
+	pp.respondedBlocks[claim.Block.PieceIndex]++
 	pp.downloadQueueSize--
 	if dp := pp.findDownloadingPiece(claim.Block.PieceIndex); dp != nil {
 		if dp.requested > 0 {
@@ -710,14 +720,7 @@ func (pp *PiecePicker) allBlocksResponded(pieceIndex uint32) bool {
 	if pp == nil {
 		return true
 	}
-	idx := pp.blockInfoIdx(pieceIndex)
-	nb := pp.numBlocksInPiece(pieceIndex)
-	for i := range int(nb) {
-		if pp.blockInfos.get(idx+i) != blockStateResponded {
-			return false
-		}
-	}
-	return true
+	return pp.respondedBlocks[pieceIndex] == pp.numBlocksInPiece(pieceIndex)
 }
 
 // updatePiecePriority recalculates the priority for a piece based on its availability.
@@ -755,9 +758,9 @@ type PickResult struct {
 //
 
 func (pp *PiecePicker) pickPiecesUnsafe(
-	bitfield *bm.Bitmap,
+	bitfield *bm.LockFreeBitmap,
 	choked bool,
-	allowedFast *bm.Bitmap,
+	allowedFast *bm.LockFreeBitmap,
 	blockedPieces *bm.LockFreeBitmap,
 	numBlocks int,
 	preferContiguous int,
@@ -840,10 +843,6 @@ func (pp *PiecePicker) pickPiecesUnsafe(
 		if !pp.missingBm.Contains(p.pieceIndex) {
 			continue
 		}
-		dp := pp.findDownloadingPiece(p.pieceIndex)
-		if dp == nil {
-			continue
-		}
 		if !bitfield.Contains(p.pieceIndex) {
 			continue
 		}
@@ -851,6 +850,10 @@ func (pp *PiecePicker) pickPiecesUnsafe(
 			continue
 		}
 		if blockedPieces.Contains(p.pieceIndex) {
+			continue
+		}
+		dp := pp.findDownloadingPiece(p.pieceIndex)
+		if dp == nil {
 			continue
 		}
 		if onParole {
@@ -946,7 +949,7 @@ func (pp *PiecePicker) pickPiecesUnsafe(
 	for cursor := 0; numBlocks > 0 && cursor < len(pp.pieces); cursor++ {
 		pi := pp.pieces[cursor]
 
-		if !pp.missingBm.Contains(pi) || pp.allBlocksResponded(pi) {
+		if !pp.missingBm.Contains(pi) {
 			continue
 		}
 		if !bitfield.Contains(pi) {
@@ -956,6 +959,9 @@ func (pp *PiecePicker) pickPiecesUnsafe(
 			continue
 		}
 		if blockedPieces.Contains(pi) {
+			continue
+		}
+		if pp.allBlocksResponded(pi) {
 			continue
 		}
 		if pp.isAlreadyPicked(pi, &result) {
@@ -971,7 +977,7 @@ func (pp *PiecePicker) pickPiecesUnsafe(
 
 	// Diagnostic: record filter skip reasons when no blocks were picked.
 	if numBlocks > 0 && len(result.FreeBlocks) == 0 && len(result.BusyBlocks) == 0 {
-		pp.recordDiagUnsafe(bitfield, choked, allowedFast, blockedPieces, true)
+		pp.recordDiagIfDueUnsafe(bitfield, choked, allowedFast, blockedPieces, true)
 	}
 
 	return result
@@ -980,22 +986,38 @@ func (pp *PiecePicker) pickPiecesUnsafe(
 // recordDiag scans all candidate pieces and records why they were skipped.
 // Call after a failed pick to surface which filter is blocking progress.
 func (pp *PiecePicker) recordDiag(
-	bitfield *bm.Bitmap,
+	bitfield *bm.LockFreeBitmap,
 	choked bool,
-	allowedFast *bm.Bitmap,
+	allowedFast *bm.LockFreeBitmap,
 	blockedPieces *bm.LockFreeBitmap,
 	skipDownloading bool,
 ) {
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
+	pp.lastDiagAt = time.Now()
+	pp.recordDiagUnsafe(bitfield, choked, allowedFast, blockedPieces, skipDownloading)
+}
+
+func (pp *PiecePicker) recordDiagIfDueUnsafe(
+	bitfield *bm.LockFreeBitmap,
+	choked bool,
+	allowedFast *bm.LockFreeBitmap,
+	blockedPieces *bm.LockFreeBitmap,
+	skipDownloading bool,
+) {
+	now := time.Now()
+	if !pp.lastDiagAt.IsZero() && now.Before(pp.lastDiagAt.Add(diagnosticInterval)) {
+		return
+	}
+	pp.lastDiagAt = now
 	pp.recordDiagUnsafe(bitfield, choked, allowedFast, blockedPieces, skipDownloading)
 }
 
 // recordDiagUnsafe is the lock-free variant; caller must hold pp.mu.
 func (pp *PiecePicker) recordDiagUnsafe(
-	bitfield *bm.Bitmap,
+	bitfield *bm.LockFreeBitmap,
 	choked bool,
-	allowedFast *bm.Bitmap,
+	allowedFast *bm.LockFreeBitmap,
 	blockedPieces *bm.LockFreeBitmap,
 	skipDownloading bool,
 ) {
@@ -1039,9 +1061,9 @@ func (pp *PiecePicker) recordDiagUnsafe(
 //
 // Caller must hold pp.mu.
 func (pp *PiecePicker) pickStartupBlock(
-	bitfield *bm.Bitmap,
+	bitfield *bm.LockFreeBitmap,
 	choked bool,
-	allowedFast *bm.Bitmap,
+	allowedFast *bm.LockFreeBitmap,
 	result *PickResult,
 ) {
 	// Collect all pieces the peer has that we want.
@@ -1207,6 +1229,7 @@ func (pp *PiecePicker) CountBusyBlocks(pieceIndex uint32) int {
 
 // PickerStats holds summary block-state counts for debug output.
 type PickerStats struct {
+	DiagAt          time.Time
 	OpenPieces      int
 	Downloading     int
 	RequestedBlocks int
@@ -1218,7 +1241,7 @@ type PickerStats struct {
 	StaleAccepts    uint64
 	StaleReleases   uint64
 
-	// Diagnostic counters from the last empty PickPieces call (Phase 3).
+	// Diagnostic counters from the last sampled empty PickPieces call.
 	DiagNumWant            int
 	DiagSkippedResponded   int
 	DiagSkippedBitfield    int
@@ -1288,6 +1311,7 @@ func (pp *PiecePicker) DebugStats() PickerStats {
 		DuplicateClaims: len(pp.activeClaims) - len(pp.claimsByBlock),
 		StaleAccepts:    pp.staleAccepts,
 		StaleReleases:   pp.staleReleases,
+		DiagAt:          pp.lastDiagAt,
 
 		DiagNumWant:            pp.diagNumWant,
 		DiagSkippedResponded:   pp.diagSkippedResponded,
@@ -1338,6 +1362,7 @@ func (pp *PiecePicker) ResetPiece(pieceIndex uint32) {
 		}
 		pp.blockInfos.set(idx+i, blockStateNone)
 	}
+	pp.respondedBlocks[pieceIndex] = 0
 	// Reset downloadingPiece counters instead of removing it.
 	// Keeping the piece in downloadingPieces prevents pickPieces from
 	// entering startup mode (numCompletedPieces==0 && len(downloadingPieces)==0),
@@ -1372,6 +1397,7 @@ func (pp *PiecePicker) ResetAll() {
 	defer pp.mu.Unlock()
 
 	pp.blockInfos.resetAll()
+	clear(pp.respondedBlocks)
 	pp.downloadingPieces = pp.downloadingPieces[:0]
 	pp.downloadQueueSize = 0
 	pp.freeBlocks = int(pp.blocksPerPiece)*int(pp.numPieces-1) + int(pp.numBlocksInPiece(pp.numPieces-1))

@@ -4,6 +4,7 @@
 package bm
 
 import (
+	"slices"
 	"sync"
 	"testing"
 )
@@ -37,6 +38,35 @@ func TestLockFreeBitmap_Basic(t *testing.T) {
 	// Other bits should be unaffected
 	if !b.Contains(0) || !b.Contains(64) || !b.Contains(127) {
 		t.Fatal("other bits should be unaffected")
+	}
+}
+
+func TestLockFreeBitmap_SetOperations(t *testing.T) {
+	b := NewLockFreeBitmap(130)
+	b.Set(1)
+	b.Set(65)
+	b.Set(129)
+
+	var ranged []uint32
+	b.Range(func(index uint32) {
+		ranged = append(ranged, index)
+	})
+	if !slices.Equal(ranged, []uint32{1, 65, 129}) {
+		t.Fatalf("Range() = %v", ranged)
+	}
+	if array := b.ToArray(); !slices.Equal(array, ranged) {
+		t.Fatalf("ToArray() = %v, want %v", array, ranged)
+	}
+
+	other := New(130)
+	other.Set(65)
+	merged := NewLockFreeBitmap(130)
+	merged.OR(other)
+	if !merged.Contains(65) || merged.Count() != 1 {
+		t.Fatalf("OR result = %v", merged.ToArray())
+	}
+	if !b.Any(merged) {
+		t.Fatal("Any should find bit 65")
 	}
 }
 

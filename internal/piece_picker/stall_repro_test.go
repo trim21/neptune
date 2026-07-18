@@ -35,7 +35,7 @@ func TestStallZombiePiece(t *testing.T) {
 	}
 	pp.mu.Unlock()
 
-	peerBitfield := bm.New(pp.info.NumPieces)
+	peerBitfield := bm.NewLockFreeBitmap(pp.info.NumPieces)
 	peerBitfield.Fill()
 
 	result := PickResult{}
@@ -54,7 +54,7 @@ func TestStallZombiePiece(t *testing.T) {
 func TestStallCompletedBmRace(t *testing.T) {
 	pp := newTestPicker(10, 4)
 
-	peerBitfield := bm.New(pp.info.NumPieces)
+	peerBitfield := bm.NewLockFreeBitmap(pp.info.NumPieces)
 	peerBitfield.Fill()
 
 	// Add piece 0 to downloadingPieces with some free blocks.
@@ -103,7 +103,7 @@ func TestStall_NewPickerDoesntInheritDownloadingPieces(t *testing.T) {
 	newPicker.WeHave(0) // piece 0 not in newPicker's downloadingPieces → no-op
 
 	// OLD picker still has piece 0 in downloadingPieces, all blocks responded.
-	peerBitfield := bm.New(oldPicker.info.NumPieces)
+	peerBitfield := bm.NewLockFreeBitmap(oldPicker.info.NumPieces)
 	peerBitfield.Fill()
 
 	result := PickResult{}
@@ -149,7 +149,7 @@ func TestStallEndgamePicksFreeZeroPieces(t *testing.T) {
 	pp.missingBm.Unset(2)
 	pp.WeHave(2)
 
-	peerBitfield := bm.New(pp.info.NumPieces)
+	peerBitfield := bm.NewLockFreeBitmap(pp.info.NumPieces)
 	peerBitfield.Fill()
 
 	result := PickResult{}
@@ -172,7 +172,7 @@ func TestPiecePickStrategy_Sequential(t *testing.T) {
 	pp := newTestPicker(10, 10)
 	pp.strategy.Store(uint32(StrategySequential))
 
-	peerBitfield := bm.New(pp.info.NumPieces)
+	peerBitfield := bm.NewLockFreeBitmap(pp.info.NumPieces)
 	peerBitfield.Fill()
 	peer := newPickerTestPeer(t, pp, 1)
 	pick := func(numBlocks int) []BlockClaim {

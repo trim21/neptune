@@ -669,7 +669,7 @@ func (d *Download) finalizeDownloadCompletion() {
 	d.fireCompletedHook()
 
 	d.peers.Range(func(_ uint64, p Peer) bool {
-		if p.PeerBitmap().Count() == d.info.NumPieces {
+		if uint32(p.PeerBitmap().Count()) == d.info.NumPieces {
 			p.Close()
 		}
 		return true

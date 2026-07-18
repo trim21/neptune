@@ -5,7 +5,6 @@ package piece_picker
 
 import (
 	"neptune/internal/pkg/assert"
-	"neptune/internal/pkg/bm"
 )
 
 // PickAndClaim selects blocks and records peer ownership in one critical
@@ -26,15 +25,15 @@ func (pp *PiecePicker) PickAndClaim(reuse []BlockClaim, req PickRequest) []Block
 
 	bitfield := req.Bitfield
 	if bitfield == nil {
-		bitfield = bm.New(0)
+		bitfield = pp.emptyPiecesBm
 	}
 	allowedFast := req.AllowedFast
 	if allowedFast == nil {
-		allowedFast = bm.New(0)
+		allowedFast = pp.emptyPiecesBm
 	}
 	blockedPieces := req.BlockedPieces
 	if blockedPieces == nil {
-		blockedPieces = bm.NewLockFreeBitmap(0)
+		blockedPieces = pp.emptyPiecesBm
 	}
 
 	result := pp.pickPiecesUnsafe(

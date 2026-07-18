@@ -166,7 +166,7 @@ func newPeer(
 		Conn:              conn,
 		d:                 d,
 		peerCtx:           d.newPeerContext(),
-		Bitmap:            bm.New(d.info.NumPieces),
+		Bitmap:            bm.NewLockFreeBitmap(d.info.NumPieces),
 		pieceUploadRate:   flowrate.New(time.Second, 5*time.Second),
 		pieceDownloadRate: flowrate.New(time.Second, 5*time.Second),
 		Address:           addr,
@@ -199,7 +199,7 @@ func newPeer(
 		r: bufio.NewReaderSize(d.ioDownloadRate.WrapReader(conn), units.KiB*18),
 		w: bufio.NewWriterSize(conn, units.KiB*8),
 
-		allowFast: bm.New(d.info.NumPieces),
+		allowFast: bm.NewLockFreeBitmap(d.info.NumPieces),
 
 		contributedPieces:      bm.New(d.info.NumPieces),
 		blockedPieces:          bm.NewLockFreeBitmap(d.info.NumPieces),
@@ -237,12 +237,12 @@ type peerImpl struct {
 	d                      *Download
 	peerCtx                *PeerContext
 	cancel                 context.CancelFunc
-	Bitmap                 *bm.Bitmap
+	Bitmap                 *bm.LockFreeBitmap
 	myRequests             *xsync.Map[proto.ChunkRequest, trackedRequest]
 	myRequestHistory       *xsync.Map[proto.ChunkRequest, empty.Empty]
 	lastPickDebug          atomic.Pointer[string]
 	Rejected               *xsync.Map[proto.ChunkRequest, empty.Empty]
-	allowFast              *bm.Bitmap
+	allowFast              *bm.LockFreeBitmap
 	peerRequests           *xsync.Map[proto.ChunkRequest, empty.Empty]
 	pieceDownloadRate      *flowrate.Monitor
 	suspectPieces          *bm.Bitmap
@@ -816,7 +816,7 @@ func (p *peerImpl) start(skipHandshake bool) {
 					p.peerCtx.Picker().IncRefcount(u)
 				}
 			})
-			if !p.isSeed.Load() && p.Bitmap.Count() == p.d.info.NumPieces {
+			if !p.isSeed.Load() && uint32(p.Bitmap.Count()) == p.d.info.NumPieces {
 				p.isSeed.Store(true)
 			}
 		case proto.Have:
@@ -829,7 +829,7 @@ func (p *peerImpl) start(skipHandshake bool) {
 			if !p.d.HasState(Seeding) {
 				p.peerCtx.Picker().IncRefcount(event.Index)
 			}
-			if !p.isSeed.Load() && p.Bitmap.Count() == p.d.info.NumPieces {
+			if !p.isSeed.Load() && uint32(p.Bitmap.Count()) == p.d.info.NumPieces {
 				p.isSeed.Store(true)
 			}
 		case proto.Interested:
@@ -997,7 +997,7 @@ func (p *peerImpl) start(skipHandshake bool) {
 
 		switch event.Event {
 		case proto.Have, proto.HaveAll, proto.Bitfield:
-			if p.Bitmap.WithAndNot(p.d.completedBm).Count() != 0 {
+			if p.Bitmap.Any(p.d.missingBm) {
 				if p.ourInterested.CompareAndSwap(false, true) {
 					go p.sendEventX(Event{Event: proto.Interested})
 				}

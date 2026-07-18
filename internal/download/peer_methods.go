@@ -33,10 +33,10 @@ func (p *peerImpl) CloseError() error {
 
 // ── Piece availability ───────────────────────────────────────────────────
 
-func (p *peerImpl) PeerBitmap() *bm.Bitmap { return p.Bitmap }
-func (p *peerImpl) FastBitmap() *bm.Bitmap { return p.allowFast }
-func (p *peerImpl) IsSeed() bool           { return p.isSeed.Load() }
-func (p *peerImpl) PieceCount() uint32     { return p.Bitmap.Count() }
+func (p *peerImpl) PeerBitmap() *bm.LockFreeBitmap { return p.Bitmap }
+func (p *peerImpl) FastBitmap() *bm.LockFreeBitmap { return p.allowFast }
+func (p *peerImpl) IsSeed() bool                   { return p.isSeed.Load() }
+func (p *peerImpl) PieceCount() uint32             { return uint32(p.Bitmap.Count()) }
 
 // ── Choke / interest state ───────────────────────────────────────────────
 

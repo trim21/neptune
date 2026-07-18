@@ -84,3 +84,52 @@ func (b *LockFreeBitmap) Count() int {
 	n += bits.OnesCount64(last)
 	return n
 }
+
+// OR adds every bit set in other. Reads of b may observe the update one word
+// at a time, which is sufficient for availability tracking.
+func (b *LockFreeBitmap) OR(other *Bitmap) {
+	other.m.RLock()
+	defer other.m.RUnlock()
+
+	for i := range min(len(b.words), len(other.bm)) {
+		b.words[i].Or(other.bm[i])
+	}
+}
+
+// Any reports whether b and other have at least one common set bit.
+func (b *LockFreeBitmap) Any(other *LockFreeBitmap) bool {
+	if b == nil || other == nil {
+		return false
+	}
+	for i := range min(len(b.words), len(other.words)) {
+		if b.words[i].Load()&other.words[i].Load() != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// Range calls fn for every set bit. Concurrent writes may be observed between
+// words; callers that need a coherent snapshot must provide their own gate.
+func (b *LockFreeBitmap) Range(fn func(uint32)) {
+	for wordIndex := range b.words {
+		v := b.words[wordIndex].Load()
+		for v != 0 {
+			bit := bits.TrailingZeros64(v)
+			index := uint32(wordIndex*64 + bit)
+			if index >= b.size {
+				return
+			}
+			fn(index)
+			v &^= 1 << bit
+		}
+	}
+}
+
+func (b *LockFreeBitmap) ToArray() []uint32 {
+	result := make([]uint32, 0, b.Count())
+	b.Range(func(index uint32) {
+		result = append(result, index)
+	})
+	return result
+}

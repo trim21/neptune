@@ -47,7 +47,7 @@ func runIntegration(t *testing.T, numPieces, blocksPerPiece uint32, seed uint64)
 
 	rng := rand.New(rand.NewPCG(seed, seed>>32))
 
-	peerBf := bm.New(numPieces)
+	peerBf := bm.NewLockFreeBitmap(numPieces)
 	peerBf.Fill()
 	for i := range numPieces {
 		pp.IncRefcount(i)
