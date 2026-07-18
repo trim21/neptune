@@ -33,10 +33,14 @@ func (d *Download) Start() error {
 }
 
 func (d *Download) Stop() error {
+	if d.HasState(Moving) {
+		d.CancelMove()
+	}
 	if _, err := d.transition(Stopped); err != nil {
 		d.log.Error().Err(err).Msg("failed to transition state in Stop")
 		return err
 	}
+	d.CancelMove()
 
 	d.stateCond.Broadcast()
 

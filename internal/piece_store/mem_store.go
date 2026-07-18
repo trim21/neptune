@@ -72,3 +72,13 @@ func (s *MemStore) VerifyPiece(_ context.Context, pieceIndex uint32, expected [s
 	digest := sha1.Sum(buf.Bytes())
 	return digest == expected, nil
 }
+
+func (s *MemStore) Move(ctx context.Context, _ string, report MoveProgressFunc) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if report != nil {
+		report(MoveProgress{Phase: MoveCleaning})
+	}
+	return nil
+}

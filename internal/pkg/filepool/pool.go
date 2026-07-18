@@ -116,6 +116,38 @@ func (pool *FilePool) Open(path string, flag int, perm os.FileMode, ttl time.Dur
 	}
 }
 
+// InvalidatePaths removes every cached variant of the given paths. Idle files
+// are closed immediately; active files are closed after their final Release.
+func (pool *FilePool) InvalidatePaths(paths []string) {
+	if len(paths) == 0 {
+		return
+	}
+
+	pathSet := make(map[string]struct{}, len(paths))
+	for _, path := range paths {
+		pathSet[path] = struct{}{}
+	}
+
+	pool.mu.Lock()
+	toClose := pool.expireIdleLocked(pool.now())
+	for key, f := range pool.files {
+		if _, ok := pathSet[key.path]; !ok {
+			continue
+		}
+
+		pool.finishInitializationLocked(f)
+		f.invalid = true
+		delete(pool.files, key)
+		pool.removeIdleLocked(f)
+		if f.refs == 0 {
+			pool.markClosedLocked(f)
+			toClose = append(toClose, f)
+		}
+	}
+	pool.mu.Unlock()
+	closeFiles(toClose)
+}
+
 // File wraps an *os.File with a reference count managed by FilePool.
 type File struct {
 	expiresAt    time.Time

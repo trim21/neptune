@@ -47,6 +47,10 @@ func (s *FailOnceStore) VerifyPiece(ctx context.Context, pieceIndex uint32, expe
 	return s.inner.VerifyPiece(ctx, pieceIndex, expected)
 }
 
+func (s *FailOnceStore) Move(ctx context.Context, target string, report piece_store.MoveProgressFunc) error {
+	return s.inner.Move(ctx, target, report)
+}
+
 // FailNPieceStore wraps a PieceStore and fails the first N pieces
 // on their first verification.
 type FailNPieceStore struct {
@@ -85,4 +89,8 @@ func (s *FailNPieceStore) VerifyPiece(ctx context.Context, pieceIndex uint32, ex
 	}
 	s.mu.Unlock()
 	return s.inner.VerifyPiece(ctx, pieceIndex, expected)
+}
+
+func (s *FailNPieceStore) Move(ctx context.Context, target string, report piece_store.MoveProgressFunc) error {
+	return s.inner.Move(ctx, target, report)
 }

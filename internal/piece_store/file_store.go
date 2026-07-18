@@ -19,6 +19,9 @@ func (s *FileStore) filePath(fileIndex int) string {
 }
 
 func (s *FileStore) WriteChunk(ctx context.Context, pieceIndex uint32, begin uint32, data []byte) error {
+	s.opMu.RLock()
+	defer s.opMu.RUnlock()
+
 	offset := int64(pieceIndex)*s.info.PieceLength + int64(begin)
 	size := int64(len(data))
 	var off int64
@@ -49,6 +52,9 @@ func (s *FileStore) WriteChunk(ctx context.Context, pieceIndex uint32, begin uin
 }
 
 func (s *FileStore) ReadChunk(ctx context.Context, pieceIndex uint32, begin uint32, data []byte) (int, error) {
+	s.opMu.RLock()
+	defer s.opMu.RUnlock()
+
 	offset := int64(pieceIndex)*s.info.PieceLength + int64(begin)
 	size := int64(len(data))
 	var n int
@@ -72,6 +78,9 @@ func (s *FileStore) ReadChunk(ctx context.Context, pieceIndex uint32, begin uint
 
 // VerifyPiece reads piece data from disk, computes SHA1, and compares.
 func (s *FileStore) VerifyPiece(ctx context.Context, pieceIndex uint32, expected [sha1.Size]byte) (bool, error) {
+	s.opMu.RLock()
+	defer s.opMu.RUnlock()
+
 	hasher := sha1.New()
 	var buf [16 * 1024]byte
 

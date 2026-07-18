@@ -10,81 +10,110 @@ import (
 	"os"
 	"path/filepath"
 
-	"neptune/internal/pkg/bm"
-	"neptune/internal/pkg/gfs"
+	"neptune/internal/piece_store"
 )
 
 func (d *Download) Move(target string) error {
-	ctx, cancel := context.WithCancel(d.ctx)
-	defer cancel()
-
 	transition, err := d.transition(Moving)
 	if err != nil {
 		return err
 	}
 	originalState := transition.from
+	d.stateCond.Broadcast()
 
-	d.s.mu.Lock()
-	originalBasePath := d.s.basePath
-	selectedFilesSet := d.selectedFilesSet
-	d.s.mu.Unlock()
-
-	err = d.move(ctx, target, originalBasePath, selectedFilesSet)
+	target, err = filepath.Abs(target)
 	if err != nil {
-		d.setError(err)
-		return nil
+		d.finishMove(originalState)
+		return err
+	}
+
+	ctx, cancel := context.WithCancel(d.ctx)
+	d.moveMu.Lock()
+	d.moveCancel = cancel
+	d.moveProgress = piece_store.MoveProgress{Phase: piece_store.MoveWaiting}
+	if d.pieceDownloadRate != nil {
+		d.pieceDownloadRate.Reset()
+	}
+	d.moveMu.Unlock()
+	if d.GetState() != Moving {
+		cancel()
+	}
+	finished := false
+	defer func() {
+		cancel()
+		if d.pieceDownloadRate != nil {
+			d.pieceDownloadRate.Reset()
+		}
+		d.moveMu.Lock()
+		d.moveCancel = nil
+		d.moveMu.Unlock()
+		if !finished {
+			d.finishMove(originalState)
+		}
+	}()
+
+	if err := d.store.Move(ctx, target, d.updateMoveProgress); err != nil {
+		return err
 	}
 
 	d.s.mu.Lock()
 	d.s.basePath = target
+	d.s.downloadDir = target
 	d.s.mu.Unlock()
-
-	if _, err := d.transition(originalState); err != nil {
-		d.log.Error().Err(err).Msg("failed to restore state after move")
-	}
-
-	return nil
-}
-
-func (d *Download) move(ctx context.Context, target string, originalBasePath string, selectedFilesSet *bm.Bitmap) error {
-	for index := range d.info.Files {
-		if !selectedFilesSet.Contains(uint32(index)) {
-			continue
-		}
-		err := d.moveFile(ctx, target, originalBasePath, uint32(index))
-		if err != nil {
-			return err
-		}
-	}
-
-	for _, file := range d.info.Files {
-		if err := os.Remove(filepath.Join(originalBasePath, file.Path)); err != nil {
-			d.log.Warn().Err(err).Str("path", file.Path).Msg("failed to remove old file after move")
-		}
-	}
-
-	if err := pruneEmptyDir(originalBasePath); err != nil {
-		d.log.Warn().Err(err).Str("path", originalBasePath).Msg("failed to prune empty dir after move")
-	}
+	d.finishMove(originalState)
+	finished = true
+	d.saveResume()
 
 	return nil
 }
 
-func (d *Download) moveFile(ctx context.Context, target string, originalBasePath string, index uint32) error {
-	file := d.info.Files[index]
-
-	targetPath := filepath.Join(target, file.Path)
-	sourcePath := filepath.Join(originalBasePath, file.Path)
-
-	err := os.MkdirAll(filepath.Dir(targetPath), os.ModePerm)
-	if err != nil {
-		return err
+func (d *Download) CancelMove() {
+	d.moveMu.RLock()
+	cancel := d.moveCancel
+	d.moveMu.RUnlock()
+	if cancel != nil {
+		cancel()
 	}
+}
 
-	d.pieceDownloadRate.Reset()
-	defer d.pieceDownloadRate.Reset()
+type MoveStatus struct {
+	Progress piece_store.MoveProgress
+	Rate     int64
+	Active   bool
+}
 
-	return gfs.SmartCopy(ctx, sourcePath, targetPath, d.pieceDownloadRate)
+func (d *Download) MoveStatus() MoveStatus {
+	d.moveMu.RLock()
+	progress := d.moveProgress
+	active := d.moveCancel != nil
+	d.moveMu.RUnlock()
+	status := MoveStatus{
+		Progress: progress,
+		Active:   active,
+	}
+	if d.pieceDownloadRate != nil {
+		status.Rate = d.pieceDownloadRate.Status().CurRate
+	}
+	return status
+}
+
+func (d *Download) updateMoveProgress(progress piece_store.MoveProgress) {
+	d.moveMu.Lock()
+	delta := progress.BytesCopied - d.moveProgress.BytesCopied
+	d.moveProgress = progress
+	d.moveMu.Unlock()
+	if delta > 0 && d.pieceDownloadRate != nil {
+		d.pieceDownloadRate.Update(int(delta))
+	}
+}
+
+func (d *Download) finishMove(originalState State) {
+	d.transitionMu.Lock()
+	if State(d.state.Load()) == Moving {
+		d.commitStateTransition(Moving, originalState)
+	}
+	d.transitionMu.Unlock()
+	d.stateCond.Broadcast()
 }
 
 // PruneEmptyDirectories removes empty parent directories after the given path.

@@ -236,3 +236,85 @@ func TestExpiredIdleFileIsClosedBeforeReplacement(t *testing.T) {
 
 	replacement.Release()
 }
+
+func TestInvalidatePathsInvalidatesAllVariants(t *testing.T) {
+	pool := New()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "data")
+	otherPath := filepath.Join(dir, "other")
+
+	readWrite, _, err := pool.Open(path, os.O_RDWR|os.O_CREATE, 0600, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	readWrite.Release()
+
+	readOnly, _, err := pool.Open(path, os.O_RDONLY, 0, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	readOnly.Release()
+
+	other, _, err := pool.Open(otherPath, os.O_RDWR|os.O_CREATE, 0600, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.Close()
+	other.Release()
+
+	pool.InvalidatePaths([]string{path})
+
+	_, err = readWrite.File.Stat()
+	if err == nil {
+		t.Fatal("read-write file descriptor remained open")
+	}
+	_, err = readOnly.File.Stat()
+	if err == nil {
+		t.Fatal("read-only file descriptor remained open")
+	}
+	_, err = other.File.Stat()
+	if err != nil {
+		t.Fatalf("unrelated file descriptor was closed: %v", err)
+	}
+
+	replacement, fresh, err := pool.Open(path, os.O_RDWR|os.O_CREATE, 0600, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer replacement.Close()
+	if !fresh {
+		t.Fatal("Open reused an invalidated file")
+	}
+	replacement.Release()
+}
+
+func TestInvalidatePathsDefersActiveFileClose(t *testing.T) {
+	pool := New()
+	path := filepath.Join(t.TempDir(), "data")
+
+	active, _, err := pool.Open(path, os.O_RDWR|os.O_CREATE, 0600, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pool.InvalidatePaths([]string{path})
+	_, err = active.File.Stat()
+	if err != nil {
+		t.Fatalf("active file descriptor was closed early: %v", err)
+	}
+
+	replacement, fresh, err := pool.Open(path, os.O_RDWR|os.O_CREATE, 0600, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer replacement.Close()
+	if !fresh || replacement == active {
+		t.Fatal("Open reused an active invalidated file")
+	}
+
+	active.Release()
+	if _, err := active.File.Stat(); err == nil {
+		t.Fatal("active file descriptor remained open after Release")
+	}
+	replacement.Release()
+}
