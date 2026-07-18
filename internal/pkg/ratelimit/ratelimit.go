@@ -118,6 +118,16 @@ func (l *Limiter) Wait(ctx context.Context, n int) error {
 	// when multiple peers share a limiter.
 	// Each sleep cycle is capped at maxSleep so that dynamic rate changes via
 	// Update() are noticed promptly.
+	//
+	// A single timer is reused across sleep cycles to avoid allocating a new
+	// runtime timer on every iteration while the limiter stays throttled.
+	var timer *time.Timer
+	defer func() {
+		if timer != nil {
+			timer.Stop()
+		}
+	}()
+
 	for {
 		r := float64(l.rate.Load())
 		if r <= 0 {
@@ -134,10 +144,16 @@ func (l *Limiter) Wait(ctx context.Context, n int) error {
 
 		l.mu.Unlock()
 
-		timer := time.NewTimer(waitTime)
+		if timer == nil {
+			timer = time.NewTimer(waitTime)
+		} else {
+			// Safe: Reset is only reached after the previous expiration
+			// was received from timer.C in the select below.
+			timer.Reset(waitTime)
+		}
+
 		select {
 		case <-ctx.Done():
-			timer.Stop()
 			// Restore tokens that were reserved but never used.
 			l.mu.Lock()
 			l.tokens += float64(n)
