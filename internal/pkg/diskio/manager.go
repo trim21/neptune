@@ -1,8 +1,6 @@
 // Copyright 2026 trim21 <trim21.me@gmail.com>
 // SPDX-License-Identifier: GPL-3.0-only
 
-//go:build linux
-
 package diskio
 
 import (
@@ -110,7 +108,8 @@ type metrics struct {
 }
 
 func newMetrics() metrics {
-	labels := []string{"device", "device_class", "operation"}
+	labels := make([]string, 0, 4)
+	labels = append(labels, "device", "device_class", "operation")
 	return metrics{
 		queuedOps: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "neptune_disk_io_queued_operations",
@@ -352,7 +351,8 @@ func (q *Queue) enqueue(ctx context.Context, j job) error {
 func (q *Queue) run() {
 	for j := range q.jobs {
 		weight := min(max(j.bytes, 1), q.byteLimit)
-		labels := []string{q.device, q.devClass, j.class.String()}
+		labels := make([]string, 0, 4)
+		labels = append(labels, q.device, q.devClass, j.class.String())
 		q.metrics.queuedOps.WithLabelValues(labels...).Dec()
 		q.metrics.queuedBytes.WithLabelValues(labels...).Sub(float64(j.bytes))
 		q.metrics.wait.WithLabelValues(labels...).Observe(time.Since(j.enqueued).Seconds())

@@ -28,7 +28,7 @@ func discoverPathLinux(path string) (deviceInfo, bool) {
 	for {
 		err := unix.Stat(path, &stat)
 		if err == nil {
-			id := DeviceID{Major: unix.Major(uint64(stat.Dev)), Minor: unix.Minor(uint64(stat.Dev))}
+			id := DeviceID{Major: unix.Major(stat.Dev), Minor: unix.Minor(stat.Dev)}
 			return deviceInfo{id: id, class: classifyLinuxDevice(id)}, true
 		}
 		if !errors.Is(err, unix.ENOENT) {
@@ -79,11 +79,11 @@ func parseDeviceID(value string) (DeviceID, bool) {
 	if err != nil {
 		return DeviceID{}, false
 	}
-	min, err := strconv.ParseUint(minor, 10, 32)
+	minVal, err := strconv.ParseUint(minor, 10, 32)
 	if err != nil {
 		return DeviceID{}, false
 	}
-	return DeviceID{Major: uint32(maj), Minor: uint32(min)}, true
+	return DeviceID{Major: uint32(maj), Minor: uint32(minVal)}, true
 }
 
 func classifyLinuxDevice(id DeviceID) DeviceClass {
