@@ -13,7 +13,7 @@ import (
 	"neptune/internal/piece_store"
 )
 
-func (d *Download) Move(target string) error {
+func (d *Download) RequestMove(target string) error {
 	transition, err := d.transition(Moving)
 	if err != nil {
 		return err

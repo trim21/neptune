@@ -37,7 +37,7 @@ func TestMoveFailureRestoresStateAndReturnsError(t *testing.T) {
 		}
 	})
 
-	err := d.Move(t.TempDir())
+	err := d.RequestMove(t.TempDir())
 	require.ErrorIs(t, err, errMoveTest)
 	require.Equal(t, Downloading, d.GetState())
 	require.Empty(t, d.ErrorMsg())
@@ -60,7 +60,7 @@ func TestStopCancelsMoveAndKeepsStoppedState(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- d.Move(t.TempDir())
+		done <- d.RequestMove(t.TempDir())
 	}()
 	<-started
 	require.NoError(t, d.Stop())

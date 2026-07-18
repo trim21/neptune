@@ -58,5 +58,5 @@ func (c *Client) ScheduleMove(ih metainfo.Hash, targetBasePath string) error {
 	if !ok {
 		return download.ErrTorrentNotFound
 	}
-	return d.Move(targetBasePath)
+	return d.RequestMove(targetBasePath)
 }
