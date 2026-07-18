@@ -13,8 +13,8 @@ import (
 	"neptune/internal/metainfo"
 )
 
-func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath string, tags []string, custom map[string]string, selectedFiles []int) *Download {
-	d := download.New(c.session, m, info, basePath, tags, custom, selectedFiles)
+func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath string, tags []string, custom map[string]string, selectedFiles []int, initResult download.DataInitResult) *Download {
+	d := download.New(c.session, m, info, basePath, tags, custom, selectedFiles, initResult)
 
 	// Apply the client-level default piece pick strategy, which may differ
 	// from the config file value if the user changed it via RPC.
@@ -47,7 +47,7 @@ func (c *Client) UnmarshalResume(data []byte, totalDownloads int) error {
 	keys := hashesToBytes(c.infoHashes)
 	c.mseKeys.Store(&keys)
 
-	d.Init(true, true)
+	d.Init(0) // stagger already done by caller
 	return nil
 }
 

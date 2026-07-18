@@ -707,9 +707,7 @@ func (d *Download) runHashCheck(afterSeeding func()) {
 			return
 		}
 
-		d.completed.Store(d.computeCompletedUnsafe())
 		allDone := d.isComplete()
-		d.pieceDownloadRate.Reset()
 
 		if allDone {
 			if _, err := d.transition(Seeding); err != nil {

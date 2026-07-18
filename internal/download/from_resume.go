@@ -20,7 +20,11 @@ import (
 )
 
 // ResumeFromData constructs a Download from saved resume data.
-// The returned Download has NOT been Init()-ed yet — the caller must call d.Init and add to Client's map.
+// The returned Download has been fully data-initialized:
+// - completedBm is restored from the resume bitfield and validated against disk
+// - state is Stopped / Downloading / Seeding
+// - runtime stats (downloaded, uploaded, etc.) are restored
+// Call Init() to start background goroutines.
 func ResumeFromData(sess *session.Session, data []byte) (*Download, error) {
 	var r resume
 	if err := bencode.Unmarshal(data, &r); err != nil {
@@ -53,7 +57,47 @@ func ResumeFromData(sess *session.Session, data []byte) (*Download, error) {
 		}
 	}
 
-	d := New(sess, m, info, r.BasePath, r.Tags, r.Custom, r.SelectedFiles)
+	// Build completedBm from resume bitfield, then validate against disk.
+	completedBm := bm.FromBitfields(r.Bitfield, info.NumPieces)
+
+	// Build selected bitmap for validateResumeBitfield.
+	selected := bm.New(uint32(len(info.Files)))
+	selected.Fill()
+	if len(r.SelectedFiles) > 0 && len(r.SelectedFiles) < len(info.Files) {
+		selected.Clear()
+		for _, idx := range r.SelectedFiles {
+			selected.Set(uint32(idx))
+		}
+	}
+
+	invalidBytes, err := validateResumeBitfield(info, r.BasePath, selected, completedBm)
+	if err != nil {
+		return nil, err
+	}
+
+	// Compute completed bytes from the validated bitmap.
+	wantedBm := buildWantedBm(info, selected)
+	completed := computeCompleted(info, completedBm, selected)
+
+	// Determine initial state.
+	initState := Downloading
+	resumeStopped := r.State == ResumeStopped
+	if completedBm.WithAnd(wantedBm).Count() == wantedBm.Count() {
+		initState = Seeding
+	}
+
+	initResult := DataInitResult{
+		CompletedBm:  completedBm,
+		Completed:    completed,
+		InitialState: initState,
+	}
+
+	d := New(sess, m, info, r.BasePath, r.Tags, r.Custom, r.SelectedFiles, initResult)
+
+	// ResumeStopped overrides to Stopped after construction.
+	if resumeStopped {
+		d.state.Store(uint32(Stopped))
+	}
 
 	if r.TrackerKey != "" {
 		d.tracker.Key = r.TrackerKey
@@ -61,21 +105,8 @@ func ResumeFromData(sess *session.Session, data []byte) (*Download, error) {
 		d.tracker.Key = random.URLSafeStr(16)
 	}
 
-	// OR into the bitmap rather than replacing the pointer,
-	// so PiecePicker's reference to completedBm stays valid.
-	d.completedBm.OR(bm.FromBitfields(r.Bitfield, d.info.NumPieces))
-	d.setMissingFromWantedSync()
-	d.completed.Store(d.computeCompletedUnsafe())
-	// Restore state from resume data. ResumeStopped maps to Stopped;
-	// anything else (including historical raw State values from old resume
-	// files) is treated as active.
-	if r.State == ResumeStopped {
-		d.state.Store(uint32(Stopped))
-	} else if d.isComplete() {
-		d.state.Store(uint32(Seeding))
-	} else {
-		d.state.Store(uint32(Downloading))
-	}
+	_ = invalidBytes // validated but not persisted to resume; log if needed
+
 	d.AddAt = r.AddAt.Time
 	d.completedAt.Store(r.CompletedAt.UnixNano())
 
@@ -90,7 +121,6 @@ func ResumeFromData(sess *session.Session, data []byte) (*Download, error) {
 	d.uploadLimiter.Update(r.UploadSpeedLimit)
 
 	// Restore piece pick strategy from resume.
-	// Clamp unknown values to rarest-first.
 	s := r.PiecePickStrategy
 	if s > 1 {
 		s = 0

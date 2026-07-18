@@ -4,6 +4,7 @@
 package download
 
 import (
+	"context"
 	"crypto/sha1"
 	"fmt"
 	"io"
@@ -16,6 +17,8 @@ import (
 	"github.com/juju/ratelimit"
 	"github.com/trim21/errgo"
 
+	"neptune/internal/meta"
+	"neptune/internal/pkg/bm"
 	"neptune/internal/pkg/fadvise"
 	"neptune/internal/pkg/global"
 )
@@ -25,44 +28,48 @@ type existingFile struct {
 	size  int64
 }
 
-func (d *Download) initCheck() error {
-	d.log.Debug().Msg("initCheck")
+// DataInitResult carries the data-plane initialization result.
+// All fields are required. Ownership of CompletedBm transfers to Download.
+type DataInitResult struct {
+	CompletedBm  *bm.Bitmap
+	Completed    int64
+	InitialState State // Downloading or Seeding (not Stopped)
+}
 
-	if err := os.MkdirAll(d.s.basePath, os.ModePerm); err != nil {
-		return err
+// CheckExistingFiles pre-allocates files, hash-checks existing data, and
+// returns a bitmap of verified pieces. selectedFilesSet determines which
+// files are considered for the download.
+func CheckExistingFiles(ctx context.Context, info meta.Info, basePath string, selected *bm.Bitmap, fallocate bool) (*bm.Bitmap, error) {
+	if err := os.MkdirAll(basePath, os.ModePerm); err != nil {
+		return nil, err
 	}
 
-	d.log.Debug().Msg("try pre alloc")
-	var efs = make(map[int]*existingFile, len(d.info.Files)+1)
-	for i, tf := range d.info.Files {
-		p := tf.Path
-		f, e := tryAllocFile(i, filepath.Join(d.s.basePath, p), tf.Length, d.session.Config.App.Fallocate, d.isFileSelected(i))
+	var efs = make(map[int]*existingFile, len(info.Files)+1)
+	for i, tf := range info.Files {
+		f, e := tryAllocFile(i, filepath.Join(basePath, tf.Path), tf.Length, fallocate, selected.Contains(uint32(i)))
 		if e != nil {
-			return e
+			return nil, e
 		}
 		if f != nil {
 			efs[i] = f
 		}
 	}
 
-	h := d.buildPieceToCheck(efs)
+	h := buildPieceToCheck(info, efs)
 	if len(h) == 0 {
-		return nil
+		return bm.New(info.NumPieces), nil
 	}
 
-	d.log.Debug().Msg("start checking")
-
+	completedBm := bm.New(info.NumPieces)
 	sum := sha1.New()
 
 	var w io.Writer = sum
-
 	if global.Dev {
 		bucket := ratelimit.NewBucketWithQuantum(time.Second/10, units.MiB*100, units.MiB*100)
 		w = ratelimit.Writer(sum, bucket)
 	}
 
 	var sha1Sum = make([]byte, sha1.Size)
-
 	var buf [256 * 1024]byte
 	var currentFile *os.File
 	var currentFileIndex = -1
@@ -74,20 +81,20 @@ func (d *Download) initCheck() error {
 	}()
 
 	for _, pieceIndex := range h {
-		if d.ctx.Err() != nil {
-			return d.ctx.Err()
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
 		}
 
-		for chunk := range d.info.PieceFileChunks(pieceIndex) {
+		for chunk := range info.PieceFileChunks(pieceIndex) {
 			if chunk.FileIndex != currentFileIndex {
 				if currentFile != nil {
 					currentFile.Close()
 					currentFile = nil
 				}
-				p := filepath.Join(d.s.basePath, d.info.Files[chunk.FileIndex].Path)
+				p := filepath.Join(basePath, info.Files[chunk.FileIndex].Path)
 				f, err := os.OpenFile(p, os.O_RDONLY, 0)
 				if err != nil {
-					return errgo.Wrap(err, fmt.Sprintf("failed to open file %q", p))
+					return nil, errgo.Wrap(err, fmt.Sprintf("failed to open file %q", p))
 				}
 				_ = fadvise.Sequential(f, 0, 0)
 				currentFile = f
@@ -97,16 +104,15 @@ func (d *Download) initCheck() error {
 			remaining := chunk.Length
 			off := chunk.OffsetOfFile
 			for remaining > 0 {
-				if err := d.ctx.Err(); err != nil {
-					return err
+				if err := ctx.Err(); err != nil {
+					return nil, err
 				}
 
 				toRead := min(remaining, int64(len(buf)))
 				n, err := currentFile.ReadAt(buf[:toRead], off)
 				if n > 0 {
-					d.pieceDownloadRate.Update(n)
 					if _, werr := w.Write(buf[:n]); werr != nil {
-						return errgo.Wrap(werr, "failed to hash data")
+						return nil, errgo.Wrap(werr, "failed to hash data")
 					}
 					off += int64(n)
 					remaining -= int64(n)
@@ -115,33 +121,31 @@ func (d *Download) initCheck() error {
 					if err == io.EOF && remaining == 0 {
 						break
 					}
-					return errgo.Wrap(err, "failed to read file "+currentFile.Name())
+					return nil, errgo.Wrap(err, "failed to read file "+currentFile.Name())
 				}
 			}
 		}
 		sha1Sum = sum.Sum(sha1Sum[:0])
-		if [sha1.Size]byte(sha1Sum[:sha1.Size]) == d.info.Pieces[pieceIndex] {
-			d.completedBm.Set(pieceIndex)
-			d.missingBm.Unset(pieceIndex)
-			d.completed.Add(d.info.PieceLen(pieceIndex))
+		if [sha1.Size]byte(sha1Sum[:sha1.Size]) == info.Pieces[pieceIndex] {
+			completedBm.Set(pieceIndex)
 		}
 
 		sum.Reset()
 	}
 
-	return nil
+	return completedBm, nil
 }
 
-func (d *Download) buildPieceToCheck(efs map[int]*existingFile) []uint32 {
+func buildPieceToCheck(info meta.Info, efs map[int]*existingFile) []uint32 {
 	if len(efs) == 0 {
 		return nil
 	}
 
-	var r = make([]uint32, 0, d.info.NumPieces)
+	var r = make([]uint32, 0, info.NumPieces)
 
-	for i := range d.info.NumPieces {
+	for i := range info.NumPieces {
 		shouldCheck := true
-		for chunk := range d.info.PieceFileChunks(i) {
+		for chunk := range info.PieceFileChunks(i) {
 			ef, ok := efs[chunk.FileIndex]
 			if !ok || chunk.OffsetOfFile > ef.size || chunk.OffsetOfFile+chunk.Length > ef.size {
 				shouldCheck = false
@@ -157,34 +161,34 @@ func (d *Download) buildPieceToCheck(efs map[int]*existingFile) []uint32 {
 	return r
 }
 
-// validateResume checks that pieces marked complete in completedBm still have
-// their backing files on disk. Pieces whose file data is missing or truncated
-// are cleared from the bitmap.
-func (d *Download) validateResume() error {
-	var efs = make(map[int]*existingFile, len(d.info.Files)+1)
-	for i, tf := range d.info.Files {
-		if !d.isFileSelected(i) {
+// validateResumeBitfield checks that pieces marked in completedBm still have
+// their files on disk. Pieces whose data is missing or truncated are cleared.
+// Returns the adjusted completed byte count.
+func validateResumeBitfield(info meta.Info, basePath string, selected *bm.Bitmap, completedBm *bm.Bitmap) (invalidBytes int64, err error) {
+	var efs = make(map[int]*existingFile, len(info.Files)+1)
+	for i, tf := range info.Files {
+		if !selected.Contains(uint32(i)) {
 			continue
 		}
-		p := filepath.Join(d.s.basePath, tf.Path)
+		p := filepath.Join(basePath, tf.Path)
 		stat, err := os.Stat(p)
 		if err != nil {
 			if os.IsNotExist(err) {
 				continue
 			}
-			return errgo.Wrap(err, fmt.Sprintf("failed to stat %q", tf.Path))
+			return 0, errgo.Wrap(err, fmt.Sprintf("failed to stat %q", tf.Path))
 		}
 		if stat.Size() > 0 {
 			efs[i] = &existingFile{index: i, size: stat.Size()}
 		}
 	}
 
-	for i := range d.info.NumPieces {
-		if !d.completedBm.Contains(i) {
+	for i := range info.NumPieces {
+		if !completedBm.Contains(i) {
 			continue
 		}
 		valid := true
-		for chunk := range d.info.PieceFileChunks(i) {
+		for chunk := range info.PieceFileChunks(i) {
 			ef, ok := efs[chunk.FileIndex]
 			if !ok || chunk.OffsetOfFile+chunk.Length > ef.size {
 				valid = false
@@ -192,12 +196,11 @@ func (d *Download) validateResume() error {
 			}
 		}
 		if !valid {
-			d.completedBm.Unset(i)
-			d.missingBm.Set(i)
-			d.completed.Add(-d.info.PieceLen(i))
+			completedBm.Unset(i)
+			invalidBytes += info.PieceLen(i)
 		}
 	}
-	return nil
+	return invalidBytes, nil
 }
 
 func tryAllocFile(index int, path string, size int64, doAlloc bool, selected bool) (*existingFile, error) {
@@ -241,17 +244,14 @@ func tryAllocFile(index int, path string, size int64, doAlloc bool, selected boo
 	return ef, nil
 }
 
-// verifyFileSizes checks that all selected files exist with matching sizes.
-// No SHA-1 piece verification is performed. Bitmap is not modified.
-func (d *Download) verifyFileSizes() error {
-	d.log.Debug().Msg("verifyFileSizes")
-
-	for i, tf := range d.info.Files {
-		if !d.isFileSelected(i) {
+// verifyFileSizesStandalone checks that all selected files exist with matching sizes.
+func verifyFileSizesStandalone(info meta.Info, basePath string, selected *bm.Bitmap) error {
+	for i, tf := range info.Files {
+		if !selected.Contains(uint32(i)) {
 			continue
 		}
 
-		p := filepath.Join(d.s.basePath, tf.Path)
+		p := filepath.Join(basePath, tf.Path)
 		stat, err := os.Stat(p)
 		if err != nil {
 			if os.IsNotExist(err) {
@@ -264,49 +264,129 @@ func (d *Download) verifyFileSizes() error {
 			return fmt.Errorf("file %q size mismatch: expected %d, got %d", tf.Path, tf.Length, stat.Size())
 		}
 	}
-
 	return nil
 }
 
-func (d *Download) checkNew(skipHashCheck bool) {
-	d.log.Debug().Msg("initializing download")
-	d.state.Store(uint32(Checking))
+// NewTorrentDataResult performs data-plane initialization for a brand new torrent:
+// file pre-allocation, optional hash check, and bitmap construction.
+func NewTorrentDataResult(ctx context.Context, info meta.Info, basePath string, selected *bm.Bitmap, fallocate bool, skipHashCheck bool) (DataInitResult, error) {
+	var completedBm *bm.Bitmap
 
 	if skipHashCheck {
-		if err := d.verifyFileSizes(); err != nil {
-			d.setError(err)
-			d.log.Err(err).Msg("file size verification failed")
-			return
+		if err := verifyFileSizesStandalone(info, basePath, selected); err != nil {
+			return DataInitResult{}, err
 		}
-		d.completedBm.Fill()
-		d.missingBm.Clear()
+		completedBm = bm.New(info.NumPieces)
+		completedBm.Fill()
 	} else {
-		if err := d.initCheck(); err != nil {
-			d.setError(err)
-			d.log.Err(err).Msg("failed to initCheck torrent data")
-			return
+		var err error
+		completedBm, err = CheckExistingFiles(ctx, info, basePath, selected, fallocate)
+		if err != nil {
+			return DataInitResult{}, err
 		}
 	}
 
+	completed := computeCompleted(info, completedBm, selected)
+
+	state := Downloading
+	if isInfoComplete(info, completedBm, selected) {
+		state = Seeding
+	}
+
+	return DataInitResult{
+		CompletedBm:  completedBm,
+		Completed:    completed,
+		InitialState: state,
+	}, nil
+}
+
+// isInfoComplete returns true if all wanted pieces are in completedBm.
+func isInfoComplete(info meta.Info, completedBm *bm.Bitmap, selected *bm.Bitmap) bool {
+	if selected.Count() == uint32(len(info.Files)) {
+		return completedBm.Count() == info.NumPieces
+	}
+	for i := range info.NumPieces {
+		for chunk := range info.PieceFileChunks(i) {
+			if selected.Contains(uint32(chunk.FileIndex)) {
+				if !completedBm.Contains(i) {
+					return false
+				}
+				break
+			}
+		}
+	}
+	return true
+}
+
+// computeCompleted counts total completed bytes from completedBm, restricted to
+// pieces overlapping with wantedBm. wantedBm is derived from selected.
+func computeCompleted(info meta.Info, completedBm *bm.Bitmap, selected *bm.Bitmap) int64 {
+	wantedBm := buildWantedBm(info, selected)
+	done := int64(completedBm.WithAnd(wantedBm).Count()) * info.PieceLength
+	if completedBm.Contains(info.NumPieces-1) && wantedBm.Contains(info.NumPieces-1) {
+		done = done - info.PieceLength + info.LastPieceSize
+	}
+	return done
+}
+
+// buildWantedBm builds a bitmap of pieces overlapping with selected files.
+func buildWantedBm(info meta.Info, selected *bm.Bitmap) *bm.Bitmap {
+	wanted := bm.New(info.NumPieces)
+	if selected.Count() == uint32(len(info.Files)) {
+		wanted.Fill()
+		return wanted
+	}
+	for i := range info.NumPieces {
+		for chunk := range info.PieceFileChunks(i) {
+			if selected.Contains(uint32(chunk.FileIndex)) {
+				wanted.Set(i)
+				break
+			}
+		}
+	}
+	return wanted
+}
+
+// EmptyDataResult returns a zero DataInitResult suitable for tests that
+// construct a Download directly without any on-disk data.
+func EmptyDataResult(info meta.Info) DataInitResult {
+	return DataInitResult{
+		CompletedBm:  bm.New(info.NumPieces),
+		Completed:    0,
+		InitialState: Downloading,
+	}
+}
+
+// SelectedFilesBitmap converts a list of file indices into a bitmap.
+// An empty or nil slice means all files selected.
+func SelectedFilesBitmap(info meta.Info, selectedFiles []int) *bm.Bitmap {
+	s := bm.New(uint32(len(info.Files)))
+	s.Fill()
+	if len(selectedFiles) > 0 && len(selectedFiles) < len(info.Files) {
+		s.Clear()
+		for _, idx := range selectedFiles {
+			s.Set(uint32(idx))
+		}
+	}
+	return s
+}
+
+// initCheck runs hash verification and updates completedBm in-place.
+// Used by runHashCheck for re-check after download completion.
+func (d *Download) initCheck() error {
+	completedBm, err := CheckExistingFiles(d.ctx, d.info, d.s.basePath, d.selectedFilesSet, d.session.Config.App.Fallocate)
+	if err != nil {
+		return err
+	}
+
+	// Merge verified pieces into the download's bitmap.
+	d.completedBm.OR(completedBm)
 	d.setMissingFromWantedSync()
 	d.completed.Store(d.computeCompletedUnsafe())
-	donePieces := d.completedBm.WithAnd(d.wantedBm).Count()
-	d.pieceDownloadRate.Reset()
 
+	d.pieceDownloadRate.Reset()
+	donePieces := d.completedBm.WithAnd(d.wantedBm).Count()
 	d.log.Debug().Msgf("done size %s", humanize.IBytes(uint64(donePieces)*uint64(d.info.PieceLength)))
 
-	allDone := d.isComplete()
-	if allDone {
-		d.completedAt.Store(time.Now().UnixNano())
-		if _, err := d.transition(Seeding); err != nil {
-			d.log.Error().Err(err).Msg("failed to transition state after init check")
-		}
-	} else {
-		transition, err := d.transition(Downloading)
-		if err != nil {
-			d.log.Error().Err(err).Msg("failed to transition state after init check")
-		} else if transition.changed {
-			d.fireStartedHook()
-		}
-	}
+	return nil
 }

@@ -5,6 +5,7 @@ package client
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -16,6 +17,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/rs/zerolog/log"
@@ -163,7 +165,13 @@ func (c *Client) AddTorrent(raw []byte, m *metainfo.MetaInfo, info meta.Info, do
 		return errgo.Wrap(err, "failed to save torrent to disk")
 	}
 
-	d := c.NewDownload(m, info, downloadPath, tags, custom, selectedFiles)
+	// Data-plane init: pre-allocate files, hash-check if not skipped.
+	initResult, err := download.NewTorrentDataResult(context.Background(), info, downloadPath, download.SelectedFilesBitmap(info, selectedFiles), c.session.Config.App.Fallocate, skipHashCheck)
+	if err != nil {
+		return errgo.Wrap(err, "failed to initialize torrent data")
+	}
+
+	d := c.NewDownload(m, info, downloadPath, tags, custom, selectedFiles, initResult)
 
 	c.m.Lock()
 	defer c.m.Unlock()
@@ -172,9 +180,7 @@ func (c *Client) AddTorrent(raw []byte, m *metainfo.MetaInfo, info meta.Info, do
 		return fmt.Errorf("torrent %s exists", info.Hash)
 	}
 
-	// Start Init before making the download visible in downloadMap,
-	// so that no other goroutine can access d before Init begins.
-	go d.Init(false, skipHashCheck)
+	d.Init(60 * time.Second)
 
 	c.downloads = append(c.downloads, d)
 

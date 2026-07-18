@@ -98,17 +98,16 @@ func (d *Download) AsyncCheck() error {
 	return nil
 }
 
-// Init check existing files.
-func (d *Download) Init(resumed bool, skipHashCheck bool) {
-	if resumed {
-		if err := d.validateResume(); err != nil {
-			d.setError(err)
-			d.log.Err(err).Msg("resume validation failed")
-		}
-	} else {
-		d.checkNew(skipHashCheck)
-	}
-
+// Init starts the download runtime: creates the piece picker, launches
+// background goroutines, announces to trackers, and saves the initial resume.
+// Data-plane initialization (hash check, resume validation) is done
+// before calling New() — the Download already has a valid completedBm,
+// missingBm, and state.
+//
+// If staggerDuration > 0, tracker announces are staggered within a random
+// window up to staggerDuration BEFORE the first announce. Pass 0 when the
+// caller has already staggered via TrkStagger (e.g., resume path).
+func (d *Download) Init(staggerDuration time.Duration) {
 	// Now that completedBm and missingBm are finalized, create the picker
 	// from the correct state — no WeHave patching needed.
 	if d.isComplete() {
@@ -126,8 +125,8 @@ func (d *Download) Init(resumed bool, skipHashCheck bool) {
 	go d.startBackground()
 	d.goBackground(d.tracker.Run)
 
-	if !resumed {
-		d.TrkStagger(60 * time.Second)
+	if staggerDuration > 0 {
+		d.TrkStagger(staggerDuration)
 	}
 
 	d.tracker.Announce(tracker.EventStarted)

@@ -35,8 +35,10 @@ func defaultStrategy(cfg string) PiecePickStrategy {
 	return s
 }
 
-// New creates a new Download.
-func New(sess *session.Session, m *metainfo.MetaInfo, info meta.Info, basePath string, tags []string, custom map[string]string, selectedFiles []int) *Download {
+// New creates a new Download from a DataInitResult.
+// The returned Download has a valid state (no temporary 0-state) and a correct
+// completed/missing bitmap. Call Init() to start background goroutines.
+func New(sess *session.Session, m *metainfo.MetaInfo, info meta.Info, basePath string, tags []string, custom map[string]string, selectedFiles []int, initResult DataInitResult) *Download {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	if tags == nil {
@@ -47,7 +49,6 @@ func New(sess *session.Session, m *metainfo.MetaInfo, info meta.Info, basePath s
 		custom = make(map[string]string)
 	}
 
-	completedBm := bm.New(info.NumPieces)
 	normalChunkLen := info.BlocksPerPiece()
 
 	// selectedFilesSet: all bits set means all files selected.
@@ -116,7 +117,10 @@ func New(sess *session.Session, m *metainfo.MetaInfo, info meta.Info, basePath s
 		peersCh: make(chan []tracker.DiscoveredPeer, 1),
 	}
 
-	d.completedBm = completedBm
+	d.completedBm = initResult.CompletedBm
+	d.completed.Store(initResult.Completed)
+	d.state.Store(uint32(initResult.InitialState))
+
 	d.wantedBm = bm.New(info.NumPieces)
 	d.buildWantedBmUnsafe()
 	d.selectedSize.Store(d.computeSelectedSizeUnsafe())
