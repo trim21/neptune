@@ -418,9 +418,14 @@ func (c *Client) RemoveTorrent(h metainfo.Hash, removeData bool) error {
 			err = multierr.Append(err, e)
 		}
 
-		if err != nil {
-			err = multierr.Append(err, download.PruneEmptyDirectories(basePath))
+		torrentFile := d.TorrentFilePath()
+		log.Info().Stringer("hash", h).Str("torrent_file", torrentFile).Msg("torrent.remove: deleting torrent file")
+		e := os.Remove(torrentFile)
+		if !os.IsNotExist(e) {
+			err = multierr.Append(err, e)
 		}
+
+		err = multierr.Append(err, download.PruneEmptyDirectories(basePath))
 	}
 
 	if err != nil {

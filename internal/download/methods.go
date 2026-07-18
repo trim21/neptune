@@ -5,6 +5,7 @@ package download
 
 import (
 	"maps"
+	"path/filepath"
 	"slices"
 
 	"neptune/internal/metainfo"
@@ -95,6 +96,12 @@ func (d *Download) InfoHashHex() string {
 // InfoHashBytes returns the torrent info hash as a byte slice.
 func (d *Download) InfoHashBytes() []byte {
 	return d.info.Hash[:]
+}
+
+// TorrentFilePath returns the path to the .torrent file.
+func (d *Download) TorrentFilePath() string {
+	h := d.info.Hash.Hex()
+	return filepath.Join(d.session.TorrentPath, h[:2], h[2:4], h+".torrent")
 }
 
 // InfoHash returns the torrent info hash.
