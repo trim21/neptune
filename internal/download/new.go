@@ -5,6 +5,8 @@ package download
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/netip"
 	"time"
 
@@ -35,8 +37,87 @@ func defaultStrategy(cfg string) PiecePickStrategy {
 	return s
 }
 
-// New creates a new Download.
-func New(sess *session.Session, m *metainfo.MetaInfo, info meta.Info, basePath string, tags []string, custom map[string]string, selectedFiles []int) *Download {
+// InitState describes the validated state used to construct a Download.
+type InitState struct {
+	CompletedPieces   *bm.Bitmap
+	resume            *resumeInitState
+	TrackerStagger    time.Duration
+	PiecePickStrategy PiecePickStrategy
+	State             State
+	SkipHashCheck     bool
+}
+
+type resumeInitState struct {
+	addAt              time.Time
+	completedAt        time.Time
+	trackerKey         string
+	trackers           metainfo.AnnounceList
+	downloaded         int64
+	uploaded           int64
+	corrupted          int64
+	downloadSpeedLimit int64
+	uploadSpeedLimit   int64
+	queueWeight        int64
+}
+
+func newSelectedFilesSet(numFiles int, selectedFiles []int) (*bm.Bitmap, error) {
+	selectedFilesSet := bm.New(uint32(numFiles))
+	if len(selectedFiles) == 0 {
+		selectedFilesSet.Fill()
+		return selectedFilesSet, nil
+	}
+	for _, idx := range selectedFiles {
+		if idx < 0 || idx >= numFiles {
+			return nil, fmt.Errorf("invalid selected file index %d", idx)
+		}
+		selectedFilesSet.Set(uint32(idx))
+	}
+	return selectedFilesSet, nil
+}
+
+func (d *Download) initializePiecePicker() {
+	if d.isComplete() {
+		d.picker.Store(nil)
+		return
+	}
+
+	d.picker.Store(NewPiecePicker(
+		d.info,
+		d.missingBm,
+		nil,
+		&d.piecePickStrategy,
+		NewRequestGate(&d.state, uint32(Downloading)),
+	))
+}
+
+// New constructs a usable Download and owns all initialization goroutines.
+func New(
+	sess *session.Session,
+	m *metainfo.MetaInfo,
+	info meta.Info,
+	basePath string,
+	tags []string,
+	custom map[string]string,
+	selectedFiles []int,
+	init InitState,
+) (*Download, error) {
+	selectedFilesSet, err := newSelectedFilesSet(len(info.Files), selectedFiles)
+	if err != nil {
+		return nil, err
+	}
+	return newDownload(sess, m, info, basePath, tags, custom, selectedFilesSet, init)
+}
+
+func newDownload(
+	sess *session.Session,
+	m *metainfo.MetaInfo,
+	info meta.Info,
+	basePath string,
+	tags []string,
+	custom map[string]string,
+	selectedFilesSet *bm.Bitmap,
+	init InitState,
+) (*Download, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	if tags == nil {
@@ -48,18 +129,10 @@ func New(sess *session.Session, m *metainfo.MetaInfo, info meta.Info, basePath s
 	}
 
 	completedBm := bm.New(info.NumPieces)
-	normalChunkLen := info.BlocksPerPiece()
-
-	// selectedFilesSet: all bits set means all files selected.
-	// When only a subset is selected, clear and set specific bits.
-	selectedFilesSet := bm.New(uint32(len(info.Files)))
-	selectedFilesSet.Fill()
-	if len(selectedFiles) > 0 && len(selectedFiles) < len(info.Files) {
-		selectedFilesSet.Clear()
-		for _, idx := range selectedFiles {
-			selectedFilesSet.Set(uint32(idx))
-		}
+	if init.CompletedPieces != nil {
+		completedBm.OR(init.CompletedPieces)
 	}
+	normalChunkLen := info.BlocksPerPiece()
 
 	store := piece_store.NewFileStore(info, basePath, sess.FilePool, sess.IOContext, selectedFilesSet, sess.Config.App.Fallocate)
 
@@ -130,13 +203,44 @@ func New(sess *session.Session, m *metainfo.MetaInfo, info meta.Info, basePath s
 	})
 	d.missingBm = missingBm
 
-	strategy := defaultStrategy(sess.Config.App.PiecePickStrategy)
-	d.piecePickStrategy.Store(uint32(strategy))
+	if init.PiecePickStrategy > StrategySequential {
+		cancel()
+		return nil, fmt.Errorf("invalid piece pick strategy %d", init.PiecePickStrategy)
+	}
+	d.piecePickStrategy.Store(uint32(init.PiecePickStrategy))
+	d.completed.Store(d.computeCompletedUnsafe())
+	d.state.Store(uint32(init.State))
+
+	trackerKey := random.URLSafeStr(16)
+	announceList := m.UpvertedAnnounceList()
+	if restored := init.resume; restored != nil {
+		d.AddAt = restored.addAt
+		d.completedAt.Store(restored.completedAt.UnixNano())
+		d.queueWeight.Store(restored.queueWeight)
+		d.downloaded.Store(restored.downloaded)
+		d.downloadAtStart = restored.downloaded
+		d.uploaded.Store(restored.uploaded)
+		d.uploadAtStart = restored.uploaded
+		d.corrupted.Store(restored.corrupted)
+		d.downloadLimiter.Update(restored.downloadSpeedLimit)
+		d.uploadLimiter.Update(restored.uploadSpeedLimit)
+		if restored.trackerKey != "" {
+			trackerKey = restored.trackerKey
+		}
+		if len(restored.trackers) > 0 {
+			announceList = restored.trackers
+		}
+	}
+
+	if err := validateInitState(init.State, d.isComplete(), d.completedBm.Count()); err != nil {
+		cancel()
+		return nil, err
+	}
 
 	d.peerList.d = d
 
 	d.tracker = tracker.New(d.ctx, tracker.Config{
-		Key:             random.URLSafeStr(16),
+		Key:             trackerKey,
 		HTTP:            sess.HTTP,
 		Log:             d.log,
 		InfoHash:        info.Hash.AsString(),
@@ -154,8 +258,42 @@ func New(sess *session.Session, m *metainfo.MetaInfo, info meta.Info, basePath s
 	})
 
 	d.stateCond = gsync.NewCond(&gsync.EmptyLock{})
+	d.setAnnounceList(announceList)
+	if init.TrackerStagger > 0 {
+		d.TrkStagger(init.TrackerStagger)
+	}
 
-	d.setAnnounceList(m.UpvertedAnnounceList())
+	if init.State == Checking {
+		d.goBackground(func() {
+			d.checkNew(init.SkipHashCheck)
+			d.initializePiecePicker()
+			d.startRuntime()
+		})
+	} else {
+		d.initializePiecePicker()
+		d.startRuntime()
+	}
 
-	return d
+	return d, nil
+}
+
+func validateInitState(state State, complete bool, completedPieces uint32) error {
+	switch state {
+	case Checking:
+		if completedPieces != 0 {
+			return errors.New("checking download cannot start with completed pieces")
+		}
+	case Downloading:
+		if complete {
+			return errors.New("downloading download must have missing pieces")
+		}
+	case Seeding:
+		if !complete {
+			return errors.New("seeding download cannot have missing pieces")
+		}
+	case Stopped:
+	default:
+		return fmt.Errorf("invalid initial download state %s", state)
+	}
+	return nil
 }

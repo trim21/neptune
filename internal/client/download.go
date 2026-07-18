@@ -13,31 +13,28 @@ import (
 	"neptune/internal/metainfo"
 )
 
-func (c *Client) NewDownload(m *metainfo.MetaInfo, info meta.Info, basePath string, tags []string, custom map[string]string, selectedFiles []int) *Download {
-	d := download.New(c.session, m, info, basePath, tags, custom, selectedFiles)
-
-	// Apply the client-level default piece pick strategy, which may differ
-	// from the config file value if the user changed it via RPC.
-	strategy := download.PiecePickStrategy(c.piecePickStrategy.Load())
-	d.SetPiecePickStrategy(strategy)
-
-	return d
+func (c *Client) NewDownload(
+	m *metainfo.MetaInfo,
+	info meta.Info,
+	basePath string,
+	tags []string,
+	custom map[string]string,
+	selectedFiles []int,
+	skipHashCheck bool,
+) (*Download, error) {
+	return download.New(c.session, m, info, basePath, tags, custom, selectedFiles, download.InitState{
+		State:             download.Checking,
+		PiecePickStrategy: download.PiecePickStrategy(c.piecePickStrategy.Load()),
+		SkipHashCheck:     skipHashCheck,
+		TrackerStagger:    60 * time.Second,
+	})
 }
 
 func (c *Client) UnmarshalResume(data []byte, totalDownloads int) error {
-	d, err := download.ResumeFromData(c.session, data)
+	d, err := download.LoadFromResume(c.session, data, time.Duration(totalDownloads)*time.Second)
 	if err != nil {
 		return err
 	}
-	// Stagger announces across the session to avoid all torrents
-	// announcing simultaneously on restart. Downloading torrents
-	// get a shorter window (60s) for timely reconnect; seeding/stopped
-	// torrents spread across the full session count.
-	maxDelay := time.Duration(totalDownloads) * time.Second
-	if d.IsDownloading() {
-		maxDelay = min(maxDelay, 60*time.Second)
-	}
-	d.TrkStagger(maxDelay)
 
 	c.m.Lock()
 	defer c.m.Unlock()
@@ -47,7 +44,6 @@ func (c *Client) UnmarshalResume(data []byte, totalDownloads int) error {
 	keys := hashesToBytes(c.infoHashes)
 	c.mseKeys.Store(&keys)
 
-	d.Init(true, true)
 	return nil
 }
 

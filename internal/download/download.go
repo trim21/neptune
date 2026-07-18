@@ -708,6 +708,7 @@ func (d *Download) runHashCheck(afterSeeding func()) {
 		}
 
 		d.completed.Store(d.computeCompletedUnsafe())
+		d.initializePiecePicker()
 		allDone := d.isComplete()
 		d.pieceDownloadRate.Reset()
 

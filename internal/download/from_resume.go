@@ -15,16 +15,17 @@ import (
 	"neptune/internal/meta"
 	"neptune/internal/metainfo"
 	"neptune/internal/pkg/bm"
-	"neptune/internal/pkg/random"
 	"neptune/internal/session"
 )
 
-// ResumeFromData constructs a Download from saved resume data.
-// The returned Download has NOT been Init()-ed yet — the caller must call d.Init and add to Client's map.
-func ResumeFromData(sess *session.Session, data []byte) (*Download, error) {
+// LoadFromResume validates saved state and returns a fully initialized Download.
+func LoadFromResume(sess *session.Session, data []byte, trackerStagger time.Duration) (*Download, error) {
 	var r resume
 	if err := bencode.Unmarshal(data, &r); err != nil {
 		return nil, errgo.Wrap(err, "failed to decode resume data")
+	}
+	if len(r.InfoHash) != 40 {
+		return nil, fmt.Errorf("invalid resume info hash %q", r.InfoHash)
 	}
 
 	tPath := filepath.Join(sess.TorrentPath, r.InfoHash[:2], r.InfoHash[2:4], r.InfoHash+".torrent")
@@ -40,54 +41,40 @@ func ResumeFromData(sess *session.Session, data []byte) (*Download, error) {
 	if err != nil {
 		return nil, errgo.Wrap(err, "failed to decode torrent data")
 	}
+	if info.Hash.Hex() != r.InfoHash {
+		return nil, fmt.Errorf("resume info hash %s does not match torrent %s", r.InfoHash, info.Hash.Hex())
+	}
 
 	// Restore persisted file paths to survive truncation algorithm changes.
 	if len(r.FilePaths) == len(info.Files) {
 		meta.RestoreFilePaths(info.Files, r.FilePaths)
 	}
 
-	if r.SelectedFiles == nil {
-		r.SelectedFiles = make([]int, len(info.Files))
-		for i := range info.Files {
-			r.SelectedFiles[i] = i
+	for _, fileIndex := range r.SelectedFiles {
+		if fileIndex < 0 || fileIndex >= len(info.Files) {
+			return nil, fmt.Errorf("invalid selected file index %d", fileIndex)
 		}
 	}
-
-	d := New(sess, m, info, r.BasePath, r.Tags, r.Custom, r.SelectedFiles)
-
-	if r.TrackerKey != "" {
-		d.tracker.Key = r.TrackerKey
-	} else {
-		d.tracker.Key = random.URLSafeStr(16)
+	selectedFilesSet, err := newSelectedFilesSet(len(info.Files), r.SelectedFiles)
+	if err != nil {
+		return nil, err
+	}
+	completedBm := bm.FromBitfields(r.Bitfield, info.NumPieces)
+	if _, err := validateResumeBitfield(info, r.BasePath, selectedFilesSet, completedBm); err != nil {
+		return nil, err
 	}
 
-	// OR into the bitmap rather than replacing the pointer,
-	// so PiecePicker's reference to completedBm stays valid.
-	d.completedBm.OR(bm.FromBitfields(r.Bitfield, d.info.NumPieces))
-	d.setMissingFromWantedSync()
-	d.completed.Store(d.computeCompletedUnsafe())
-	// Restore state from resume data. ResumeStopped maps to Stopped;
-	// anything else (including historical raw State values from old resume
-	// files) is treated as active.
+	wantedBm := buildWantedBm(info, selectedFilesSet)
+	complete := wantedBm.WithAndNot(completedBm).Count() == 0
+	state := Downloading
 	if r.State == ResumeStopped {
-		d.state.Store(uint32(Stopped))
-	} else if d.isComplete() {
-		d.state.Store(uint32(Seeding))
-	} else {
-		d.state.Store(uint32(Downloading))
+		state = Stopped
+	} else if complete {
+		state = Seeding
 	}
-	d.AddAt = r.AddAt.Time
-	d.completedAt.Store(r.CompletedAt.UnixNano())
-
-	d.queueWeight.Store(r.QueueWeight)
-
-	d.downloaded.Store(r.Downloaded)
-	d.downloadAtStart = r.Downloaded
-	d.uploaded.Store(r.Uploaded)
-	d.corrupted.Store(r.Corrupted)
-	d.uploadAtStart = r.Uploaded
-	d.downloadLimiter.Update(r.DownloadSpeedLimit)
-	d.uploadLimiter.Update(r.UploadSpeedLimit)
+	if state == Downloading {
+		trackerStagger = min(trackerStagger, 60*time.Second)
+	}
 
 	// Restore piece pick strategy from resume.
 	// Clamp unknown values to rarest-first.
@@ -95,9 +82,81 @@ func ResumeFromData(sess *session.Session, data []byte) (*Download, error) {
 	if s > 1 {
 		s = 0
 	}
-	d.piecePickStrategy.Store(s)
 
-	return d, nil
+	return New(sess, m, info, r.BasePath, r.Tags, r.Custom, r.SelectedFiles, InitState{
+		CompletedPieces:   completedBm,
+		State:             state,
+		PiecePickStrategy: PiecePickStrategy(s),
+		TrackerStagger:    trackerStagger,
+		resume: &resumeInitState{
+			addAt:              r.AddAt.Time,
+			completedAt:        r.CompletedAt.Time,
+			trackers:           metainfo.AnnounceList(r.Trackers),
+			trackerKey:         r.TrackerKey,
+			downloaded:         r.Downloaded,
+			uploaded:           r.Uploaded,
+			corrupted:          r.Corrupted,
+			downloadSpeedLimit: r.DownloadSpeedLimit,
+			uploadSpeedLimit:   r.UploadSpeedLimit,
+			queueWeight:        r.QueueWeight,
+		},
+	})
+}
+
+// buildWantedBm builds a bitmap of pieces overlapping with selected files.
+func buildWantedBm(info meta.Info, selectedFilesSet *bm.Bitmap) *bm.Bitmap {
+	wantedBm := bm.New(info.NumPieces)
+	if selectedFilesSet.Count() == uint32(len(info.Files)) {
+		wantedBm.Fill()
+		return wantedBm
+	}
+	for pieceIndex := range info.NumPieces {
+		for chunk := range info.PieceFileChunks(pieceIndex) {
+			if selectedFilesSet.Contains(uint32(chunk.FileIndex)) {
+				wantedBm.Set(pieceIndex)
+				break
+			}
+		}
+	}
+	return wantedBm
+}
+
+// validateResumeBitfield checks that pieces marked in completedBm still have
+// their backing files on disk. Pieces whose file data is missing or truncated
+// are cleared from the bitmap. Returns the total byte count of invalidated pieces.
+func validateResumeBitfield(info meta.Info, basePath string, selectedFilesSet *bm.Bitmap, completedBm *bm.Bitmap) (invalidBytes int64, err error) {
+	fileSizes := make(map[int]int64, len(info.Files)+1)
+	for i, tf := range info.Files {
+		if !selectedFilesSet.Contains(uint32(i)) {
+			continue
+		}
+		p := filepath.Join(basePath, tf.Path)
+		stat, err := os.Stat(p)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return 0, errgo.Wrap(err, fmt.Sprintf("failed to stat %q", tf.Path))
+		}
+		if stat.Size() > 0 {
+			fileSizes[i] = stat.Size()
+		}
+	}
+
+	for i := range info.NumPieces {
+		if !completedBm.Contains(i) {
+			continue
+		}
+		for chunk := range info.PieceFileChunks(i) {
+			fileSize, ok := fileSizes[chunk.FileIndex]
+			if !ok || chunk.OffsetOfFile+chunk.Length > fileSize {
+				completedBm.Unset(i)
+				invalidBytes += info.PieceLen(i)
+				break
+			}
+		}
+	}
+	return invalidBytes, nil
 }
 
 // TrkStagger calls Stagger on the download's tracker set.
