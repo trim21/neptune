@@ -30,9 +30,7 @@ func (d *Download) RequestMove(target string) error {
 	ctx, cancel := context.WithCancel(d.ctx)
 	d.moveCancelMu.Lock()
 	d.moveCancel = cancel
-	if d.pieceDownloadRate != nil {
-		d.pieceDownloadRate.Reset()
-	}
+	d.pieceDownloadRate.Reset()
 	d.moveCancelMu.Unlock()
 	if d.GetState() != Moving {
 		cancel()
@@ -40,9 +38,7 @@ func (d *Download) RequestMove(target string) error {
 	finished := false
 	defer func() {
 		cancel()
-		if d.pieceDownloadRate != nil {
-			d.pieceDownloadRate.Reset()
-		}
+		d.pieceDownloadRate.Reset()
 		d.moveCancelMu.Lock()
 		d.moveCancel = nil
 		d.moveCancelMu.Unlock()
@@ -55,7 +51,7 @@ func (d *Download) RequestMove(target string) error {
 	report := func(progress piece_store.MoveProgress) {
 		delta := progress.BytesCopied - copiedBytes
 		copiedBytes = progress.BytesCopied
-		if delta > 0 && d.pieceDownloadRate != nil {
+		if delta > 0 {
 			d.pieceDownloadRate.Update(int(delta))
 		}
 	}

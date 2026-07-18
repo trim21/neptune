@@ -171,7 +171,7 @@ type Download struct {
 	connectedAddrs         *xsync.Map[netip.AddrPort, Peer]
 	picker                 atomic.Pointer[PiecePicker]
 	session                *session.Session
-	pieceDownloadRate      *flowrate.Monitor
+	pieceDownloadRate      *flowrate.Monitor // non-nil for the Download lifetime
 	ioDownloadRate         *flowrate.Monitor
 	pieceUploadRate        *flowrate.Monitor
 	resChan                chan chunkSubmit
