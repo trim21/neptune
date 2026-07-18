@@ -25,6 +25,30 @@ func TestPeerID(t *testing.T) {
 	require.Len(t, peerIDPrefix, 8)
 }
 
+func TestShouldRefillRequestPipeline(t *testing.T) {
+	tests := []struct {
+		name    string
+		desired int
+		pending int
+		want    bool
+	}{
+		{name: "empty startup probe", desired: 2, pending: 0, want: true},
+		{name: "small pipeline missing one", desired: 2, pending: 1, want: true},
+		{name: "small pipeline full", desired: 2, pending: 2, want: false},
+		{name: "large pipeline above half", desired: 8, pending: 5, want: false},
+		{name: "large pipeline at half", desired: 8, pending: 4, want: false},
+		{name: "large pipeline below half", desired: 8, pending: 3, want: true},
+		{name: "large pipeline empty", desired: 8, pending: 0, want: true},
+		{name: "pipeline over target", desired: 8, pending: 9, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, shouldRefillRequestPipeline(tt.desired, tt.pending))
+		})
+	}
+}
+
 func TestPeerResponseSendsOnceAndCountsOnce(t *testing.T) {
 	c1, c2 := net.Pipe()
 	defer c1.Close()

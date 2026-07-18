@@ -260,13 +260,25 @@ func (m *mockPeer) requestABlock() {
 	if d == nil || m.closed.Load() || !d.IsActiveDownloading() {
 		return
 	}
+	desired := m.DesiredQueueSize()
+	outstanding := m.OutstandingRequests()
+	queued := m.QueueLen()
+	if queued > 0 && outstanding < desired {
+		m.SendBlockRequests()
+		outstanding = m.OutstandingRequests()
+		queued = m.QueueLen()
+	}
+	pending := outstanding + queued
+	if !shouldRefillRequestPipeline(desired, pending) {
+		return
+	}
 
 	claims := d.picker.Load().PickAndClaim(m.lastClaims, PickRequest{
 		Bitfield:      m.PeerBitmap(),
 		AllowedFast:   m.FastBitmap(),
 		BlockedPieces: m.blockedPieces,
 		PeerID:        m.peerID,
-		NumBlocks:     m.DesiredQueueSize() - m.OutstandingRequests() - m.QueueLen(),
+		NumBlocks:     desired - pending,
 		Choked:        m.IsChoking(),
 		OnParole:      m.onParole.Load(),
 	})

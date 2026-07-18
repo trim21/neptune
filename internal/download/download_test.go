@@ -96,9 +96,9 @@ func TestRequestABlock_QueueFull(t *testing.T) {
 	require.Equal(t, 0, p.sendBlockCalled)
 }
 
-func TestRequestABlock_QueueFullWithQueued(t *testing.T) {
+func TestRequestABlock_FlushesQueuedBlocksBeforePicking(t *testing.T) {
 	_, p := newRequestABlockFixture(t, 5)
-	// desiredSize=8, outstanding=4, queued=4 → numRequests=0
+	// Existing queued claims fill the four available wire-request slots.
 	p.setDesiredSize(8)
 	p.setOutstanding(4)
 	p.queued = []BlockClaim{
@@ -108,7 +108,10 @@ func TestRequestABlock_QueueFullWithQueued(t *testing.T) {
 	p.requestABlock()
 
 	require.Empty(t, p.enqueuedBlocks, "full queue should not enqueue more")
-	require.Equal(t, 0, p.sendBlockCalled)
+	require.Equal(t, 1, p.sendBlockCalled)
+	require.Len(t, p.requestsSent, 4)
+	require.Equal(t, 8, p.OutstandingRequests())
+	require.Zero(t, p.QueueLen())
 }
 
 func TestRequestABlock_IsInQueueSkipsDuplicates(t *testing.T) {
@@ -220,25 +223,30 @@ func TestRequestABlock_AllPiecesCompleted(t *testing.T) {
 	require.Equal(t, 0, p.sendBlockCalled)
 }
 
-func TestRequestABlock_HasPartialCapacity(t *testing.T) {
+func TestRequestABlock_RefillsBelowHalf(t *testing.T) {
 	// First call: startup mode returns 1 block (adds piece to downloadingPieces).
-	// Second call: partial pieces path returns all remaining free blocks.
+	// Later calls wait at the low watermark, then refill once below it.
 	_, p := newRequestABlockFixture(t, 5)
 	p.setDesiredSize(8)
-	p.setOutstanding(3) // numRequests = 8 - 3 - 0 = 5
+	p.setOutstanding(3)
 
 	// First call — startup mode, 1 block
 	p.requestABlock()
 	require.Len(t, p.enqueuedBlocks, 1, "startup mode returns exactly 1 block")
 
-	// Prepare for second call: simulate that the startup block was sent.
-	p.setOutstanding(3 + 1) // startup block now outstanding
-
-	// Second call — partial pieces path, fills remaining capacity
+	// At exactly half full, the scheduler waits for a larger refill batch.
+	p.setOutstanding(4)
 	p.requestABlock()
-	// Should have enqueued additional blocks up to capacity.
-	require.GreaterOrEqual(t, len(p.enqueuedBlocks), 2,
-		"should enqueue additional blocks on second call")
+	require.Len(t, p.enqueuedBlocks, 1, "half-full pipeline should not trigger a pick")
+
+	// Below half, the partial-pieces path fills the pipeline back to desired.
+	p.setOutstanding(3)
+	enqueuedBefore := len(p.enqueuedBlocks)
+	p.requestABlock()
+	require.Equal(t, 5, len(p.enqueuedBlocks)-enqueuedBefore,
+		"pipeline below half should pick the full deficit")
+	require.Equal(t, 8, p.OutstandingRequests(),
+		"refill batch should restore the desired pipeline size")
 }
 
 func TestRequestABlock_ChokedWithFastPieces(t *testing.T) {

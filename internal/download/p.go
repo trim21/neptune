@@ -489,8 +489,18 @@ func (p *peerImpl) requestABlockOnce() {
 	desired := p.DesiredQueueSize()
 	outstanding := p.OutstandingRequests()
 	queued := p.QueueLen()
+	if queued > 0 && outstanding < desired {
+		p.SendBlockRequests()
+		desired = p.DesiredQueueSize()
+		outstanding = p.OutstandingRequests()
+		queued = p.QueueLen()
+	}
+	pending := outstanding + queued
+	if !shouldRefillRequestPipeline(desired, pending) {
+		return
+	}
 
-	numRequests := desired - outstanding - queued
+	numRequests := desired - pending
 	claims := picker.PickAndClaim(p.lastClaims, PickRequest{
 		Bitfield:      p.PeerBitmap(),
 		AllowedFast:   p.FastBitmap(),
@@ -517,6 +527,19 @@ func (p *peerImpl) requestABlockOnce() {
 	}
 	p.SetLastPickDebug(fmt.Sprintf("claimed=%d enqueued=%d", len(claims), enqueued))
 	p.SendBlockRequests()
+}
+
+// shouldRefillRequestPipeline batches picker work for established fast peers.
+// Small pipelines refill every missing slot; larger pipelines refill only
+// after their sent and queued requests fall below half of the desired size.
+func shouldRefillRequestPipeline(desired, pending int) bool {
+	if pending >= desired {
+		return false
+	}
+	if desired <= minRequestQueue {
+		return true
+	}
+	return pending*2 < desired
 }
 
 // enqueueClaim consumes claim: it either stores it in requestQueue or releases
