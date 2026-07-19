@@ -1,12 +1,3 @@
-merge_queue:
-  max_parallel_checks: 1
-  queued_label: "ci:queued"
-  dequeued_label: "ci:dequeued"
-
-queue_rules:
-  - name: renovate
-    update_method: merge
-
 pull_request_rules:
   - name: label conflicts
     conditions:
@@ -15,25 +6,3 @@ pull_request_rules:
       label:
         toggle:
           - conflict
-
-  - name: Automatic merge on approval
-    conditions:
-      - or:
-          - "#approved-reviews-by>=1"
-          - label=ci:auto-merge
-      - not:
-          and:
-            - "head*=renovate/lockfile-maintenance-*"
-            - "created-at>24h ago"
-      - base=master
-      - check-success=check
-      - check-success=test-pass
-      - check-success=license
-      - check-success=lint
-      - check-success=dprint
-      - check-success=binary
-      - check-success-or-neutral=typescript-sdk
-      - check-success-or-neutral=python-sdk
-    actions:
-      queue:
-        name: renovate
