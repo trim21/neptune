@@ -119,7 +119,7 @@ jobs:
       - uses: trim21/actions/setup-go@master
         with:
           cache-namespace: fuzz
-      - run: go test -race -fuzz=. -fuzztime=30s ./internal/piece_picker/
+      - run: go test -race -fuzz=. -fuzztime=35s ./internal/piece_picker/
 
   license:
     runs-on: ubuntu-latest
