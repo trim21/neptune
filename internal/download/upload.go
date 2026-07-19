@@ -272,7 +272,7 @@ func (d *Download) backgroundReqHandler() {
 	for {
 		select {
 		case <-d.ctx.Done():
-			d.log.Info().Msg("backgroundReqHandler: exiting (ctx canceled)")
+			d.log.Debug().Msg("backgroundReqHandler: exiting (ctx canceled)")
 			return
 		case <-d.scheduleResponseSignal:
 			if !d.IsActive() {

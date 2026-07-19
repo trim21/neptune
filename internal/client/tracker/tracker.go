@@ -492,7 +492,7 @@ func (t *Trackers) announceToAll(event AnnounceEvent) {
 }
 
 func (t *Trackers) loop() {
-	defer t.log.Info().Msg("tracker loop: exiting")
+	defer t.log.Debug().Msg("tracker loop: exiting")
 
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
