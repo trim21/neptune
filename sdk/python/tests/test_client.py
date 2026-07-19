@@ -16,7 +16,8 @@ from neptune_sdk import (
     TorrentState,
 )
 
-BASE = "http://127.0.0.1:8002/json_rpc"
+BASE_URL = "http://127.0.0.1:8002"
+RPC_URL = f"{BASE_URL}/json_rpc"
 TOKEN = "test-token"
 
 # ── helpers ───────────────────────────────────────────────────────────
@@ -67,13 +68,13 @@ TORRENT_JSON = {
 
 @pytest.fixture()
 def mock_api():
-    with respx.mock(base_url=BASE) as rspx:
+    with respx.mock(base_url=BASE_URL) as rspx:
         yield rspx
 
 
 @pytest.fixture()
 def client():
-    with NeptuneClient(BASE, token=TOKEN) as c:
+    with NeptuneClient(RPC_URL, token=TOKEN) as c:
         yield c
 
 
