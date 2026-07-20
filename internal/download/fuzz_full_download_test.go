@@ -12,6 +12,7 @@ import (
 	"math/rand/v2"
 	"net"
 	"net/netip"
+	"sync"
 	"testing"
 	"time"
 
@@ -40,7 +41,12 @@ func FuzzFullDownload(f *testing.F) {
 		go d.backgroundResHandler()
 
 		done := make(chan struct{})
-		defer close(done)
+		var remoteWG sync.WaitGroup
+		defer func() {
+			close(done)
+			d.CloseAllPeers()
+			remoteWG.Wait()
+		}()
 		remoteErrors := make(chan error, 8)
 
 		// Keep one complete, reliable seed so random disconnects and rejects do
@@ -67,8 +73,9 @@ func FuzzFullDownload(f *testing.F) {
 			addr := netip.AddrPortFrom(netip.MustParseAddr("127.0.0.1"), uint16(30000+i))
 			remote, _ := pipePeer(d, addr, pieces, peerID, peerRNG)
 
-			cfg := remoteConfig{maxLatency: time.Duration(rng.Uint64()%4) * time.Millisecond}
+			var cfg remoteConfig
 			if i != 0 {
+				cfg.maxLatency = time.Duration(rng.Uint64()%4) * time.Millisecond
 				if rng.Uint64()%2 == 0 {
 					cfg.disconnectAfterRequests = uint32(rng.Uint64()%12) + 1
 				}
@@ -81,18 +88,21 @@ func FuzzFullDownload(f *testing.F) {
 				}
 			}
 
-			go func() {
+			remoteWG.Go(func() {
 				if err := remote.Run(cfg, done, d.info.PieceLength); !expectedRemoteClose(err) {
 					select {
 					case remoteErrors <- err:
 					case <-done:
 					}
 				}
-			}()
+			})
 		}
 
-		deadline := time.NewTimer(10 * time.Second)
-		tick := time.NewTicker(100 * time.Millisecond)
+		// Go's fuzz coordinator gives a worker one second to finish its current
+		// input when -fuzztime expires. Keep every input below that limit so a
+		// normal fuzz shutdown cannot be reported as context.DeadlineExceeded.
+		deadline := time.NewTimer(750 * time.Millisecond)
+		tick := time.NewTicker(10 * time.Millisecond)
 		defer deadline.Stop()
 		defer tick.Stop()
 
@@ -103,6 +113,9 @@ func FuzzFullDownload(f *testing.F) {
 			case err := <-remoteErrors:
 				t.Fatalf("seed=%d: remote peer failed: %v", seed, err)
 			case <-deadline.C:
+				if d.completedBm.Count() == numPieces {
+					return
+				}
 				t.Fatalf("seed=%d: deadline: %s", seed, wireDownloadState(d, numPieces))
 			case <-tick.C:
 				count := d.completedBm.Count()
@@ -114,7 +127,7 @@ func FuzzFullDownload(f *testing.F) {
 					stallStart = time.Now()
 					continue
 				}
-				if time.Since(stallStart) > 6*time.Second {
+				if time.Since(stallStart) > 500*time.Millisecond {
 					t.Fatalf("seed=%d: stalled: %s", seed, wireDownloadState(d, numPieces))
 				}
 			}
