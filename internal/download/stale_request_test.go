@@ -47,67 +47,55 @@ func FuzzStaleRequest(f *testing.F) {
 			return
 		}
 
-		stop := make(chan struct{})
-		defer close(stop)
-
-		// Concurrent closer races continuously with picker-to-peer ownership
-		// transfers.
+		// Concurrent closer races with picker-to-peer ownership transfers. One
+		// pass is sufficient because this test does not add peers afterward.
+		closerDone := make(chan struct{})
 		go func() {
+			defer close(closerDone)
 			time.Sleep(500 * time.Microsecond)
-			ticker := time.NewTicker(500 * time.Microsecond)
-			defer ticker.Stop()
-			for range ticker.C {
-				select {
-				case <-stop:
-					return
-				default:
-				}
-				d.peers.Range(func(_ uint64, p Peer) bool {
-					if !p.Closed() {
-						p.Close()
-					}
-					return true
-				})
-			}
+			d.peers.Range(func(_ uint64, p Peer) bool {
+				p.Close()
+				return true
+			})
 		}()
 
-		// Request loop runs faster than the closer to maximize contention.
-		deadline := time.After(3 * time.Second)
-		ticker := time.NewTicker(100 * time.Microsecond)
-		defer ticker.Stop()
-
+		// Keep scheduling until Close has synchronously consumed every claim it
+		// can see. A racing requestABlock call completes before this loop exits
+		// and must consume or release every claim it picked.
 	loop:
 		for {
 			select {
-			case <-deadline:
+			case <-closerDone:
 				break loop
-			case <-ticker.C:
-				if d.completedBm.Count() == numPieces {
-					break loop
-				}
-				d.peers.Range(func(_ uint64, p Peer) bool {
-					if !p.Closed() {
-						p.(*mockPeer).requestABlock()
-					}
-					return true
-				})
+			default:
 			}
+
+			d.peers.Range(func(_ uint64, p Peer) bool {
+				if !p.Closed() {
+					p.(*mockPeer).requestABlock()
+				}
+				return true
+			})
 		}
 
+		// Close is idempotent and synchronous. This final pass covers peers that
+		// were skipped by a racing map traversal. Calling requestABlock afterward
+		// waits on reqMu for any scheduler call that passed its initial Closed
+		// check before Close; once it returns, no such call can retain a claim.
 		d.peers.Range(func(_ uint64, p Peer) bool {
 			p.Close()
+			p.(*mockPeer).requestABlock()
 			return true
 		})
-		time.Sleep(50 * time.Millisecond)
 
 		pp := d.picker.Load()
 		if pp == nil {
 			return
 		}
-		qs := pp.DebugStats().DownloadQueue
-		if qs != 0 {
-			t.Errorf("stale request: downloadQueueSize=%d after all peers closed, seed=%d",
-				qs, seed)
+		stats := pp.DebugStats()
+		if stats.DownloadQueue != 0 || stats.RequestedBlocks != 0 || stats.ActiveClaims != 0 {
+			t.Errorf("stale request after all peers closed: queue=%d requested=%d claims=%d seed=%d",
+				stats.DownloadQueue, stats.RequestedBlocks, stats.ActiveClaims, seed)
 		}
 	})
 }
