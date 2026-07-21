@@ -152,8 +152,8 @@ github.com/trim21/conntrack v0.0.2 h1:w3yZKwXTdGVwUCIIebWK43hWthzhbsAGcFnfjmjXSF
 github.com/trim21/conntrack v0.0.2/go.mod h1:+WnKAYkUv87gZMdJcRjN6xEK281cuZ4QM0JRJltqvgs=
 github.com/trim21/errgo v0.0.6 h1:Qz10hGY51k5u7ADRa/jqan8VaQYKx7hAqUJ6t5m42/I=
 github.com/trim21/errgo v0.0.6/go.mod h1:8uSKeZAGc+XDaPDqcgOCduVPb2Xpb1YxqxfMK1JcLlo=
-github.com/trim21/go-bencode v0.1.0 h1:/giNabql1WQeLvGbKSxOC8ZKOOacR+06G3RAnd9fx9A=
-github.com/trim21/go-bencode v0.1.0/go.mod h1:y/C7Qr4jGQ3YvS16FoE9OMfCI/TGLRLxfBd5N+vOogw=
+github.com/trim21/go-bencode v0.1.2 h1:I6apu3kadnP5zX6z+GcBKvdp+PkeCstE71PdI2IZkUw=
+github.com/trim21/go-bencode v0.1.2/go.mod h1:y/C7Qr4jGQ3YvS16FoE9OMfCI/TGLRLxfBd5N+vOogw=
 github.com/twitchyliquid64/golang-asm v0.15.1 h1:SU5vSMR7hnwNxj24w34ZyCi/FmDZTkS4MhqMhdFk5YI=
 github.com/twitchyliquid64/golang-asm v0.15.1/go.mod h1:a1lVb/DtPvCB8fslRZhAngC2+aY1QWCk3Cedj/Gdt08=
 github.com/valyala/bytebufferpool v1.0.0 h1:GqA5TC/0021Y/b9FG4Oi9Mr3q7XYx6KllzawFIhcdPw=
