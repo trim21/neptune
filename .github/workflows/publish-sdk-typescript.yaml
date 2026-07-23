@@ -45,4 +45,4 @@ jobs:
         run: pnpm version "$(node "$GITHUB_WORKSPACE/.github/scripts/ts-sdk-dev-version.js")" --no-git-tag-version
 
       - name: Publish dev release
-        run: pnpm publish --tag dev --no-git-checks --provenance
+        run: pnpm publish --tag latest --no-git-checks --provenance

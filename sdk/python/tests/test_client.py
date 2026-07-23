@@ -11,8 +11,10 @@ import respx
 
 from neptune_sdk import (
     AddTorrentRequest,
+    MainDataTorrent,
     NeptuneClient,
     NeptuneRPCError,
+    TorrentFile,
     TorrentState,
 )
 
@@ -107,6 +109,7 @@ def test_torrent_list(mock_api, client):
     mock_api.post("/json_rpc").mock(return_value=_ok({"torrents": [TORRENT_JSON]}))
     result = client.torrent_list()
     assert len(result.torrents) == 1
+    assert isinstance(result.torrents[0], MainDataTorrent)
     assert result.torrents[0].hash == "aabb"
     assert result.torrents[0].name == "test"
 
@@ -131,7 +134,7 @@ def test_torrent_files(mock_api, client):
                     {
                         "path": ["dir", "file.txt"],
                         "index": 0,
-                        "progress": 0.5,
+                        "progress": 0,
                         "size": 1024,
                     }
                 ]
@@ -140,8 +143,10 @@ def test_torrent_files(mock_api, client):
     )
     result = client.torrent_files("aabb")
     assert len(result.files) == 1
+    assert isinstance(result.files[0], TorrentFile)
     assert result.files[0].path == ["dir", "file.txt"]
-    assert result.files[0].progress == 0.5
+    assert result.files[0].progress == 0.0
+    assert isinstance(result.files[0].progress, float)
 
 
 def test_torrent_peers(mock_api, client):

@@ -10,7 +10,7 @@ from functools import cache
 from typing import Any, TypeVar
 
 import httpx
-from pydantic import TypeAdapter
+from serde import coerce, deserialize, from_dict
 
 from .exceptions import NeptuneConnectionError, NeptuneRPCError
 from .models import (
@@ -58,12 +58,13 @@ def _json_default(obj: Any) -> Any:
 
 
 @cache
-def _adapter(cls: type[T]) -> TypeAdapter[T]:
-    return TypeAdapter(cls)
+def _deserializer(cls: type[T]) -> type[T]:
+    deserialize(cls, type_check=coerce)
+    return cls
 
 
 def _validate(cls: type[T], data: Any) -> T:
-    return _adapter(cls).validate_python(data)
+    return from_dict(_deserializer(cls), data, deserialize_numbers=float)
 
 
 class NeptuneClient:
