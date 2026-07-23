@@ -4,7 +4,7 @@ on:
   push:
     paths:
       - "sdk/typescript/**"
-      - ".github/workflows/publish-sdk-typescript.yml"
+      - ".github/workflows/publish-sdk-typescript.yaml"
     branches:
       - master
 
