@@ -19,4 +19,4 @@ try {
 const range = tag ? `${tag}..HEAD` : 'HEAD';
 const distance = execSync(`git rev-list --count ${range}`, { encoding: 'utf-8' }).trim();
 
-console.log(distance === '0' ? pkg.version : `${pkg.version}-dev.${distance}`);
+console.log(distance === '0' ? pkg.version : `${pkg.version}-alpha.${distance}`);

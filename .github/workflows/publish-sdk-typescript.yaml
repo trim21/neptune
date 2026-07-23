@@ -5,6 +5,7 @@ on:
     paths:
       - "sdk/typescript/**"
       - ".github/workflows/publish-sdk-typescript.yaml"
+      - ".github/scripts/ts-sdk-dev-version.js"
     branches:
       - master
 
