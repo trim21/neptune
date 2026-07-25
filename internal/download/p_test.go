@@ -16,7 +16,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/atomic"
 
-	"neptune/internal/pkg/empty"
 	"neptune/internal/pkg/flowrate"
 	"neptune/internal/proto"
 )
@@ -65,12 +64,13 @@ func TestPeerResponseSendsOnceAndCountsOnce(t *testing.T) {
 		log:             zerolog.New(io.Discard),
 		lastSend:        *atomic.NewInt64(time.Now().Unix()),
 		pieceUploadRate: flowrate.New(time.Second, time.Second),
-		peerRequests:    xsync.NewMap[proto.ChunkRequest, empty.Empty](),
+		peerRequests:    xsync.NewMap[proto.ChunkRequest, uploadRequestState](),
 	}
 
 	data := []byte{1, 2, 3, 4, 5, 6, 7}
 	req := proto.ChunkRequest{PieceIndex: 1, Begin: 0, Length: uint32(len(data))}
-	p.peerRequests.Store(req, empty.Empty{})
+	require.True(t, p.AddPeerRequest(req))
+	require.Equal(t, []proto.ChunkRequest{req}, p.ClaimPeerRequests(1))
 
 	ok := p.Response(&proto.ChunkResponse{PieceIndex: 1, Begin: 0, Data: data})
 	require.True(t, ok)
@@ -93,7 +93,7 @@ func TestPeerResponseNoRequestDoesNotWrite(t *testing.T) {
 		log:             zerolog.New(io.Discard),
 		lastSend:        *atomic.NewInt64(time.Now().Unix()),
 		pieceUploadRate: flowrate.New(time.Second, time.Second),
-		peerRequests:    xsync.NewMap[proto.ChunkRequest, empty.Empty](),
+		peerRequests:    xsync.NewMap[proto.ChunkRequest, uploadRequestState](),
 	}
 
 	data := []byte{9, 9, 9, 9}
@@ -109,6 +109,38 @@ func TestPeerResponseNoRequestDoesNotWrite(t *testing.T) {
 	ne, okNet := err.(net.Error)
 	require.True(t, okNet)
 	require.True(t, ne.Timeout())
+}
+
+func TestPeerUploadRequestClaimLifecycle(t *testing.T) {
+	p := &peerImpl{
+		peerRequests: xsync.NewMap[proto.ChunkRequest, uploadRequestState](),
+	}
+	req := proto.ChunkRequest{PieceIndex: 1, Begin: 0, Length: 16 * 1024}
+
+	require.True(t, p.AddPeerRequest(req))
+	require.False(t, p.AddPeerRequest(req), "duplicate request must not create another upload")
+	require.Equal(t, []proto.ChunkRequest{req}, p.ClaimPeerRequests(1))
+	require.Empty(t, p.ClaimPeerRequests(1), "claimed request must not be queued again")
+
+	require.True(t, p.RestorePeerRequest(req))
+	require.Equal(t, []proto.ChunkRequest{req}, p.ClaimPeerRequests(1))
+	p.CancelPeerRequest(req)
+	require.False(t, p.RestorePeerRequest(req), "canceled request must not be resurrected")
+}
+
+func TestPeerUploadRequestLimit(t *testing.T) {
+	p := &peerImpl{
+		peerRequests: xsync.NewMap[proto.ChunkRequest, uploadRequestState](),
+	}
+
+	for i := range maxRequestQueue {
+		req := proto.ChunkRequest{PieceIndex: uint32(i), Length: 16 * 1024}
+		require.True(t, p.AddPeerRequest(req))
+	}
+	require.False(t, p.AddPeerRequest(proto.ChunkRequest{
+		PieceIndex: maxRequestQueue,
+		Length:     16 * 1024,
+	}))
 }
 
 func TestPieceBlockQueueWrapAround(t *testing.T) {

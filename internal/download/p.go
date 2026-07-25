@@ -48,6 +48,13 @@ type trackedRequest struct {
 	claim  BlockClaim
 }
 
+type uploadRequestState uint8
+
+const (
+	uploadRequestPending uploadRequestState = iota
+	uploadRequestClaimed
+)
+
 func (q *pieceBlockQueue) Len() int {
 	return q.size
 }
@@ -194,7 +201,7 @@ func newPeer(
 
 		Rejected: xsync.NewMap[proto.ChunkRequest, empty.Empty](),
 
-		peerRequests: xsync.NewMap[proto.ChunkRequest, empty.Empty](),
+		peerRequests: xsync.NewMap[proto.ChunkRequest, uploadRequestState](),
 
 		r: bufio.NewReaderSize(d.ioDownloadRate.WrapReader(conn), units.KiB*64),
 		w: bufio.NewWriterSize(conn, units.KiB*8),
@@ -243,7 +250,7 @@ type peerImpl struct {
 	lastPickDebug          atomic.Pointer[string]
 	Rejected               *xsync.Map[proto.ChunkRequest, empty.Empty]
 	allowFast              *bm.LockFreeBitmap
-	peerRequests           *xsync.Map[proto.ChunkRequest, empty.Empty]
+	peerRequests           *xsync.Map[proto.ChunkRequest, uploadRequestState]
 	pieceDownloadRate      *flowrate.Monitor
 	suspectPieces          *bm.Bitmap
 	responseCond           *gsync.Cond
@@ -281,6 +288,7 @@ type peerImpl struct {
 	rttMutex               sync.RWMutex
 	wm                     sync.Mutex
 	requestMu              sync.Mutex
+	uploadRequestMu        sync.Mutex
 	extDontHaveID          gsync.AtomicUint[proto.ExtensionMessage]
 	extPexID               gsync.AtomicUint[proto.ExtensionMessage]
 	readBuf                [4]byte
@@ -293,9 +301,16 @@ type peerImpl struct {
 }
 
 func (p *peerImpl) Response(res *proto.ChunkResponse) bool {
+	defer proto.PiecePool.Put(res)
+
 	p.hadTransfer.Store(true)
-	_, ok := p.peerRequests.LoadAndDelete(res.Request())
-	if !ok {
+	p.uploadRequestMu.Lock()
+	state, ok := p.peerRequests.Load(res.Request())
+	if ok && state == uploadRequestClaimed {
+		p.peerRequests.Delete(res.Request())
+	}
+	p.uploadRequestMu.Unlock()
+	if !ok || state != uploadRequestClaimed {
 		// Request might be canceled concurrently (Cancel) or already served.
 		return false
 	}
@@ -899,8 +914,11 @@ func (p *peerImpl) start(skipHandshake bool) {
 				break
 			}
 
-			p.peerRequests.Store(event.Req, empty.Empty{})
-			p.d.scheduleResponseSignal <- empty.Empty{}
+			if p.AddPeerRequest(event.Req) {
+				p.d.scheduleResponseSignal <- empty.Empty{}
+			} else if p.fastExtension {
+				go p.sendEventX(Event{Req: event.Req, Event: proto.Reject})
+			}
 		case proto.Extended:
 			if event.ExtensionID == proto.ExtensionHandshake {
 				p.log.Trace().Any("ext", event.ExtHandshake).Msg("receive extension handshake")
@@ -980,7 +998,7 @@ func (p *peerImpl) start(skipHandshake bool) {
 			})
 			p.Bitmap.Clear()
 		case proto.Cancel:
-			p.peerRequests.Delete(event.Req)
+			p.CancelPeerRequest(event.Req)
 		case proto.Reject:
 			p.log.Trace().Msgf("reject %+v", event.Req)
 			p.Rejected.Store(event.Req, empty.Empty{})

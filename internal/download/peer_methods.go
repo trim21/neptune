@@ -10,7 +10,6 @@ import (
 	"github.com/samber/lo"
 
 	"neptune/internal/pkg/bm"
-	"neptune/internal/pkg/empty"
 	"neptune/internal/proto"
 )
 
@@ -99,13 +98,54 @@ func (p *peerImpl) SetLastPickDebug(s string) {
 // ── Peer requests (upload side) ──────────────────────────────────────────
 
 func (p *peerImpl) PeerRequestCount() int { return p.peerRequests.Size() }
-func (p *peerImpl) ForEachPeerRequest(fn func(proto.ChunkRequest, empty.Empty) bool) {
-	p.peerRequests.Range(fn)
+
+func (p *peerImpl) AddPeerRequest(req proto.ChunkRequest) bool {
+	p.uploadRequestMu.Lock()
+	defer p.uploadRequestMu.Unlock()
+
+	if p.peerRequests.Size() >= maxRequestQueue {
+		return false
+	}
+	_, loaded := p.peerRequests.LoadOrStore(req, uploadRequestPending)
+	return !loaded
 }
-func (p *peerImpl) DeletePeerRequest(req proto.ChunkRequest) { p.peerRequests.Delete(req) }
-func (p *peerImpl) PeerRequestExists(req proto.ChunkRequest) bool {
-	_, ok := p.peerRequests.Load(req)
-	return ok
+
+func (p *peerImpl) ClaimPeerRequests(limit int) []proto.ChunkRequest {
+	if limit <= 0 {
+		return nil
+	}
+
+	p.uploadRequestMu.Lock()
+	defer p.uploadRequestMu.Unlock()
+
+	requests := make([]proto.ChunkRequest, 0, min(limit, p.peerRequests.Size()))
+	p.peerRequests.Range(func(req proto.ChunkRequest, state uploadRequestState) bool {
+		if state != uploadRequestPending {
+			return true
+		}
+		p.peerRequests.Store(req, uploadRequestClaimed)
+		requests = append(requests, req)
+		return len(requests) < limit
+	})
+	return requests
+}
+
+func (p *peerImpl) RestorePeerRequest(req proto.ChunkRequest) bool {
+	p.uploadRequestMu.Lock()
+	defer p.uploadRequestMu.Unlock()
+
+	state, ok := p.peerRequests.Load(req)
+	if !ok || state != uploadRequestClaimed {
+		return false
+	}
+	p.peerRequests.Store(req, uploadRequestPending)
+	return true
+}
+
+func (p *peerImpl) CancelPeerRequest(req proto.ChunkRequest) {
+	p.uploadRequestMu.Lock()
+	p.peerRequests.Delete(req)
+	p.uploadRequestMu.Unlock()
 }
 
 // ── Message sending ──────────────────────────────────────────────────────

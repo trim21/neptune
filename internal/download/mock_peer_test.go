@@ -14,7 +14,6 @@ import (
 
 	"neptune/internal/meta"
 	"neptune/internal/pkg/bm"
-	"neptune/internal/pkg/empty"
 	"neptune/internal/pkg/flowrate"
 	"neptune/internal/proto"
 )
@@ -40,7 +39,7 @@ type mockPeer struct {
 	suspectPieces          *bm.Bitmap
 	blockedPieceTimestamps map[uint32]time.Time
 	lastUnchokeAt          *atomic.Int64
-	peerRequests           map[proto.ChunkRequest]empty.Empty
+	peerRequests           map[proto.ChunkRequest]uploadRequestState
 	responseFunc           func(res *proto.ChunkResponse) bool
 	resChan                chan chunkSubmit
 	dl                     *Download
@@ -61,6 +60,7 @@ type mockPeer struct {
 	peerID                 uint64
 	sendBlockCalled        int
 	reqMu                  sync.Mutex
+	uploadRequestMu        sync.Mutex
 	mu                     sync.Mutex
 	queueLimit             uint32
 	desiredSize            int32
@@ -100,7 +100,7 @@ func newMockPeer() *mockPeer {
 		uploadRate:             *flowrate.New(time.Second, time.Second),
 		desiredSize:            4,
 		queueLimit:             2000,
-		peerRequests:           make(map[proto.ChunkRequest]empty.Empty),
+		peerRequests:           make(map[proto.ChunkRequest]uploadRequestState),
 		enqueuedBlocks:         make([]PieceBlock, 0),
 		requestsSent:           make([]proto.ChunkRequest, 0),
 		inQueueMap:             make(map[proto.ChunkRequest]bool),
@@ -302,22 +302,71 @@ func (m *mockPeer) requestABlock() {
 
 // ── Peer requests (upload side) ─────────────────────────────────────
 
-func (m *mockPeer) PeerRequestCount() int { return len(m.peerRequests) }
-func (m *mockPeer) ForEachPeerRequest(fn func(proto.ChunkRequest, empty.Empty) bool) {
-	for req := range m.peerRequests {
-		fn(req, empty.Empty{})
-	}
+func (m *mockPeer) PeerRequestCount() int {
+	m.uploadRequestMu.Lock()
+	defer m.uploadRequestMu.Unlock()
+	return len(m.peerRequests)
 }
-func (m *mockPeer) DeletePeerRequest(req proto.ChunkRequest) { delete(m.peerRequests, req) }
-func (m *mockPeer) PeerRequestExists(req proto.ChunkRequest) bool {
-	_, ok := m.peerRequests[req]
-	return ok
+func (m *mockPeer) AddPeerRequest(req proto.ChunkRequest) bool {
+	m.uploadRequestMu.Lock()
+	defer m.uploadRequestMu.Unlock()
+	if len(m.peerRequests) >= maxRequestQueue {
+		return false
+	}
+	if _, ok := m.peerRequests[req]; ok {
+		return false
+	}
+	m.peerRequests[req] = uploadRequestPending
+	return true
+}
+func (m *mockPeer) ClaimPeerRequests(limit int) []proto.ChunkRequest {
+	if limit <= 0 {
+		return nil
+	}
+	m.uploadRequestMu.Lock()
+	defer m.uploadRequestMu.Unlock()
+	requests := make([]proto.ChunkRequest, 0, min(limit, len(m.peerRequests)))
+	for req, state := range m.peerRequests {
+		if state != uploadRequestPending {
+			continue
+		}
+		m.peerRequests[req] = uploadRequestClaimed
+		requests = append(requests, req)
+		if len(requests) == limit {
+			break
+		}
+	}
+	return requests
+}
+func (m *mockPeer) RestorePeerRequest(req proto.ChunkRequest) bool {
+	m.uploadRequestMu.Lock()
+	defer m.uploadRequestMu.Unlock()
+	if m.peerRequests[req] != uploadRequestClaimed {
+		return false
+	}
+	m.peerRequests[req] = uploadRequestPending
+	return true
+}
+func (m *mockPeer) CancelPeerRequest(req proto.ChunkRequest) {
+	m.uploadRequestMu.Lock()
+	delete(m.peerRequests, req)
+	m.uploadRequestMu.Unlock()
 }
 func (m *mockPeer) Response(res *proto.ChunkResponse) bool {
+	defer proto.PiecePool.Put(res)
+	m.uploadRequestMu.Lock()
+	state, ok := m.peerRequests[res.Request()]
+	if ok && state == uploadRequestClaimed {
+		delete(m.peerRequests, res.Request())
+	}
+	m.uploadRequestMu.Unlock()
+	if !ok || state != uploadRequestClaimed {
+		return false
+	}
 	if m.responseFunc != nil {
 		return m.responseFunc(res)
 	}
-	return false
+	return true
 }
 
 // ── Message sending ─────────────────────────────────────────────────

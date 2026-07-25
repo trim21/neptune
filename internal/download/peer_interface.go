@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"neptune/internal/pkg/bm"
-	"neptune/internal/pkg/empty"
 	"neptune/internal/proto"
 )
 
@@ -66,9 +65,12 @@ type PeerInterface interface {
 
 	// ── Peer requests (upload side) ──────────────────────────────────
 	PeerRequestCount() int
-	ForEachPeerRequest(fn func(proto.ChunkRequest, empty.Empty) bool)
-	DeletePeerRequest(req proto.ChunkRequest)
-	PeerRequestExists(req proto.ChunkRequest) bool
+	AddPeerRequest(req proto.ChunkRequest) bool
+	ClaimPeerRequests(limit int) []proto.ChunkRequest
+	RestorePeerRequest(req proto.ChunkRequest) bool
+	CancelPeerRequest(req proto.ChunkRequest)
+	// Response takes ownership of res and returns it to PiecePool after the
+	// synchronous socket write completes (or when the request was canceled).
 	Response(res *proto.ChunkResponse) bool
 
 	// ── Message sending ──────────────────────────────────────────────

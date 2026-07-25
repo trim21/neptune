@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"neptune/internal/pkg/empty"
-	"neptune/internal/pkg/mempool"
 	"neptune/internal/proto"
 )
 
@@ -255,19 +254,13 @@ func (d *Download) onPeerInterested(p Peer) {
 // ── Upload dispatch helpers ────────────────────────────────────────────
 
 // backgroundReqHandler processes upload requests from peers.
-// It collects requests from unchoked peers, groups them by piece,
-// caches piece data to avoid redundant disk reads, and dispatches
-// to the upload pool for bounded concurrent processing.
+// It atomically claims requests from unchoked peers and dispatches request
+// metadata to the upload pool. Claimed requests cannot be queued again by a
+// later wake while their first upload is still pending.
 func (d *Download) backgroundReqHandler() {
 	defer d.log.Info().Msg("backgroundReqHandler: exiting")
-	var requestsByPiece = make(map[uint32][]uploadReq, 64)
-	var pieceOrder []struct {
-		index uint32
-		count int
-	}
 
 	const maxResponsesPerWake = 1024
-	const maxRequestsToConsiderPerWake = maxResponsesPerWake * 8
 
 	for {
 		select {
@@ -279,12 +272,10 @@ func (d *Download) backgroundReqHandler() {
 				continue
 			}
 
-			pieceOrder = pieceOrder[:0]
-			clear(requestsByPiece)
-
-			considered := 0
+			dispatched := 0
+			queueFull := false
 			d.peers.Range(func(_ uint64, p Peer) bool {
-				if considered >= maxRequestsToConsiderPerWake {
+				if dispatched >= maxResponsesPerWake || queueFull {
 					return false
 				}
 
@@ -292,169 +283,86 @@ func (d *Download) backgroundReqHandler() {
 					return true
 				}
 
-				if p.PeerRequestCount() == 0 {
-					return true
-				}
-
-				p.ForEachPeerRequest(func(key proto.ChunkRequest, _ empty.Empty) bool {
-					requestsByPiece[key.PieceIndex] = append(requestsByPiece[key.PieceIndex], uploadReq{peer: p, req: key})
-					considered++
-					return considered < maxRequestsToConsiderPerWake
-				})
-
-				return considered < maxRequestsToConsiderPerWake
-			})
-
-			if len(requestsByPiece) == 0 {
-				continue
-			}
-
-			for pieceIndex, reqs := range requestsByPiece {
-				pieceOrder = append(pieceOrder, struct {
-					index uint32
-					count int
-				}{index: pieceIndex, count: len(reqs)})
-			}
-
-			sort.SliceStable(pieceOrder, func(i, j int) bool {
-				if pieceOrder[i].count == pieceOrder[j].count {
-					return pieceOrder[i].index < pieceOrder[j].index
-				}
-				return pieceOrder[i].count > pieceOrder[j].count
-			})
-
-			responses := 0
-		pieceLoop:
-			for _, po := range pieceOrder {
-				reqs := requestsByPiece[po.index]
-				if len(reqs) > 1 {
-					if err := d.dispatchCachedPiece(po.index, reqs, &responses, maxResponsesPerWake); err != nil {
-						d.setError(err)
-					}
-				} else {
-					for _, item := range reqs {
-						if !d.dispatchUpload(item, &responses, maxResponsesPerWake) {
-							continue pieceLoop
+				requests := p.ClaimPeerRequests(maxResponsesPerWake - dispatched)
+				for i, req := range requests {
+					if !d.dispatchUpload(uploadReq{peer: p, req: req}) {
+						p.RestorePeerRequest(req)
+						for _, remaining := range requests[i+1:] {
+							p.RestorePeerRequest(remaining)
 						}
+						queueFull = true
+						return false
 					}
+					dispatched++
 				}
-				if responses >= maxResponsesPerWake {
-					break
-				}
+				return dispatched < maxResponsesPerWake
+			})
+
+			if dispatched >= maxResponsesPerWake {
+				d.signalUploadScheduler()
 			}
 		}
 	}
 }
 
-func (d *Download) processUpload(peer Peer, req proto.ChunkRequest, data []byte) {
+func (d *Download) signalUploadScheduler() {
+	select {
+	case d.scheduleResponseSignal <- empty.Empty{}:
+	default:
+	}
+}
+
+func (d *Download) processUpload(peer Peer, req proto.ChunkRequest) {
+	defer d.signalUploadScheduler()
+
 	if d.ctx.Err() != nil || peer.Closed() {
+		peer.CancelPeerRequest(req)
 		return
 	}
 	if !d.IsActive() {
+		peer.RestorePeerRequest(req)
+		return
+	}
+
+	// Wait before allocating or reading block data so throttled workers retain
+	// only request metadata, not one buffer per upload slot.
+	if err := d.session.UploadLimiter.Wait(d.ctx, int(req.Length)); err != nil {
+		peer.RestorePeerRequest(req)
+		return
+	}
+	if err := d.uploadLimiter.Wait(d.ctx, int(req.Length)); err != nil {
+		peer.RestorePeerRequest(req)
 		return
 	}
 
 	res := proto.PiecePool.Get()
 	res.PieceIndex = req.PieceIndex
 	res.Begin = req.Begin
-
-	if data != nil {
-		res.Data = append(res.Data[:0], data...)
-	} else {
-		res.Data = slices.Grow(res.Data[:0], int(req.Length))[:req.Length]
-		if err := d.readPieceRangeCtx(d.ctx, req, res.Data); err != nil {
-			proto.PiecePool.Put(res)
-			if err == errUploadPaused || err == context.Canceled {
-				return
-			}
-			d.setError(err)
-			peer.Close()
+	res.Data = slices.Grow(res.Data[:0], int(req.Length))[:req.Length]
+	if err := d.readPieceRangeCtx(d.ctx, req, res.Data); err != nil {
+		proto.PiecePool.Put(res)
+		if err == errUploadPaused || err == context.Canceled {
+			peer.RestorePeerRequest(req)
 			return
 		}
-	}
-
-	if err := d.session.UploadLimiter.Wait(d.ctx, len(res.Data)); err != nil {
-		proto.PiecePool.Put(res)
-		return
-	}
-	if err := d.uploadLimiter.Wait(d.ctx, len(res.Data)); err != nil {
-		proto.PiecePool.Put(res)
+		peer.CancelPeerRequest(req)
+		d.setError(err)
+		peer.Close()
 		return
 	}
 
+	// Response always consumes res and returns it to PiecePool.
 	if peer.Response(res) {
-		d.session.PieceUploadRate.Update(len(res.Data))
-		d.pieceUploadRate.Update(len(res.Data))
-		d.uploaded.Add(int64(len(res.Data)))
-	} else {
-		proto.PiecePool.Put(res)
+		d.session.PieceUploadRate.Update(int(req.Length))
+		d.pieceUploadRate.Update(int(req.Length))
+		d.uploaded.Add(int64(req.Length))
 	}
 }
 
-func (d *Download) dispatchUpload(item uploadReq, responses *int, maxResponses int) bool {
-	if *responses >= maxResponses {
-		select {
-		case d.scheduleResponseSignal <- empty.Empty{}:
-		default:
-		}
-		return false
-	}
-
-	if !d.session.Enqueue(func() {
-		d.processUpload(item.peer, item.req, nil)
-	}) {
-		select {
-		case d.scheduleResponseSignal <- empty.Empty{}:
-		default:
-		}
-		*responses = maxResponses
-		return false
-	}
-
-	*responses++
-	return true
-}
-
-func (d *Download) dispatchCachedPiece(index uint32, reqs []uploadReq, responses *int, maxResponses int) error {
-	buf := mempool.GetWithCap(int(d.info.PieceLen(index)))
-	defer mempool.Put(buf)
-
-	if _, err := d.store.ReadChunk(d.ctx, index, 0, buf.B); err != nil {
-		return err
-	}
-
-	for _, item := range reqs {
-		data := make([]byte, item.req.Length)
-		copy(data, buf.B[item.req.Begin:item.req.Begin+item.req.Length])
-		if !d.dispatchUploadWithData(item, data, responses, maxResponses) {
-			break
-		}
-	}
-	return nil
-}
-
-func (d *Download) dispatchUploadWithData(item uploadReq, data []byte, responses *int, maxResponses int) bool {
-	if *responses >= maxResponses {
-		select {
-		case d.scheduleResponseSignal <- empty.Empty{}:
-		default:
-		}
-		return false
-	}
-
-	if !d.session.Enqueue(func() {
-		d.processUpload(item.peer, item.req, data)
-	}) {
-		select {
-		case d.scheduleResponseSignal <- empty.Empty{}:
-		default:
-		}
-		*responses = maxResponses
-		return false
-	}
-
-	*responses++
-	return true
+func (d *Download) dispatchUpload(item uploadReq) bool {
+	return d.session.Enqueue(func() {
+		d.processUpload(item.peer, item.req)
+	})
 }
 
 // readPieceRangeCtx reads a range of bytes from a piece into dst.
