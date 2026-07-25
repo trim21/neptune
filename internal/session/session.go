@@ -48,6 +48,7 @@ type Session struct {
 	HTTP                       *resty.Client
 	ConnSem                    *semaphore.Weighted
 	DialSem                    *semaphore.Weighted
+	TrackerSem                 *semaphore.Weighted
 	IPv6                       atomic.Pointer[netip.Addr]
 	PieceUploadRate            *flowrate.Monitor
 	UploadLimiter              *ratelimit.Limiter
@@ -122,14 +123,16 @@ func New(cfg config.Config, sessionPath string, debug bool) *Session {
 				DisableCompression:    true,
 				MaxIdleConns:          cfg.App.MaxHTTPParallel,
 				MaxIdleConnsPerHost:   2,
+				MaxConnsPerHost:       20,
 				IdleConnTimeout:       time.Minute,
 				ResponseHeaderTimeout: time.Second * 30,
 			},
 			Timeout: time.Minute * 5,
 		}).SetHeader("User-Agent", global.UserAgent).SetRedirectPolicy(resty.NoRedirectPolicy()),
 
-		ConnSem: semaphore.NewWeighted(int64(cfg.App.GlobalConnectionLimit)),
-		DialSem: semaphore.NewWeighted(int64(cfg.App.GlobalConnectionLimit)),
+		ConnSem:    semaphore.NewWeighted(int64(cfg.App.GlobalConnectionLimit)),
+		DialSem:    semaphore.NewWeighted(int64(cfg.App.GlobalConnectionLimit)),
+		TrackerSem: semaphore.NewWeighted(int64(cfg.App.MaxHTTPParallel)),
 
 		DownloadLimiter: ratelimit.New(cfg.App.GlobalDownloadSpeedLimit),
 		UploadLimiter:   ratelimit.New(cfg.App.GlobalUploadSpeedLimit),

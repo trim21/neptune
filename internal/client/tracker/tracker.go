@@ -28,6 +28,7 @@ import (
 	"github.com/trim21/go-bencode"
 	"github.com/valyala/bytebufferpool"
 	"go.uber.org/atomic"
+	"golang.org/x/sync/semaphore"
 )
 
 type AnnounceEvent string
@@ -120,6 +121,7 @@ type TrackerTier struct {
 // Config holds the static configuration for Trackers.
 type Config struct {
 	HTTP            *resty.Client
+	TrackerSem      *semaphore.Weighted
 	Log             zerolog.Logger
 	Uploaded        *atomic.Int64
 	Downloaded      *atomic.Int64
@@ -141,6 +143,7 @@ type Trackers struct {
 	ctx             context.Context
 	log             zerolog.Logger
 	http            *resty.Client
+	trackerSem      *semaphore.Weighted
 	Seeds           *xsync.Map[string, int]
 	Leechers        *xsync.Map[string, int]
 	Errors          *xsync.Map[string, string]
@@ -174,10 +177,11 @@ func New(ctx context.Context, cfg Config) *Trackers {
 		Leechers: xsync.NewMap[string, int](),
 		Key:      cfg.Key,
 
-		http:     cfg.HTTP,
-		infoHash: cfg.InfoHash,
-		peerID:   cfg.PeerID,
-		port:     cfg.Port,
+		http:       cfg.HTTP,
+		trackerSem: cfg.TrackerSem,
+		infoHash:   cfg.InfoHash,
+		peerID:     cfg.PeerID,
+		port:       cfg.Port,
 
 		uploaded:        cfg.Uploaded,
 		uploadedStart:   cfg.UploadedStart,
@@ -420,7 +424,7 @@ func (t *Trackers) Shutdown() {
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		_, err := t.announceReq(ctx, EventStopped).Get(tr.URL)
+		_, err := t.announceReqWithSem(ctx, EventStopped, tr.URL)
 		cancel()
 
 		if err != nil {
@@ -477,7 +481,7 @@ func (t *Trackers) announceToAll(event AnnounceEvent) {
 		}
 
 		ctx, cancel := context.WithTimeout(t.ctx, 5*time.Second)
-		_, err := t.announceReq(ctx, event).Get(tr.URL)
+		_, err := t.announceReqWithSem(ctx, event, tr.URL)
 		cancel()
 
 		if err != nil {
@@ -630,7 +634,7 @@ func (t *Trackers) announceStop(tr *Tracker) {
 	ctx, cancel := context.WithTimeout(t.ctx, 15*time.Second)
 	defer cancel()
 
-	_, err := t.announceReq(ctx, EventStopped).Get(tr.URL)
+	_, err := t.announceReqWithSem(ctx, EventStopped, tr.URL)
 	if err != nil {
 		t.mu.Lock()
 		tr.Err = err
@@ -643,7 +647,7 @@ func (t *Trackers) announceHTTP(tr *Tracker, event AnnounceEvent) AnnounceRespon
 	ctx, cancel := context.WithTimeout(t.ctx, 15*time.Second)
 	defer cancel()
 
-	resp, err := t.announceReq(ctx, event).Get(tr.URL)
+	resp, err := t.announceReqWithSem(ctx, event, tr.URL)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			return AnnounceResponse{Err: errors.New("http request timeout")}
@@ -722,6 +726,18 @@ func (t *Trackers) announceHTTP(tr *Tracker, event AnnounceEvent) AnnounceRespon
 	})
 
 	return result
+}
+
+// announceReqWithSem acquires the tracker semaphore (if configured), makes the
+// HTTP GET request, and releases the semaphore on return.
+func (t *Trackers) announceReqWithSem(ctx context.Context, event AnnounceEvent, url string) (*resty.Response, error) {
+	if t.trackerSem != nil {
+		if err := t.trackerSem.Acquire(ctx, 1); err != nil {
+			return nil, err
+		}
+		defer t.trackerSem.Release(1)
+	}
+	return t.announceReq(ctx, event).Get(url)
 }
 
 func (t *Trackers) announceReq(ctx context.Context, event AnnounceEvent) *resty.Request {

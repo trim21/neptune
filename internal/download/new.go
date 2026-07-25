@@ -242,6 +242,7 @@ func newDownload(
 	d.tracker = tracker.New(d.ctx, tracker.Config{
 		Key:             trackerKey,
 		HTTP:            sess.HTTP,
+		TrackerSem:      sess.TrackerSem,
 		Log:             d.log,
 		InfoHash:        info.Hash.AsString(),
 		PeerID:          d.peerID.AsString(),
