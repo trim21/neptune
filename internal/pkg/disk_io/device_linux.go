@@ -50,6 +50,9 @@ func discoverDevices() []deviceInfo {
 		if !ok {
 			continue
 		}
+		if device.filesystem == "sysfs" || device.filesystem == "proc" || device.filesystem == "devtmpfs" {
+			continue
+		}
 		if _, ok := seen[device.id]; ok {
 			continue
 		}
