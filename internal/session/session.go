@@ -71,6 +71,26 @@ type Session struct {
 	Debug                      bool
 }
 
+const trackerResponseBodyLimit = 50 << 20
+
+func newTrackerHTTPClient(maxHTTPParallel int) *resty.Client {
+	return resty.NewWithClient(&http.Client{
+		Transport: &http.Transport{
+			DialContext:           conntrack.NewDialContextFunc(conntrack.DialWithName("announce"), conntrack.DialWithTracing()),
+			DisableCompression:    true,
+			MaxIdleConns:          maxHTTPParallel,
+			MaxIdleConnsPerHost:   2,
+			MaxConnsPerHost:       20,
+			IdleConnTimeout:       time.Minute,
+			ResponseHeaderTimeout: time.Second * 30,
+		},
+		Timeout: time.Minute * 5,
+	}).
+		SetHeader("User-Agent", global.UserAgent).
+		SetRedirectPolicy(resty.NoRedirectPolicy()).
+		SetResponseBodyLimit(trackerResponseBodyLimit)
+}
+
 // New creates a Session for a neptune process.
 func New(cfg config.Config, sessionPath string, debug bool) *Session {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -117,18 +137,7 @@ func New(cfg config.Config, sessionPath string, debug bool) *Session {
 		DHT:       nil, // disabled for now
 		FilePool:  filepool.New(),
 		IOContext: gfs.NewIOContext(),
-		HTTP: resty.NewWithClient(&http.Client{
-			Transport: &http.Transport{
-				DialContext:           conntrack.NewDialContextFunc(conntrack.DialWithName("announce"), conntrack.DialWithTracing()),
-				DisableCompression:    true,
-				MaxIdleConns:          cfg.App.MaxHTTPParallel,
-				MaxIdleConnsPerHost:   2,
-				MaxConnsPerHost:       20,
-				IdleConnTimeout:       time.Minute,
-				ResponseHeaderTimeout: time.Second * 30,
-			},
-			Timeout: time.Minute * 5,
-		}).SetHeader("User-Agent", global.UserAgent).SetRedirectPolicy(resty.NoRedirectPolicy()),
+		HTTP:      newTrackerHTTPClient(cfg.App.MaxHTTPParallel),
 
 		ConnSem:    semaphore.NewWeighted(int64(cfg.App.GlobalConnectionLimit)),
 		DialSem:    semaphore.NewWeighted(int64(cfg.App.GlobalConnectionLimit)),

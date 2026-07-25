@@ -253,7 +253,7 @@ func newDownload(
 		DownloadedStart: d.downloadAtStart,
 		Completed:       &d.completed,
 		SelectedSize:    &d.selectedSize,
-		NumWant:         200,
+		NumWant:         int32(sess.Config.App.NumWant),
 		Debug:           sess.Debug,
 		PeersCh:         d.peersCh,
 	})
