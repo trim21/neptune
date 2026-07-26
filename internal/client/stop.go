@@ -7,9 +7,9 @@ import (
 	"context"
 
 	"github.com/rs/zerolog/log"
-	"github.com/sourcegraph/conc"
-	"github.com/sourcegraph/conc/panics"
 	"golang.org/x/sync/semaphore"
+
+	"neptune/internal/pkg/conc"
 )
 
 func (c *Client) Shutdown() {
@@ -37,7 +37,7 @@ func (c *Client) Shutdown() {
 	c.session.IOContext.Close()
 }
 
-func (c *Client) saveSessionUnsafe() *panics.Recovered {
+func (c *Client) saveSessionUnsafe() *conc.Recovered {
 	var w = conc.NewWaitGroup()
 
 	var sem = semaphore.NewWeighted(5)
