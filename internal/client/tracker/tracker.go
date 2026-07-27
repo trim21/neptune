@@ -749,7 +749,7 @@ func (t *Trackers) announceReq(ctx context.Context, event AnnounceEvent) *resty.
 		SetQueryParam("compact", "1").
 		SetQueryParam("key", t.Key).
 		SetQueryParam("uploaded", strconv.FormatInt(t.uploaded.Load()-t.uploadedStart, 10)).
-		SetQueryParam("downloaded", strconv.FormatInt(t.completed.Load(), 10)).
+		SetQueryParam("downloaded", strconv.FormatInt(t.downloaded.Load()-t.downloadedStart, 10)).
 		SetQueryParam("left", strconv.FormatInt(t.selectedSize.Load()-t.completed.Load(), 10))
 	if t.numWant > 0 && event != EventStopped {
 		req.SetQueryParam("numwant", strconv.Itoa(int(t.numWant)))
