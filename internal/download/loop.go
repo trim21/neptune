@@ -91,7 +91,6 @@ func (d *Download) AsyncCheck() error {
 	d.completedBm.Clear()
 	d.picker.Load().ResetAll()
 	d.completed.Store(0)
-	d.completedRaw.Store(0)
 	d.stateCond.Broadcast()
 
 	d.runHashCheck(nil)

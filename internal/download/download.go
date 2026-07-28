@@ -521,7 +521,6 @@ func (d *Download) checkPiece(pieceIndex uint32, pc *peerContributors, done *bm.
 
 	if notHave {
 		d.completed.Add(pieceSize)
-		d.completedRaw.Add(pieceSize)
 		d.corruptedPiecesMu.Lock()
 		delete(d.corruptedPieces, pieceIndex)
 		d.corruptedPiecesMu.Unlock()
@@ -697,7 +696,6 @@ func (d *Download) recheckAfterComplete() {
 	d.setMissingFromWantedSync()
 	d.picker.Load().ResetAll()
 	d.completed.Store(0)
-	d.completedRaw.Store(0)
 	d.stateCond.Broadcast()
 
 	d.runHashCheck(d.finalizeDownloadCompletion)
@@ -717,7 +715,6 @@ func (d *Download) runHashCheck(afterSeeding func()) {
 		}
 
 		d.completed.Store(d.computeCompletedUnsafe())
-		d.completedRaw.Store(d.computeCompletedRawUnsafe())
 		d.initializePiecePicker()
 		allDone := d.isComplete()
 		d.pieceDownloadRate.Reset()

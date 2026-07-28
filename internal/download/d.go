@@ -209,15 +209,11 @@ type Download struct {
 	peerIDCounter          atomic.Uint64
 	uploadAtStart          int64
 	// completed is the amount of data for wanted pieces that have passed
-	// hash verification. Used for UI progress display.
+	// hash verification. Used for UI progress display and tracker 'left'
+	// calculation. Since unselected pieces are never downloaded,
+	// totalSize - completed gives the correct bytes-left value for
+	// partial downloads (rtorrent-aligned behavior, BEP 0003/0021).
 	completed atomic.Int64
-
-	// completedRaw is the amount of data for all pieces that have passed
-	// hash verification, regardless of whether they belong to selected
-	// files. Used by the tracker to compute the 'left' parameter based on
-	// the full torrent size — partial downloads must not report left=0
-	// to trackers (rtorrent-aligned behavior, BEP 0003/0021).
-	completedRaw atomic.Int64
 
 	peerLeechers       atomic.Int64
 	piecePickStrategy  atomic.Uint32
@@ -385,18 +381,6 @@ func (d *Download) computeCompletedUnsafe() int64 {
 	}
 	done := int64(d.completedBm.WithAnd(d.wantedBm).Count()) * d.info.PieceLength
 	if d.completedBm.Contains(d.info.NumPieces-1) && d.wantedBm.Contains(d.info.NumPieces-1) {
-		done = done - d.info.PieceLength + d.info.LastPieceSize
-	}
-	return done
-}
-
-// computeCompletedRawUnsafe returns total verified bytes from all completed
-// pieces, ignoring the wantedBm filter. Used to populate completedRaw for
-// tracker 'left' calculation, which must reflect the full torrent size.
-// Must be called under d.s.mu.
-func (d *Download) computeCompletedRawUnsafe() int64 {
-	done := int64(d.completedBm.Count()) * d.info.PieceLength
-	if d.completedBm.Contains(d.info.NumPieces - 1) {
 		done = done - d.info.PieceLength + d.info.LastPieceSize
 	}
 	return done
