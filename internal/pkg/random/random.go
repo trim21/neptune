@@ -8,6 +8,7 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/binary"
 	"fmt"
 	"io"
 
@@ -94,4 +95,35 @@ func Bytes(size int) []byte {
 	}
 
 	return r
+}
+
+// Uint64 returns a cryptographically secure random uint64.
+func Uint64() uint64 {
+	reader := p.Get()
+	defer p.Put(reader)
+
+	var buf [8]byte
+	_, err := io.ReadFull(reader, buf[:])
+	if err != nil {
+		panic(fmt.Sprintf("unexpected error happened when reading from bufio.NewReader(crypto/rand.Reader) %+v", err))
+	}
+	return binary.BigEndian.Uint64(buf[:])
+}
+
+// Int64N returns, as an int64, a non-negative pseudo-random number in the
+// half-open interval [0,n). It panics if n <= 0.
+func Int64N(n int64) int64 {
+	if n <= 0 {
+		panic("invalid argument to Int64N")
+	}
+	if n&(n-1) == 0 { // n is a power of two
+		return int64(Uint64() & uint64(n-1))
+	}
+	// Avoid modulo bias with rejection sampling.
+	max := int64((1<<63 - 1) - (1<<63-1)%uint64(n) - 1)
+	v := int64(Uint64() >> 1) // positive int63
+	for v > max {
+		v = int64(Uint64() >> 1)
+	}
+	return v % n
 }

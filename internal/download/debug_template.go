@@ -377,7 +377,7 @@ func BuildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 		if pp.connection == nil {
 			lastSeen := "never"
 			if pp.lastSeen > 0 {
-				backoff := int64(pp.failcount+1) * 60
+				backoff := int64(pp.failcount+1) * d.peerList.minReconnectTime
 				nextTry := pp.lastSeen + backoff - now
 				lastSeen = fmt.Sprintf("%s ago (next try in %ds)",
 					time.Duration(now-pp.lastSeen)*time.Second, nextTry)
