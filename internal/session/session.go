@@ -141,7 +141,7 @@ func New(cfg config.Config, sessionPath string, debug bool) *Session {
 		HTTP:      newTrackerHTTPClient(cfg.App.MaxHTTPParallel),
 
 		ConnSem:    semaphore.NewWeighted(int64(cfg.App.GlobalConnectionLimit)),
-		DialSem:    semaphore.NewWeighted(int64(cfg.App.GlobalConnectionLimit)),
+		DialSem:    semaphore.NewWeighted(max(int64(cfg.App.GlobalConnectionLimit)/10, 20)),
 		TrackerSem: semaphore.NewWeighted(int64(cfg.App.MaxHTTPParallel)),
 
 		DownloadLimiter: ratelimit.New(cfg.App.GlobalDownloadSpeedLimit),
