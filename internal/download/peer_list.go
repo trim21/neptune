@@ -4,13 +4,13 @@
 package download
 
 import (
+	"math/rand/v2"
 	"net/netip"
 	"slices"
 	"sync"
 	"time"
 
 	"neptune/internal/client/tracker"
-	"neptune/internal/pkg/random"
 )
 
 // persistentPeer mirrors libtorrent's torrent_peer — permanent peer metadata
@@ -331,7 +331,7 @@ func (pl *peerList) findConnectCandidates(sessionTime int64) {
 		// multiple downloads retry the same peers simultaneously.
 		if pp.lastSeen > 0 {
 			base := int64(pp.failcount+1) * pl.minReconnectTime
-			backoff := base + random.Int64N(base)
+			backoff := base + rand.Int64N(base)
 			if sessionTime-pp.lastSeen < backoff {
 				continue
 			}
