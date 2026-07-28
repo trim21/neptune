@@ -180,7 +180,14 @@ func (d *Download) startBackground() {
 				continue
 			}
 
+			// Serialize connect attempts across downloads to prevent
+			// connection storms (mirrors libtorrent's round-robin
+			// m_next_connect_torrent at the session level).
+			if !d.session.Connecting.CompareAndSwap(false, true) {
+				continue
+			}
 			d.connectToPeers(maxSlots)
+			d.session.Connecting.Store(false)
 		}
 	})
 }

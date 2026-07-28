@@ -120,9 +120,9 @@ func Int64N(n int64) int64 {
 		return int64(Uint64() & uint64(n-1))
 	}
 	// Avoid modulo bias with rejection sampling.
-	max := int64((1<<63 - 1) - (1<<63-1)%uint64(n) - 1)
+	threshold := int64((1<<63 - 1) - (1<<63-1)%uint64(n) - 1)
 	v := int64(Uint64() >> 1) // positive int63
-	for v > max {
+	for v > threshold {
 		v = int64(Uint64() >> 1)
 	}
 	return v % n

@@ -78,3 +78,32 @@ func TestDeriveKeyDeterminism(t *testing.T) {
 		require.Equal(t, expected, random.DeriveKey("seed", "hash", 16))
 	}
 }
+
+func TestUint64(t *testing.T) {
+	t.Parallel()
+	seen := make(map[uint64]bool)
+	for range 1000 {
+		v := random.Uint64()
+		require.False(t, seen[v], "duplicate uint64 after %d iterations", len(seen))
+		seen[v] = true
+	}
+}
+
+func TestInt64N(t *testing.T) {
+	t.Parallel()
+	for range 1000 {
+		n := int64(1 + random.Uint64()%100)
+		v := random.Int64N(n)
+		require.GreaterOrEqual(t, v, int64(0))
+		require.Less(t, v, n)
+	}
+}
+
+func TestInt64NPowerOfTwo(t *testing.T) {
+	t.Parallel()
+	for range 1000 {
+		v := random.Int64N(64)
+		require.GreaterOrEqual(t, v, int64(0))
+		require.Less(t, v, int64(64))
+	}
+}
