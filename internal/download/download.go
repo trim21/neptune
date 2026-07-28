@@ -521,6 +521,7 @@ func (d *Download) checkPiece(pieceIndex uint32, pc *peerContributors, done *bm.
 
 	if notHave {
 		d.completed.Add(pieceSize)
+		d.completedRaw.Add(pieceSize)
 		d.corruptedPiecesMu.Lock()
 		delete(d.corruptedPieces, pieceIndex)
 		d.corruptedPiecesMu.Unlock()
@@ -670,7 +671,14 @@ func (d *Download) finalizeDownloadCompletion() {
 		return true
 	})
 
-	d.tracker.Announce(tracker.EventCompleted)
+	// Only send event=completed when the entire torrent is complete (all
+	// pieces), not just the selected files. Per BEP 0003/0021, partial
+	// downloads must not report completion to trackers. This matches
+	// rtorrent's behavior: finished_download() is only called when
+	// file_list()->is_done() (completed_chunks() == size_chunks()).
+	if d.completedBm.Count() == d.info.NumPieces {
+		d.tracker.Announce(tracker.EventCompleted)
+	}
 
 	// Release picker memory — no longer needed once seeding.
 	d.picker.Store(nil)
@@ -689,6 +697,7 @@ func (d *Download) recheckAfterComplete() {
 	d.setMissingFromWantedSync()
 	d.picker.Load().ResetAll()
 	d.completed.Store(0)
+	d.completedRaw.Store(0)
 	d.stateCond.Broadcast()
 
 	d.runHashCheck(d.finalizeDownloadCompletion)
@@ -708,6 +717,7 @@ func (d *Download) runHashCheck(afterSeeding func()) {
 		}
 
 		d.completed.Store(d.computeCompletedUnsafe())
+		d.completedRaw.Store(d.computeCompletedRawUnsafe())
 		d.initializePiecePicker()
 		allDone := d.isComplete()
 		d.pieceDownloadRate.Reset()

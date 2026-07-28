@@ -120,17 +120,17 @@ type TrackerTier struct {
 
 // Config holds the static configuration for Trackers.
 type Config struct {
-	HTTP            *resty.Client
-	TrackerSem      *semaphore.Weighted
 	Log             zerolog.Logger
+	PeersCh         chan<- []DiscoveredPeer
+	TrackerSem      *semaphore.Weighted
 	Uploaded        *atomic.Int64
 	Downloaded      *atomic.Int64
 	Completed       *atomic.Int64
-	SelectedSize    *atomic.Int64
-	PeersCh         chan<- []DiscoveredPeer
+	HTTP            *resty.Client
 	Key             string
 	InfoHash        string
 	PeerID          string
+	TotalSize       int64
 	UploadedStart   int64
 	DownloadedStart int64
 	NumWant         int32
@@ -140,29 +140,29 @@ type Config struct {
 
 // Trackers manages announce trackers and the background announce loop.
 type Trackers struct {
-	ctx             context.Context
 	log             zerolog.Logger
-	http            *resty.Client
-	trackerSem      *semaphore.Weighted
+	ctx             context.Context
+	downloaded      *atomic.Int64
+	uploaded        *atomic.Int64
 	Seeds           *xsync.Map[string, int]
 	Leechers        *xsync.Map[string, int]
 	Errors          *xsync.Map[string, string]
 	resumeCh        chan struct{}
 	peersCh         chan<- []DiscoveredPeer
 	queue           chan AnnounceEvent
-	uploaded        *atomic.Int64
+	http            *resty.Client
 	completed       *atomic.Int64
-	downloaded      *atomic.Int64
-	selectedSize    *atomic.Int64
+	trackerSem      *semaphore.Weighted
 	peerID          string
 	Key             string
 	infoHash        string
 	tiers           []TrackerTier
+	totalSize       int64
 	paused          atomic.Bool
 	downloadedStart int64
 	uploadedStart   int64
-	numWant         int32
 	mu              sync.RWMutex
+	numWant         int32
 	port            uint16
 	debug           bool
 }
@@ -188,7 +188,7 @@ func New(ctx context.Context, cfg Config) *Trackers {
 		downloaded:      cfg.Downloaded,
 		downloadedStart: cfg.DownloadedStart,
 		completed:       cfg.Completed,
-		selectedSize:    cfg.SelectedSize,
+		totalSize:       cfg.TotalSize,
 		numWant:         cfg.NumWant,
 
 		resumeCh: make(chan struct{}, 1),
@@ -750,7 +750,7 @@ func (t *Trackers) announceReq(ctx context.Context, event AnnounceEvent) *resty.
 		SetQueryParam("key", t.Key).
 		SetQueryParam("uploaded", strconv.FormatInt(t.uploaded.Load()-t.uploadedStart, 10)).
 		SetQueryParam("downloaded", strconv.FormatInt(t.downloaded.Load()-t.downloadedStart, 10)).
-		SetQueryParam("left", strconv.FormatInt(t.selectedSize.Load()-t.completed.Load(), 10))
+		SetQueryParam("left", strconv.FormatInt(t.totalSize-t.completed.Load(), 10))
 	if t.numWant > 0 && event != EventStopped {
 		req.SetQueryParam("numwant", strconv.Itoa(int(t.numWant)))
 	}

@@ -140,6 +140,7 @@ func (d *Download) initCheck() error {
 	d.completedBm.OR(completedBm)
 	d.setMissingFromWantedSync()
 	d.completed.Store(d.computeCompletedUnsafe())
+	d.completedRaw.Store(d.computeCompletedRawUnsafe())
 
 	d.pieceDownloadRate.Reset()
 	donePieces := d.completedBm.WithAnd(d.wantedBm).Count()
@@ -264,6 +265,7 @@ func (d *Download) checkNew(skipHashCheck bool) {
 
 	d.setMissingFromWantedSync()
 	d.completed.Store(d.computeCompletedUnsafe())
+	d.completedRaw.Store(d.computeCompletedRawUnsafe())
 	donePieces := d.completedBm.WithAnd(d.wantedBm).Count()
 	d.pieceDownloadRate.Reset()
 

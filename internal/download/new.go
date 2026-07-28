@@ -209,6 +209,7 @@ func newDownload(
 	}
 	d.piecePickStrategy.Store(uint32(init.PiecePickStrategy))
 	d.completed.Store(d.computeCompletedUnsafe())
+	d.completedRaw.Store(d.computeCompletedRawUnsafe())
 	d.state.Store(uint32(init.State))
 
 	trackerKey := random.URLSafeStr(16)
@@ -251,8 +252,8 @@ func newDownload(
 		UploadedStart:   d.uploadAtStart,
 		Downloaded:      &d.downloaded,
 		DownloadedStart: d.downloadAtStart,
-		Completed:       &d.completed,
-		SelectedSize:    &d.selectedSize,
+		Completed:       &d.completedRaw,
+		TotalSize:       d.info.TotalLength,
 		NumWant:         int32(sess.Config.App.NumWant),
 		Debug:           sess.Debug,
 		PeersCh:         d.peersCh,

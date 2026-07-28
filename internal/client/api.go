@@ -360,14 +360,16 @@ func (c *Client) Reannounce(h metainfo.Hash) error {
 		return fmt.Errorf("torrent %s not exists", h)
 	}
 
+	// Per BEP 0003, event=completed must only be sent once when the download
+	// finishes. Reannounce from Seeding state sends a regular update without
+	// an event. Likewise, partial downloads in Seeding state must not report
+	// completion — finalizeDownloadCompletion already guards that.
 	var event tracker.AnnounceEvent
 	switch {
 	case d.IsDownloading():
 		event = tracker.EventStarted
-	case d.HasState(Seeding):
-		event = tracker.EventCompleted
 	default:
-		// Stopped, Checking, Moving, Error — send a regular update without event.
+		// Seeding, Stopped, Checking, Moving, Error — send a regular update without event.
 		event = ""
 	}
 
