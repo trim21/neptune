@@ -709,6 +709,9 @@ func (d *Download) runHashCheck(afterSeeding func()) {
 			if d.ctx.Err() != nil {
 				return
 			}
+			// completedOnce guards the completion sequence; a failed recheck
+			// must release it so a later completion is not blocked forever.
+			d.completedOnce.Store(false)
 			d.setError(err)
 			d.log.Err(err).Msg("hash check failed")
 			return
