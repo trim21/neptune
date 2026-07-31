@@ -790,7 +790,7 @@ func (pp *PiecePicker) pickPiecesUnsafe(
 	// Pick a random medium-rarity piece to quickly get something to upload.
 	// Skip startup mode in sequential strategy — always start from piece 0.
 	if strategy != StrategySequential && pp.numCompletedPieces == 0 && len(pp.downloadingPieces) == 0 {
-		pp.pickStartupBlock(bitfield, choked, allowedFast, &result)
+		pp.pickStartupBlock(bitfield, choked, allowedFast, blockedPieces, &result)
 		if len(result.FreeBlocks) > 0 {
 			return result
 		}
@@ -1064,6 +1064,7 @@ func (pp *PiecePicker) pickStartupBlock(
 	bitfield *bm.LockFreeBitmap,
 	choked bool,
 	allowedFast *bm.LockFreeBitmap,
+	blockedPieces *bm.LockFreeBitmap,
 	result *PickResult,
 ) {
 	// Collect all pieces the peer has that we want.
@@ -1073,6 +1074,9 @@ func (pp *PiecePicker) pickStartupBlock(
 			continue
 		}
 		if choked && !allowedFast.Contains(pi) {
+			continue
+		}
+		if blockedPieces.Contains(pi) {
 			continue
 		}
 		if pp.allBlocksResponded(pi) {
