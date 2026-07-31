@@ -6,11 +6,14 @@ package download
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/netip"
 	"slices"
 	"time"
+
+	"github.com/trim21/errgo"
 
 	"neptune/internal/mse"
 	"neptune/internal/pkg/empty"
@@ -91,11 +94,94 @@ func (d *Download) connectToPeers(maxSlots int) int {
 	return connected
 }
 
-// tryDial attempts a TCP connect to a candidate peer.
+// peerConn is an established peer transport connection.
+type peerConn struct {
+	conn      net.Conn
+	encrypted bool
+}
+
+// errConnectionLimit is reported when the global connection slot is exhausted.
+var errConnectionLimit = errors.New("connection limit reached")
+
+// dial establishes a TCP connection to addr, configuring deadline and linger.
+func (d *Download) dial(ctx context.Context, addr netip.AddrPort) (net.Conn, error) {
+	conn, err := global.Dial(ctx, "tcp", addr.String())
+	if err != nil {
+		return nil, err
+	}
+
+	_ = conn.SetDeadline(time.Now().Add(global.ConnTimeout))
+
+	if tcp, ok := conn.(interface{ SetLinger(sec int) error }); ok {
+		_ = tcp.SetLinger(0)
+	}
+
+	return conn, nil
+}
+
+// connectPeer establishes a full connection to a peer: TCP dial plus an
+// optional MSE handshake. The caller holds DialSem.
+//
+// The returned peerConn owns a global connection slot; on success the slot
+// ownership transfers with the conn to the registered peer (released by
+// recordDisconnect). On failure the slot is released automatically.
+//
+// In prefer mode a failed MSE handshake closes the polluted connection and
+// retries plaintext on a fresh TCP connection: the old connection's byte
+// stream already contains MSE handshake data, so a plaintext handshake on
+// it can never succeed.
+func (d *Download) connectPeer(ctx context.Context, pp *persistentPeer) (peerConn, error) {
+	// Grab a global connection slot before dialing.
+	if !d.session.ConnSem.TryAcquire(1) {
+		return peerConn{}, errConnectionLimit
+	}
+	d.session.ConnCount.Add(1)
+
+	// Every failure path releases the slot; success transfers ownership.
+	owned := false
+	defer func() {
+		if !owned {
+			d.session.ConnSem.Release(1)
+			d.session.ConnCount.Sub(1)
+		}
+	}()
+
+	conn, err := d.dial(ctx, pp.addrPort)
+	if err != nil {
+		return peerConn{}, err
+	}
+
+	if !d.session.MSEEnabled {
+		owned = true
+		return peerConn{conn: conn}, nil
+	}
+
+	mseConn, method, mseErr := mse.NewConnection([]byte(d.info.Hash.AsString()), conn, d.session.MSEPreferredCrypto)
+	if mseErr == nil {
+		owned = true
+		return peerConn{conn: mseConn, encrypted: method == mse.CryptoMethodRC4}, nil
+	}
+
+	// MSE handshake failed; the connection's stream is polluted.
+	_ = conn.Close()
+
+	if d.session.MSEForce {
+		return peerConn{}, errgo.Wrap(mseErr, "mse handshake failed")
+	}
+
+	// Prefer mode: fall back to plaintext on a fresh connection.
+	plainConn, err := d.dial(ctx, pp.addrPort)
+	if err != nil {
+		return peerConn{}, fmt.Errorf("mse: %w; plaintext dial: %v", mseErr, err)
+	}
+	owned = true
+	return peerConn{conn: plainConn}, nil
+}
+
+// tryDial attempts to establish a connection to a candidate peer.
 // DialSem is held by the caller; it is released on every exit path.
-// ConnSem is acquired only after a successful TCP connect.
 // On success, registers the connection in the peer list.
-// On failure, increments failcount and releases the semaphore.
+// On failure, increments failcount.
 func (d *Download) tryDial(pp *persistentPeer) {
 	defer d.session.DialSem.Release(1)
 
@@ -104,9 +190,13 @@ func (d *Download) tryDial(pp *persistentPeer) {
 
 	d.log.Trace().Msgf("try to connect to peer %s", pp.addrPort)
 
-	conn, err := global.Dial(ctx, "tcp", pp.addrPort.String())
+	pc, err := d.connectPeer(ctx, pp)
 	if err != nil {
-		d.peerList.incFailcount(pp, err.Error())
+		// A full global connection slot is our own capacity limit, not a
+		// failure of the peer — don't penalize the peer's failcount.
+		if !errors.Is(err, errConnectionLimit) {
+			d.peerList.incFailcount(pp, err.Error())
+		}
 		// Wake up connection loop to try next candidate.
 		select {
 		case d.pendingPeersSignal <- empty.Empty{}:
@@ -115,49 +205,7 @@ func (d *Download) tryDial(pp *persistentPeer) {
 		return
 	}
 
-	// TCP connected. Try to grab a global connection slot.
-	if !d.session.ConnSem.TryAcquire(1) {
-		_ = conn.Close()
-		d.peerList.incFailcount(pp, "connection limit reached")
-		select {
-		case d.pendingPeersSignal <- empty.Empty{}:
-		default:
-		}
-		return
-	}
-	d.session.ConnCount.Add(1)
-
-	_ = conn.SetDeadline(time.Now().Add(global.ConnTimeout))
-
-	if tcp, ok := conn.(interface{ SetLinger(sec int) error }); ok {
-		_ = tcp.SetLinger(0)
-	}
-
-	var encrypted bool
-	if d.session.MSEEnabled {
-		infoHash := d.info.Hash.AsString()
-		mseConn, method, mseErr := mse.NewConnection([]byte(infoHash), conn, d.session.MSEPreferredCrypto)
-		if mseErr != nil {
-			if d.session.MSEForce {
-				_ = conn.Close()
-				d.peerList.incFailcount(pp, mseErr.Error())
-				d.session.ConnSem.Release(1)
-				d.session.ConnCount.Sub(1)
-				select {
-				case d.pendingPeersSignal <- empty.Empty{}:
-				default:
-				}
-				return
-			}
-			// prefer mode: MSE failed, fall back to plain connection.
-			// conn was not consumed by MSE on failure, reuse it.
-		} else {
-			conn = mseConn
-			encrypted = method == mse.CryptoMethodRC4
-		}
-	}
-
-	p := NewOutgoingPeer(conn, d, pp.addrPort, encrypted)
+	p := NewOutgoingPeer(pc.conn, d, pp.addrPort, pc.encrypted)
 	// Register the connection in the persistent peer list.
 	d.peerList.newConnection(pp.addrPort, p, time.Now().Unix())
 }
