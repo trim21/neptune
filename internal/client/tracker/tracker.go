@@ -424,7 +424,7 @@ func (t *Trackers) Shutdown() {
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		_, err := t.announceReqWithSem(ctx, EventStopped, tr.URL)
+		_, err := t.announceReqWithSem(ctx, EventStopped, tr.URL, 5*time.Second)
 		cancel()
 
 		if err != nil {
@@ -480,9 +480,7 @@ func (t *Trackers) announceToAll(event AnnounceEvent) {
 			continue
 		}
 
-		ctx, cancel := context.WithTimeout(t.ctx, 5*time.Second)
-		_, err := t.announceReqWithSem(ctx, event, tr.URL)
-		cancel()
+		_, err := t.announceReqWithSem(t.ctx, event, tr.URL, 5*time.Second)
 
 		if err != nil {
 			t.mu.Lock()
@@ -631,10 +629,7 @@ func (t *Trackers) finishStop(tr *Tracker) {
 }
 
 func (t *Trackers) announceStop(tr *Tracker) {
-	ctx, cancel := context.WithTimeout(t.ctx, 15*time.Second)
-	defer cancel()
-
-	_, err := t.announceReqWithSem(ctx, EventStopped, tr.URL)
+	_, err := t.announceReqWithSem(t.ctx, EventStopped, tr.URL, 15*time.Second)
 	if err != nil {
 		t.mu.Lock()
 		tr.Err = err
@@ -644,10 +639,7 @@ func (t *Trackers) announceStop(tr *Tracker) {
 }
 
 func (t *Trackers) announceHTTP(tr *Tracker, event AnnounceEvent) AnnounceResponse {
-	ctx, cancel := context.WithTimeout(t.ctx, 15*time.Second)
-	defer cancel()
-
-	resp, err := t.announceReqWithSem(ctx, event, tr.URL)
+	resp, err := t.announceReqWithSem(t.ctx, event, tr.URL, 15*time.Second)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			return AnnounceResponse{Err: errors.New("http request timeout")}
@@ -729,15 +721,26 @@ func (t *Trackers) announceHTTP(tr *Tracker, event AnnounceEvent) AnnounceRespon
 }
 
 // announceReqWithSem acquires the tracker semaphore (if configured), makes the
-// HTTP GET request, and releases the semaphore on return.
-func (t *Trackers) announceReqWithSem(ctx context.Context, event AnnounceEvent, url string) (*resty.Response, error) {
+// HTTP GET request with the given timeout, and releases the semaphore on return.
+//
+// The semaphore is acquired with acquireCtx; the request timeout is derived
+// from the same context only after the semaphore has been acquired. Regular
+// announces pass the download's lifecycle context (t.ctx), so waiting for a
+// semaphore slot never consumes the request's timeout budget: a congested
+// semaphore delays the announce instead of failing it. Callers that must bound
+// the total wait (e.g. Shutdown) pass a pre-timed context instead.
+func (t *Trackers) announceReqWithSem(acquireCtx context.Context, event AnnounceEvent, url string, timeout time.Duration) (*resty.Response, error) {
 	if t.trackerSem != nil {
-		if err := t.trackerSem.Acquire(ctx, 1); err != nil {
+		if err := t.trackerSem.Acquire(acquireCtx, 1); err != nil {
 			return nil, err
 		}
 		defer t.trackerSem.Release(1)
 	}
-	return t.announceReq(ctx, event).Get(url)
+
+	reqCtx, cancel := context.WithTimeout(acquireCtx, timeout)
+	defer cancel()
+
+	return t.announceReq(reqCtx, event).Get(url)
 }
 
 func (t *Trackers) announceReq(ctx context.Context, event AnnounceEvent) *resty.Request {
