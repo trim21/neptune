@@ -67,6 +67,35 @@ func (p *peerImpl) decodeEvents(event *Event) error {
 	assert.Equal(n, 1)
 
 	event.Event = proto.Message(p.readBuf[0])
+
+	// Reject messages whose length field does not match the payload the
+	// decoder expects. Without this check a short message (e.g. size=1 for
+	// Extended) makes decoders read bytes from the next message, desyncing
+	// the stream, and `size-2` on Extended underflows to a ~4GiB allocation.
+	switch event.Event {
+	case proto.Choke, proto.Unchoke, proto.Interested, proto.NotInterested,
+		proto.HaveAll, proto.HaveNone:
+		if size != 1 {
+			return ErrPeerSendInvalidData
+		}
+	case proto.Have, proto.Suggest, proto.AllowedFast:
+		if size != 1+proto.SizeUint32 {
+			return ErrPeerSendInvalidData
+		}
+	case proto.Port:
+		if size != 1+2 {
+			return ErrPeerSendInvalidData
+		}
+	case proto.Request, proto.Cancel, proto.Reject:
+		if size != 1+proto.SizeUint32*3 {
+			return ErrPeerSendInvalidData
+		}
+	case proto.Extended:
+		if size < 2 {
+			return ErrPeerSendInvalidData
+		}
+	}
+
 	var ev Event
 	switch event.Event {
 	case proto.Choke, proto.Unchoke,

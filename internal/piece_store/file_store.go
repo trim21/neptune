@@ -6,6 +6,7 @@ package piece_store
 import (
 	"context"
 	"crypto/sha1"
+	"io"
 	"os"
 	"path/filepath"
 	"time"
@@ -74,7 +75,18 @@ func (s *FileStore) ReadChunk(ctx context.Context, pieceIndex uint32, begin uint
 		rn, err := s.diskIO.ReadAtCtx(ctx, f.File, data[n:n+int(chunk.Length)], chunk.OffsetOfFile)
 		n += rn
 		f.Release()
-		if err != nil || rn < int(chunk.Length) {
+		// A short read means the file is truncated or smaller than the
+		// torrent metadata declares. ReadAt reports this as io.EOF on the
+		// portable backend, while io_uring pread returns 0 with no error;
+		// normalize both to ErrUnexpectedEOF so callers treat it as data
+		// corruption instead of a clean EOF (or silent zero fill).
+		if err == io.EOF {
+			err = io.ErrUnexpectedEOF
+		}
+		if rn < int(chunk.Length) && err == nil {
+			err = io.ErrUnexpectedEOF
+		}
+		if err != nil {
 			return n, err
 		}
 	}
@@ -109,9 +121,20 @@ func (s *FileStore) VerifyPiece(ctx context.Context, pieceIndex uint32, expected
 				fileOff += int64(n)
 				left -= int64(n)
 			}
+			// ReadAt reports EOF before the piece range is satisfied; the
+			// io_uring backend instead returns 0 with a nil error. Both mean
+			// the file is truncated — without the n==0 branch VerifyPiece
+			// would spin forever on the uring backend.
+			if err == io.EOF {
+				err = io.ErrUnexpectedEOF
+			}
 			if err != nil {
 				f.Release()
 				return false, err
+			}
+			if n == 0 {
+				f.Release()
+				return false, io.ErrUnexpectedEOF
 			}
 		}
 		f.Release()

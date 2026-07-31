@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net/netip"
 	"strconv"
 	"sync"
@@ -309,9 +308,9 @@ func (d *Download) ErrorMsg() string {
 func (d *Download) setError(err error) {
 	d.log.Error().Err(err).Msg("setError")
 
-	if err == io.EOF {
-		panic("unexpected EOF error")
-	}
+	// Never panic on the error value itself. PieceStore normalizes truncated
+	// reads to io.ErrUnexpectedEOF, but defensive handling here keeps any
+	// stray io.EOF from a future code path from crashing the whole process.
 
 	d.err.Store(&err)
 	if _, err := d.transition(Error); err != nil {

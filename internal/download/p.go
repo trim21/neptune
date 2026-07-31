@@ -1116,9 +1116,11 @@ func (p *peerImpl) validateRequest(req proto.ChunkRequest) bool {
 		return false
 	}
 
-	pieceSize := as.Uint32(p.d.info.PieceLen(req.PieceIndex))
+	pieceSize := p.d.info.PieceLen(req.PieceIndex)
 
-	return req.Begin+req.Length <= pieceSize
+	// Use int64 arithmetic: Begin+Length on uint32 can overflow and bypass
+	// the range check, letting a malicious peer read arbitrary file offsets.
+	return int64(req.Begin)+int64(req.Length) <= pieceSize
 }
 
 func (p *peerImpl) resIsValid(res *proto.ChunkResponse) (BlockClaim, bool) {
