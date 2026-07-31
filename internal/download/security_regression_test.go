@@ -85,6 +85,6 @@ func TestSetErrorDoesNotPanicOnEOF(t *testing.T) {
 	})
 
 	require.NotEmpty(t, d.ErrorMsg())
-	require.Equal(t, State(Error), d.GetState())
+	require.Equal(t, Error, d.GetState())
 	assert.Contains(t, d.ErrorMsg(), "EOF")
 }
