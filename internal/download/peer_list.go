@@ -501,9 +501,31 @@ func (pl *peerList) count() int {
 	return len(pl.peers)
 }
 
+// TurnoverCutoff is the percentage of the connection limit at which peer
+// eviction kicks in, applied at both the per-torrent and global levels.
+// Mirrors libtorrent's peer_turnover_cutoff (default 90).
+const TurnoverCutoff = 90
+
+// fastPeerRateThreshold: peers transferring at or above this rate are never
+// turned over — they are too valuable to gamble on an unknown candidate.
+// Applies to both directions: fast downloads (a leecher's core bandwidth)
+// and fast uploads (good tit-for-tat reciprocity).
+const fastPeerRateThreshold = 1024 * 1024 // 1 MiB/s
+
+// turnoverExemptScore marks a peer as exempt from turnover eviction.
+// Sorted ascending, exempt peers always land at the end of the eviction
+// candidate list.
+const turnoverExemptScore = int64(1) << 30
+
 // peerDisconnectScore calculates a disconnect priority score for a peer.
 // Lower scores mean higher priority to disconnect.
 func peerDisconnectScore(p Peer, weAreSeed bool) int64 {
+	// Fast peers are always kept, even in the both-seeding case: a partial
+	// seed may still be filling gaps, and evicting a fast peer for an
+	// unknown candidate is a net loss.
+	if p.DownloadRate() >= fastPeerRateThreshold || p.UploadRate() >= fastPeerRateThreshold {
+		return turnoverExemptScore
+	}
 	// Both sides are seeding — no value in staying connected.
 	if weAreSeed && p.IsSeed() {
 		return 0

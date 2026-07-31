@@ -243,44 +243,14 @@ func (d *Download) recordDisconnect(p Peer) {
 	d.notifyPeersToRequest()
 }
 
-// peerTurnover disconnects least useful peers to make room for fresh candidates.
-// Mirrors libtorrent's optimistic disconnect (~2% per round).
-// When the download is pending (queued), all peers are disconnected to free
-// global connection slots for active downloads.
-func (d *Download) peerTurnover() {
-	peerCount := d.peers.Size()
-	if peerCount == 0 {
-		return
-	}
-
-	// Pending (queued) downloads don't need any peers — disconnect all to
-	// free global connection slots. Peers will be reconnected when the
-	// download is promoted back to Downloading.
-	if d.HasState(PendingDownloading) {
-		d.peers.Range(func(_ uint64, p Peer) bool {
-			p.Close()
-			return true
-		})
-		return
-	}
-
-	// Only turn over connections when approaching the per-torrent limit
-	// (>= 90%). Mirrors libtorrent's peer_turnover_cutoff logic.
-	const turnoverCutoff = 90 // percent of connection limit
-
-	maxConn := d.maxConnections()
-	if maxConn < 6 || peerCount < maxConn*turnoverCutoff/100 {
-		return
-	}
-
-	const turnoverFraction = 100 / 4 // 4% of peers, mirrors libtorrent's peer_turnover
-
-	disconnectN := max(peerCount/turnoverFraction, 1)
-	candidateN := d.peerList.numCandidates()
-	disconnectN = min(disconnectN, candidateN)
-
-	if disconnectN == 0 {
-		return
+// EvictPeers disconnects up to n lowest-scored peers to free connection
+// slots, limited by the number of connect candidates and skipping peers
+// exempt from turnover (fast transfers). Returns the number evicted.
+// Exported for the session-level (global) turnover scheduler.
+func (d *Download) EvictPeers(n int) int {
+	n = min(n, d.peerList.numCandidates())
+	if n <= 0 {
+		return 0
 	}
 
 	weAreSeed := d.HasState(Seeding)
@@ -311,9 +281,51 @@ func (d *Download) peerTurnover() {
 		return 0
 	})
 
-	for i := range min(disconnectN, len(scored)) {
+	evicted := 0
+	for i := range min(n, len(scored)) {
+		if scored[i].score >= turnoverExemptScore {
+			// Sorted ascending — the remaining peers are all exempt.
+			break
+		}
 		scored[i].p.Close()
+		evicted++
 	}
+	return evicted
+}
+
+// peerTurnover disconnects least useful peers to make room for fresh candidates.
+// Mirrors libtorrent's optimistic disconnect (~2% per round).
+// When the download is pending (queued), all peers are disconnected to free
+// global connection slots for active downloads.
+func (d *Download) peerTurnover() {
+	peerCount := d.peers.Size()
+	if peerCount == 0 {
+		return
+	}
+
+	// Pending (queued) downloads don't need any peers — disconnect all to
+	// free global connection slots. Peers will be reconnected when the
+	// download is promoted back to Downloading.
+	if d.HasState(PendingDownloading) {
+		d.peers.Range(func(_ uint64, p Peer) bool {
+			p.Close()
+			return true
+		})
+		return
+	}
+
+	// Only turn over connections when approaching the per-torrent connection
+	// limit (TurnoverCutoff%): eviction only makes sense to free a slot for
+	// a new candidate. Below the cutoff, new candidates connect directly
+	// without disrupting peers. Mirrors libtorrent's peer_turnover_cutoff.
+	maxConn := d.maxConnections()
+	if maxConn < 6 || peerCount < maxConn*TurnoverCutoff/100 {
+		return
+	}
+
+	const turnoverFraction = 100 / 4 // 4% of peers, mirrors libtorrent's peer_turnover
+	disconnectN := max(peerCount/turnoverFraction, 1)
+	d.EvictPeers(disconnectN)
 }
 
 // isAddrBanned checks whether an address is currently banned for this torrent.

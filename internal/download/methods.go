@@ -78,6 +78,9 @@ func (d *Download) Cancel() {
 	d.cancel()
 }
 
+// PeerCount returns the number of currently connected peers.
+func (d *Download) PeerCount() int { return d.peers.Size() }
+
 // BackgroundWgWait waits for all background goroutines to finish.
 func (d *Download) BackgroundWgWait() {
 	d.backgroundWg.Wait()

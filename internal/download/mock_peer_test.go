@@ -55,6 +55,7 @@ type mockPeer struct {
 	info                   meta.Info
 	uploadRate             flowrate.Monitor
 	downloadRate           flowrate.Monitor
+	rateOverride           int64
 	downloadTotal          int64
 	trustPoints            atomic.Int32
 	peerID                 uint64
@@ -192,11 +193,24 @@ func (m *mockPeer) SetLastUnchokeAt(t int64) { m.lastUnchokeAt.Store(t) }
 
 // ── Rates ───────────────────────────────────────────────────────────
 
-func (m *mockPeer) DownloadRate() int64          { return m.downloadRate.Status().CurRate }
-func (m *mockPeer) UploadRate() int64            { return m.uploadRate.Status().CurRate }
+func (m *mockPeer) DownloadRate() int64 {
+	if m.rateOverride > 0 {
+		return m.rateOverride
+	}
+	return m.downloadRate.Status().CurRate
+}
+func (m *mockPeer) UploadRate() int64 {
+	if m.rateOverride > 0 {
+		return m.rateOverride
+	}
+	return m.uploadRate.Status().CurRate
+}
 func (m *mockPeer) DownloadTotal() int64         { return m.downloadTotal }
 func (m *mockPeer) UpdateDownloadRate(bytes int) { m.downloadRate.Update(bytes) }
 func (m *mockPeer) UpdateUploadRate(bytes int)   { m.uploadRate.Update(bytes) }
+
+// SetRate overrides the reported download/upload rate for turnover tests.
+func (m *mockPeer) SetRate(r int64) { m.rateOverride = r }
 
 // ── Request queue (download side) ───────────────────────────────────
 

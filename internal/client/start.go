@@ -33,6 +33,10 @@ func (c *Client) Start() error {
 	// Start the download queue manager.
 	go c.startQueueManager()
 
+	// Start the session-level peer turnover scheduler (global connection
+	// pool exhaustion → evict from the busiest torrent).
+	go c.startGlobalTurnover()
+
 	// TODO: impl
 	if !global.Dev {
 		go func() {
