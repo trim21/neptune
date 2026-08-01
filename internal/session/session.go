@@ -75,14 +75,17 @@ type Session struct {
 const trackerResponseBodyLimit = 50 << 20
 
 func newTrackerHTTPClient(maxHTTPParallel int) *resty.Client {
+	// No MaxConnsPerHost: global announce concurrency is already capped by
+	// TrackerSem (maxHTTPParallel), and a per-host cap would make excess
+	// requests queue inside the Transport, burning the request's context
+	// deadline instead of waiting on the timeout-free semaphore.
 	return resty.NewWithClient(&http.Client{
 		Transport: &http.Transport{
 			DialContext:           conntrack.NewDialContextFunc(conntrack.DialWithName("announce"), conntrack.DialWithTracing()),
 			DisableCompression:    true,
 			MaxIdleConns:          maxHTTPParallel,
 			MaxIdleConnsPerHost:   2,
-			MaxConnsPerHost:       20,
-			IdleConnTimeout:       time.Minute,
+			IdleConnTimeout:       time.Minute * 10,
 			ResponseHeaderTimeout: time.Second * 30,
 		},
 		Timeout: time.Minute * 5,
