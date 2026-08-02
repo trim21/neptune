@@ -100,30 +100,56 @@ func TestDispatchConnectionsAtConnectionLimit(t *testing.T) {
 func TestDispatchConnectionsNoCandidates(t *testing.T) {
 	sess := newConnectSession(t, 4)
 	d := newConnectDownload(t, sess)
+	require.True(t, sess.DialSem.TryAcquire(4))
+	defer sess.DialSem.Release(4)
 
-	d.dispatchConnections() // must return without blocking
+	done := make(chan struct{})
+	go func() {
+		d.dispatchConnections()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("dispatch blocked on DialSem without a candidate")
+	}
 }
 
-// TestDispatchConnectionsConnSemFull verifies that when the global connection
-// pool is exhausted the loop stops instead of dispatching doomed dials.
-func TestDispatchConnectionsConnSemFull(t *testing.T) {
+func TestDispatchConnectionsSkipsBannedPeer(t *testing.T) {
 	sess := newConnectSession(t, 4)
-	// Occupy the whole global connection pool.
-	require.True(t, sess.ConnSem.TryAcquire(200))
-	sess.ConnCount.Store(200)
-
 	d := newConnectDownload(t, sess)
 	addr := netip.MustParseAddrPort("10.0.0.4:6881")
 	d.peerList.addPeer(addr, tracker.PeerSourceTracker)
+	d.banAddr(addr.Addr())
 
 	d.dispatchConnections()
 
 	d.peerList.mu.Lock()
 	idx, found := d.peerList.findPeer(addr)
 	require.True(t, found)
-	require.Zero(t, d.peerList.peers[idx].failcount)
 	require.False(t, d.peerList.peers[idx].dialing)
 	d.peerList.mu.Unlock()
+	require.True(t, sess.DialSem.TryAcquire(4), "banned peers must not take a dial slot")
+	sess.DialSem.Release(4)
+}
+
+func TestDispatchConnectionsSkipsConnectedAddress(t *testing.T) {
+	sess := newConnectSession(t, 4)
+	d := newConnectDownload(t, sess)
+	addr := netip.MustParseAddrPort("10.0.0.5:6881")
+	d.peerList.addPeer(addr, tracker.PeerSourceTracker)
+	d.peerList.incomingConnectionOpened(addr)
+
+	d.dispatchConnections()
+
+	d.peerList.mu.Lock()
+	idx, found := d.peerList.findPeer(addr)
+	require.True(t, found)
+	require.False(t, d.peerList.peers[idx].dialing)
+	d.peerList.mu.Unlock()
+	require.True(t, sess.DialSem.TryAcquire(4), "connected peers must not take a dial slot")
+	sess.DialSem.Release(4)
 }
 
 // ── integration (requires network) ───────────────────────────────────
@@ -145,6 +171,93 @@ func candidateFailed(d *Download, addr netip.AddrPort) bool {
 	defer d.peerList.mu.Unlock()
 	idx, found := d.peerList.findPeer(addr)
 	return found && d.peerList.peers[idx].failcount > 0
+}
+
+func candidateDialing(d *Download, addr netip.AddrPort) bool {
+	d.peerList.mu.Lock()
+	defer d.peerList.mu.Unlock()
+	idx, found := d.peerList.findPeer(addr)
+	return found && d.peerList.peers[idx].dialing
+}
+
+func dialingCandidateCount(d *Download) int {
+	d.peerList.mu.Lock()
+	defer d.peerList.mu.Unlock()
+	count := 0
+	for _, peer := range d.peerList.peers {
+		if peer.dialing {
+			count++
+		}
+	}
+	return count
+}
+
+func blockGlobalConnectionSlot(t *testing.T, sess *session.Session) {
+	t.Helper()
+	sess.ConnSem = semaphore.NewWeighted(1)
+	sess.Config.App.GlobalConnectionLimit = 1
+	require.True(t, sess.ConnSem.TryAcquire(1))
+}
+
+func TestDispatchConnectionsSkipsBannedCandidateAndDialsNext(t *testing.T) {
+	sess := newConnectSession(t, 4)
+	blockGlobalConnectionSlot(t, sess)
+	d := newConnectDownload(t, sess)
+	d.session.TorrentConnLimit.Store(1)
+
+	banned := netip.MustParseAddrPort("10.0.0.6:6881")
+	valid := netip.MustParseAddrPort("10.0.0.7:6881")
+	d.peerList.addPeer(valid, tracker.PeerSourcePEX)
+	d.peerList.addPeer(banned, tracker.PeerSourceTracker)
+	d.banAddr(banned.Addr())
+
+	d.dispatchConnections()
+
+	require.Eventually(t, func() bool { return candidateDialing(d, valid) }, time.Second, 10*time.Millisecond)
+	require.False(t, candidateDialing(d, banned))
+
+	d.cancel()
+	require.Eventually(t, func() bool { return d.pendingOutgoing.Load() == 0 }, time.Second, 10*time.Millisecond)
+	sess.ConnSem.Release(1)
+}
+
+func TestStopCancelsWaitingConnectionAttempt(t *testing.T) {
+	sess := newConnectSession(t, 4)
+	blockGlobalConnectionSlot(t, sess)
+	d := newConnectDownload(t, sess)
+	addr := netip.MustParseAddrPort("10.0.0.8:6881")
+	d.peerList.addPeer(addr, tracker.PeerSourceTracker)
+
+	d.dispatchConnections()
+	require.Eventually(t, func() bool { return candidateDialing(d, addr) }, time.Second, 10*time.Millisecond)
+
+	require.NoError(t, d.Stop())
+	require.Eventually(t, func() bool {
+		return !candidateDialing(d, addr) && d.pendingOutgoing.Load() == 0
+	}, time.Second, 10*time.Millisecond)
+	require.True(t, sess.DialSem.TryAcquire(4), "stopped download must release dial slots")
+	sess.DialSem.Release(4)
+	sess.ConnSem.Release(1)
+}
+
+func TestDispatchConnectionsCountsPendingOutgoingSlots(t *testing.T) {
+	sess := newConnectSession(t, 4)
+	blockGlobalConnectionSlot(t, sess)
+	d := newConnectDownload(t, sess)
+	d.session.TorrentConnLimit.Store(1)
+	d.peerList.addPeer(netip.MustParseAddrPort("10.0.0.9:6881"), tracker.PeerSourceTracker)
+	d.peerList.addPeer(netip.MustParseAddrPort("10.0.0.10:6881"), tracker.PeerSourcePEX)
+
+	d.dispatchConnections()
+	require.Eventually(t, func() bool { return d.pendingOutgoing.Load() == 1 }, time.Second, 10*time.Millisecond)
+	d.dispatchConnections()
+
+	require.Equal(t, int32(1), d.pendingOutgoing.Load())
+	require.Equal(t, 1, dialingCandidateCount(d))
+
+	d.cancel()
+	require.Eventually(t, func() bool { return d.pendingOutgoing.Load() == 0 }, time.Second, 10*time.Millisecond)
+	sess.ConnSem.Release(1)
 }
 
 // TestConnectLoopDispatchesDial verifies the full path: a candidate added to
@@ -183,6 +296,41 @@ func TestConnectLoopFairnessAcrossDownloads(t *testing.T) {
 
 	require.Eventually(t, func() bool { return candidateFailed(d1, addr1) }, 5*time.Second, 10*time.Millisecond)
 	require.Eventually(t, func() bool { return candidateFailed(d2, addr2) }, 5*time.Second, 10*time.Millisecond)
+}
+
+// TestConnectLoopWaitsForGlobalConnectionSlot verifies that downloads wait on
+// ConnSem itself when the global pool is full. Releasing a slot then serves
+// both queued downloads without relying on their periodic retry ticks.
+func TestConnectLoopWaitsForGlobalConnectionSlot(t *testing.T) {
+	sess := newConnectSession(t, 2)
+	sess.ConnSem = semaphore.NewWeighted(1)
+	sess.Config.App.GlobalConnectionLimit = 1
+	require.True(t, sess.ConnSem.TryAcquire(1))
+	sess.ConnCount.Store(1)
+
+	d1 := newConnectDownload(t, sess)
+	d2 := newConnectDownload(t, sess)
+	defer d1.cancel()
+	defer d2.cancel()
+	go d1.connectLoop()
+	go d2.connectLoop()
+
+	addr1 := unreachableAddr(t)
+	addr2 := unreachableAddr(t)
+	d1.peerList.addPeer(addr1, tracker.PeerSourceTracker)
+	d2.peerList.addPeer(addr2, tracker.PeerSourceTracker)
+	d1.signalConnect()
+	d2.signalConnect()
+
+	require.Eventually(t, func() bool {
+		return candidateDialing(d1, addr1) && candidateDialing(d2, addr2)
+	}, time.Second, 10*time.Millisecond)
+
+	sess.ConnCount.Sub(1)
+	sess.ConnSem.Release(1)
+
+	require.Eventually(t, func() bool { return candidateFailed(d1, addr1) }, time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool { return candidateFailed(d2, addr2) }, time.Second, 10*time.Millisecond)
 }
 
 // TestPeerIntakeWakesConnectLoop verifies the decoupled intake path: peers

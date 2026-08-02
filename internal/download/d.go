@@ -122,6 +122,14 @@ func (d *Download) transition(to State) (stateTransition, error) {
 func (d *Download) commitStateTransition(from, to State) {
 	d.state.Store(uint32(to))
 
+	fromActive := from == Downloading || from == Seeding
+	toActive := to == Downloading || to == Seeding
+	if fromActive && !toActive {
+		d.cancelConnectAttempts()
+	} else if !fromActive && toActive {
+		d.resetConnectAttempts()
+	}
+
 	fromAcceptsResponses := from == Downloading || from == PendingDownloading
 	toAcceptsResponses := to == Downloading || to == PendingDownloading
 	if fromAcceptsResponses && !toAcceptsResponses {
@@ -181,6 +189,8 @@ type Download struct {
 	stateCond              *gsync.Cond                      // Never nil.
 	peerList               *peerList                        // Never nil.
 	connectSignal          chan struct{}                    // Never nil in real downloads.
+	connectCtx             context.Context                  // Canceled whenever the download becomes inactive.
+	connectCancel          context.CancelFunc               // Never nil in real downloads.
 	downloadLimiter        *ratelimit.Limiter               // Never nil.
 	err                    atomic.Pointer[error]            // nil unless download enters Error state
 	cancel                 context.CancelFunc               // Never nil after New().
@@ -206,6 +216,7 @@ type Download struct {
 	wastedStale            atomic.Int64
 	peerSeeds              atomic.Int64
 	peerIDCounter          atomic.Uint64
+	pendingOutgoing        atomic.Int32
 	uploadAtStart          int64
 	// completed is the amount of data for wanted pieces that have passed
 	// hash verification. Used for UI progress display and tracker 'left'
@@ -222,6 +233,7 @@ type Download struct {
 	queueWeight        atomic.Int64
 	completedOnce      atomic.Bool
 	moveCancelMu       sync.RWMutex
+	connectCtxMu       sync.RWMutex
 	transitionMu       sync.Mutex
 	bannedAddrsMu      sync.Mutex
 	corruptedPiecesMu  sync.Mutex
@@ -292,6 +304,56 @@ func (d *Download) signalConnect() {
 	case d.connectSignal <- struct{}{}:
 	default:
 	}
+}
+
+func (d *Download) connectAttemptContext() context.Context {
+	d.connectCtxMu.RLock()
+	ctx := d.connectCtx
+	d.connectCtxMu.RUnlock()
+	if ctx != nil {
+		return ctx
+	}
+	return d.ctx
+}
+
+func (d *Download) cancelConnectAttempts() {
+	d.connectCtxMu.Lock()
+	if d.connectCancel != nil {
+		d.connectCancel()
+	}
+	d.connectCtxMu.Unlock()
+}
+
+func (d *Download) resetConnectAttempts() {
+	d.connectCtxMu.Lock()
+	if d.connectCancel != nil {
+		d.connectCancel()
+	}
+	d.connectCtx, d.connectCancel = context.WithCancel(d.ctx)
+	d.connectCtxMu.Unlock()
+}
+
+// reserveOutgoingSlot accounts for an outbound connection from candidate
+// selection until its BitTorrent handshake either registers a peer or fails.
+func (d *Download) reserveOutgoingSlot() bool {
+	for {
+		pending := d.pendingOutgoing.Load()
+		if d.peerCount()+int(pending) >= d.maxConnections() {
+			return false
+		}
+		if d.pendingOutgoing.CompareAndSwap(pending, pending+1) {
+			return true
+		}
+	}
+}
+
+func (d *Download) releaseOutgoingSlot() {
+	d.pendingOutgoing.Sub(1)
+}
+
+func (d *Download) releaseOutgoingSlotAndSignal() {
+	d.releaseOutgoingSlot()
+	d.signalConnect()
 }
 
 // QueueWeight returns the queue priority weight (higher = higher priority).

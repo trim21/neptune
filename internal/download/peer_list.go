@@ -94,6 +94,8 @@ type peerList struct {
 	d                    *Download
 	candidateCache       []candidateEntry // sorted cache of top candidates (max 10)
 	peers                []*persistentPeer
+	bannedAddrs          map[netip.Addr]int64
+	incomingConnections  map[netip.AddrPort]uint32
 	numConnectCandidates int
 	roundRobin           int
 	maxFailcount         int
@@ -106,10 +108,12 @@ const candidateCount = 50
 
 func newPeerList(d *Download) *peerList {
 	return &peerList{
-		d:                d,
-		candidateCache:   make([]candidateEntry, 0, candidateCount),
-		maxFailcount:     10,
-		minReconnectTime: 60,
+		d:                   d,
+		candidateCache:      make([]candidateEntry, 0, candidateCount),
+		bannedAddrs:         make(map[netip.Addr]int64),
+		incomingConnections: make(map[netip.AddrPort]uint32),
+		maxFailcount:        10,
+		minReconnectTime:    60,
 	}
 }
 
@@ -319,7 +323,7 @@ func (pl *peerList) findConnectCandidates(sessionTime int64) {
 		pp := pl.peers[pl.roundRobin]
 		pl.roundRobin++
 
-		if !pp.isConnectCandidate(pl.finished, pl.maxFailcount) {
+		if !pl.isConnectCandidateLocked(pp, sessionTime) {
 			continue
 		}
 
@@ -362,7 +366,8 @@ func (pl *peerList) findConnectCandidates(sessionTime int64) {
 	}
 }
 
-// connectPeers returns up to n best connect candidates in a single locked call.
+// connectPeers returns up to n best currently allowed connect candidates in a
+// single locked call.
 // Mirrors libtorrent's connect_one_peer logic:
 // 1. Clean cache (remove non-candidates)
 // 2. Refill if empty via findConnectCandidates
@@ -374,7 +379,7 @@ func (pl *peerList) connectPeers(sessionTime int64, n int) []*persistentPeer {
 	// Clean cache: remove entries that are no longer connect candidates.
 	cleaned := pl.candidateCache[:0]
 	for _, entry := range pl.candidateCache {
-		if entry.p.isConnectCandidate(pl.finished, pl.maxFailcount) {
+		if pl.isConnectCandidateLocked(entry.p, sessionTime) {
 			cleaned = append(cleaned, entry)
 		}
 	}
@@ -398,6 +403,71 @@ func (pl *peerList) connectPeers(sessionTime int64, n int) []*persistentPeer {
 	}
 
 	return result
+}
+
+// isConnectCandidateLocked applies peer-list-owned availability state in
+// addition to persistent peer metadata. Caller holds pl.mu.
+func (pl *peerList) isConnectCandidateLocked(pp *persistentPeer, sessionTime int64) bool {
+	if !pp.isConnectCandidate(pl.finished, pl.maxFailcount) {
+		return false
+	}
+	if pl.incomingConnections[pp.addrPort] > 0 {
+		return false
+	}
+	return !pl.isAddrBannedLocked(pp.addrPort.Addr(), sessionTime)
+}
+
+func (pl *peerList) isAddrBannedLocked(addr netip.Addr, sessionTime int64) bool {
+	expires, ok := pl.bannedAddrs[addr]
+	if !ok {
+		return false
+	}
+	if sessionTime >= expires {
+		delete(pl.bannedAddrs, addr)
+		return false
+	}
+	return true
+}
+
+// canDial reports whether an already-selected candidate is still eligible to
+// start a transport connection. The dialing flag is intentionally ignored.
+func (pl *peerList) canDial(pp *persistentPeer, sessionTime int64) bool {
+	pl.mu.Lock()
+	defer pl.mu.Unlock()
+	if pp.connection != nil || !pp.connectable {
+		return false
+	}
+	if pl.incomingConnections[pp.addrPort] > 0 {
+		return false
+	}
+	return !pl.isAddrBannedLocked(pp.addrPort.Addr(), sessionTime)
+}
+
+// banAddr prevents outbound dials to addr until expires. Download owns the
+// policy decision; peerList owns the candidate availability state.
+func (pl *peerList) banAddr(addr netip.Addr, expires time.Time) {
+	pl.mu.Lock()
+	pl.bannedAddrs[addr] = expires.Unix()
+	pl.mu.Unlock()
+}
+
+// incomingConnectionOpened prevents an existing or later-discovered
+// candidate from being dialed while an inbound connection for that address is
+// alive. The counter handles overlapping inbound handshakes.
+func (pl *peerList) incomingConnectionOpened(addr netip.AddrPort) {
+	pl.mu.Lock()
+	pl.incomingConnections[addr]++
+	pl.mu.Unlock()
+}
+
+func (pl *peerList) incomingConnectionClosed(addr netip.AddrPort) {
+	pl.mu.Lock()
+	defer pl.mu.Unlock()
+	if pl.incomingConnections[addr] <= 1 {
+		delete(pl.incomingConnections, addr)
+		return
+	}
+	pl.incomingConnections[addr]--
 }
 
 // clearDialing clears the dialing flag for a peer. Called when a candidate is
