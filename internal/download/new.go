@@ -119,10 +119,6 @@ func newDownload(
 	init InitState,
 ) (*Download, error) {
 	ctx, cancel := context.WithCancel(context.Background())
-	connectCtx, connectCancel := context.WithCancel(ctx)
-	if init.State != Downloading && init.State != Seeding {
-		connectCancel()
-	}
 
 	if tags == nil {
 		tags = []string{}
@@ -141,10 +137,8 @@ func newDownload(
 	store := piece_store.NewFileStore(info, basePath, sess.FilePool, sess.IOContext, selectedFilesSet, sess.Config.App.Fallocate)
 
 	d := &Download{
-		ctx:           ctx,
-		cancel:        cancel,
-		connectCtx:    connectCtx,
-		connectCancel: connectCancel,
+		ctx:    ctx,
+		cancel: cancel,
 
 		info:    info,
 		session: sess,

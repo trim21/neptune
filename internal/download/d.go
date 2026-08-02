@@ -122,12 +122,11 @@ func (d *Download) transition(to State) (stateTransition, error) {
 func (d *Download) commitStateTransition(from, to State) {
 	d.state.Store(uint32(to))
 
-	fromActive := from == Downloading || from == Seeding
-	toActive := to == Downloading || to == Seeding
-	if fromActive && !toActive {
-		d.cancelConnectAttempts()
-	} else if !fromActive && toActive {
-		d.resetConnectAttempts()
+	if (from != Downloading && from != Seeding) && (to == Downloading || to == Seeding) {
+		// Wake the connect loop so a resumed download does not have to wait
+		// for the next peer-intake event or periodic tick. Peers disconnect
+		// themselves via the keepalive check once the download turns inactive.
+		d.signalConnect()
 	}
 
 	fromAcceptsResponses := from == Downloading || from == PendingDownloading
@@ -189,8 +188,6 @@ type Download struct {
 	stateCond              *gsync.Cond                      // Never nil.
 	peerList               *peerList                        // Never nil.
 	connectSignal          chan struct{}                    // Never nil in real downloads.
-	connectCtx             context.Context                  // Canceled whenever the download becomes inactive.
-	connectCancel          context.CancelFunc               // Never nil in real downloads.
 	downloadLimiter        *ratelimit.Limiter               // Never nil.
 	err                    atomic.Pointer[error]            // nil unless download enters Error state
 	cancel                 context.CancelFunc               // Never nil after New().
@@ -216,7 +213,6 @@ type Download struct {
 	wastedStale            atomic.Int64
 	peerSeeds              atomic.Int64
 	peerIDCounter          atomic.Uint64
-	pendingOutgoing        atomic.Int32
 	uploadAtStart          int64
 	// completed is the amount of data for wanted pieces that have passed
 	// hash verification. Used for UI progress display and tracker 'left'
@@ -233,7 +229,6 @@ type Download struct {
 	queueWeight        atomic.Int64
 	completedOnce      atomic.Bool
 	moveCancelMu       sync.RWMutex
-	connectCtxMu       sync.RWMutex
 	transitionMu       sync.Mutex
 	bannedAddrsMu      sync.Mutex
 	corruptedPiecesMu  sync.Mutex
@@ -306,66 +301,31 @@ func (d *Download) signalConnect() {
 	}
 }
 
-func (d *Download) connectAttemptContext() context.Context {
-	d.connectCtxMu.RLock()
-	ctx := d.connectCtx
-	d.connectCtxMu.RUnlock()
-	if ctx != nil {
-		return ctx
-	}
-	return d.ctx
-}
-
-func (d *Download) cancelConnectAttempts() {
-	d.connectCtxMu.Lock()
-	if d.connectCancel != nil {
-		d.connectCancel()
-	}
-	d.connectCtxMu.Unlock()
-}
-
-func (d *Download) resetConnectAttempts() {
-	d.connectCtxMu.Lock()
-	if d.connectCancel != nil {
-		d.connectCancel()
-	}
-	d.connectCtx, d.connectCancel = context.WithCancel(d.ctx)
-	d.connectCtxMu.Unlock()
-}
-
-// reserveOutgoingSlot accounts for an outbound connection from candidate
-// selection until its BitTorrent handshake either registers a peer or fails.
-func (d *Download) reserveOutgoingSlot() bool {
-	for {
-		pending := d.pendingOutgoing.Load()
-		if d.peerCount()+int(pending) >= d.maxConnections() {
-			return false
+// occupiedConnectionCount returns the number of per-torrent connection slots
+// currently occupied: registered peers (including incoming) plus outbound
+// connections still in flight — candidate selected, dialing, or handshake
+// pending registration. It is derived from peerList state on every call
+// instead of being maintained as a counter, so no reserve/release pairing is
+// needed: the peerList state transitions (dialing → connection → registered)
+// make the count continuous by construction.
+func (d *Download) occupiedConnectionCount() int {
+	d.peerList.mu.Lock()
+	defer d.peerList.mu.Unlock()
+	inFlight := 0
+	for _, pp := range d.peerList.peers {
+		if pp.dialing {
+			inFlight++
+			continue
 		}
-		if d.pendingOutgoing.CompareAndSwap(pending, pending+1) {
-			return true
+		if pp.connection != nil {
+			// Dial succeeded; the peer is not registered in d.peers until its
+			// handshake completes (or it fails and closes).
+			if _, ok := d.peers.Load(pp.connection.ID()); !ok {
+				inFlight++
+			}
 		}
 	}
-}
-
-func (d *Download) releaseOutgoingSlot() {
-	for {
-		pending := d.pendingOutgoing.Load()
-		if pending <= 0 {
-			// reserve/release 配平被破坏：release 比 reserve 多。不把计数
-			// 静默搞负（负值会让 reserveOutgoingSlot 的容量检查失效），
-			// 记录上下文后放弃这次释放。
-			d.log.Error().Msg("releaseOutgoingSlot: outgoing slot underflow (release without reserve)")
-			return
-		}
-		if d.pendingOutgoing.CompareAndSwap(pending, pending-1) {
-			return
-		}
-	}
-}
-
-func (d *Download) releaseOutgoingSlotAndSignal() {
-	d.releaseOutgoingSlot()
-	d.signalConnect()
+	return d.peers.Size() + inFlight
 }
 
 // QueueWeight returns the queue priority weight (higher = higher priority).

@@ -82,17 +82,13 @@ func (d *Download) connectLoop() {
 // do not occupy positions in its FIFO wait queue.
 func (d *Download) dispatchConnections() {
 	for {
-		if !d.IsActive() || d.peerCount() >= d.maxConnections() {
-			return
-		}
-		if !d.reserveOutgoingSlot() {
+		if !d.IsActive() || d.occupiedConnectionCount() >= d.maxConnections() {
 			return
 		}
 
 		now := time.Now().Unix()
 		candidates := d.peerList.connectPeers(now, 1)
 		if len(candidates) == 0 {
-			d.releaseOutgoingSlot()
 			return
 		}
 		candidate := candidates[0]
@@ -101,13 +97,11 @@ func (d *Download) dispatchConnections() {
 		// have raced candidate selection.
 		if !d.peerList.canDial(candidate, now) {
 			d.peerList.clearDialing(candidate)
-			d.releaseOutgoingSlot()
 			continue
 		}
 
-		if err := d.session.DialSem.Acquire(d.connectAttemptContext(), 1); err != nil {
+		if err := d.session.DialSem.Acquire(d.ctx, 1); err != nil {
 			d.peerList.clearDialing(candidate)
-			d.releaseOutgoingSlot()
 			return
 		}
 
@@ -196,18 +190,10 @@ func (d *Download) connectPeerWithReservedSlot(ctx context.Context, pp *persiste
 // connection to a candidate peer. DialSem is held while waiting, which bounds
 // the number of ConnSem waiters and preserves FIFO scheduling across downloads.
 func (d *Download) tryDial(pp *persistentPeer) {
-	pendingOwned := true
-	defer func() {
-		if pendingOwned {
-			d.releaseOutgoingSlotAndSignal()
-		}
-	}()
-
 	// ConnSem represents the actual scarce resource. Blocking here rather
 	// than failing fast makes the next released connection slot go to the
 	// longest-waiting dial, instead of only waking its owning download.
-	connectCtx := d.connectAttemptContext()
-	if err := d.session.ConnSem.Acquire(connectCtx, 1); err != nil {
+	if err := d.session.ConnSem.Acquire(d.ctx, 1); err != nil {
 		d.peerList.clearDialing(pp)
 		return
 	}
@@ -219,9 +205,10 @@ func (d *Download) tryDial(pp *persistentPeer) {
 		d.peerList.clearDialing(pp)
 		d.session.ConnSem.Release(1)
 		d.session.ConnCount.Sub(1)
+		d.signalConnect()
 		return
 	}
-	ctx, cancel := context.WithTimeout(connectCtx, peerConnectTimeout)
+	ctx, cancel := context.WithTimeout(d.ctx, peerConnectTimeout)
 	defer cancel()
 
 	d.log.Trace().Msgf("try to connect to peer %s", pp.addrPort)
@@ -229,11 +216,13 @@ func (d *Download) tryDial(pp *persistentPeer) {
 	pc, err := d.connectPeerWithReservedSlot(ctx, pp)
 	if err != nil {
 		d.peerList.incFailcount(pp, err.Error())
+		// The failed dial clears the candidate's dialing flag, freeing this
+		// download's in-flight slot: wake the loop to dispatch the next one.
+		d.signalConnect()
 		return
 	}
 
-	p := newPendingOutgoingPeer(pc.conn, d, pp.addrPort, pc.encrypted)
-	pendingOwned = false
+	p := NewOutgoingPeer(pc.conn, d, pp.addrPort, pc.encrypted)
 	// Register the connection in the persistent peer list.
 	d.peerList.newConnection(pp.addrPort, p, time.Now().Unix())
 }
@@ -322,22 +311,9 @@ func (d *Download) EvictPeers(n int) int {
 
 // peerTurnover disconnects least useful peers to make room for fresh candidates.
 // Mirrors libtorrent's optimistic disconnect (~2% per round).
-// When the download is pending (queued), all peers are disconnected to free
-// global connection slots for active downloads.
 func (d *Download) peerTurnover() {
 	peerCount := d.peers.Size()
 	if peerCount == 0 {
-		return
-	}
-
-	// Pending (queued) downloads don't need any peers — disconnect all to
-	// free global connection slots. Peers will be reconnected when the
-	// download is promoted back to Downloading.
-	if d.HasState(PendingDownloading) {
-		d.peers.Range(func(_ uint64, p Peer) bool {
-			p.Close()
-			return true
-		})
 		return
 	}
 

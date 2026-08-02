@@ -142,17 +142,11 @@ func NewPeerID() (peerID proto.PeerID) {
 }
 
 func NewOutgoingPeer(conn net.Conn, d *Download, addr netip.AddrPort, encrypted bool) Peer {
-	return newPeer(conn, d, addr, false, nil, encrypted, false)
+	return newPeer(conn, d, addr, false, nil, encrypted)
 }
 
 func NewIncomingPeer(conn net.Conn, d *Download, addr netip.AddrPort, h proto.Handshake, encrypted bool) Peer {
-	return newPeer(conn, d, addr, true, &h, encrypted, false)
-}
-
-// newPendingOutgoingPeer transfers an already-reserved outbound connection
-// slot to the peer handshake lifecycle.
-func newPendingOutgoingPeer(conn net.Conn, d *Download, addr netip.AddrPort, encrypted bool) Peer {
-	return newPeer(conn, d, addr, false, nil, encrypted, true)
+	return newPeer(conn, d, addr, true, &h, encrypted)
 }
 
 func newPeer(
@@ -162,7 +156,6 @@ func newPeer(
 	skipReadHandshake bool,
 	h *proto.Handshake,
 	encrypted bool,
-	pendingOutgoing bool,
 ) Peer {
 	ctx, cancel := context.WithCancel(d.ctx)
 	l := d.log.With().Stringer("addr", addr)
@@ -189,7 +182,6 @@ func newPeer(
 		queueLimit:        *atomic.NewUint32(2000),
 		incoming:          skipReadHandshake,
 		encrypted:         encrypted,
-		pendingOutgoing:   pendingOutgoing,
 
 		ourChoking:     *atomic.NewBool(true),
 		ourInterested:  *atomic.NewBool(false),
@@ -302,7 +294,6 @@ type peerImpl struct {
 	readBuf                [4]byte
 	writeBuf               [4]byte
 	incoming               bool
-	pendingOutgoing        bool
 	encrypted              bool
 	fastExtension          bool
 	dhtEnabled             bool
@@ -749,10 +740,7 @@ func (p *peerImpl) checkRequestTimeouts() {
 
 func (p *peerImpl) start(skipHandshake bool) {
 	p.log.Trace().Msg("start")
-	defer func() {
-		p.releasePendingOutgoing()
-		p.Close()
-	}()
+	defer p.Close()
 
 	_ = p.Conn.SetWriteDeadline(time.Now().Add(time.Second * 30))
 	if err := proto.SendHandshake(p.Conn, p.d.info.Hash, NewPeerID(), p.d.private); err != nil {
@@ -814,6 +802,14 @@ func (p *peerImpl) start(skipHandshake bool) {
 			case <-p.ctx.Done():
 				return
 			case <-timer.C:
+				if !p.d.IsActive() {
+					// The download is not transferring (Stopped, queued,
+					// checking...): the connection only holds a global slot
+					// and keeps alive for nothing. Close it; the connect loop
+					// re-dials when the download becomes active again.
+					p.log.Debug().Msg("peer: download inactive, closing connection")
+					return
+				}
 				if time.Now().Unix()-p.lastSend.Load() >= 60 {
 					p.sendEventX(Event{keepAlive: true})
 				}
@@ -823,7 +819,6 @@ func (p *peerImpl) start(skipHandshake bool) {
 
 	// Register in peers map by unique ID (never collides).
 	p.d.peers.Store(p.id, p)
-	p.releasePendingOutgoing()
 
 	// Address dedup: ensure only one peer per address.
 	actual, loaded := p.d.connectedAddrs.LoadOrStore(p.Address, p)
@@ -1058,14 +1053,6 @@ func (p *peerImpl) start(skipHandshake bool) {
 			}
 		}
 	}
-}
-
-func (p *peerImpl) releasePendingOutgoing() {
-	if !p.pendingOutgoing {
-		return
-	}
-	p.pendingOutgoing = false
-	p.d.releaseOutgoingSlotAndSignal()
 }
 
 func (p *peerImpl) sendInitPayload() {

@@ -61,17 +61,14 @@ func newTestDownload(t testing.TB, numPieces uint32, blocksPerPiece uint32, newS
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	connectCtx, connectCancel := context.WithCancel(ctx)
 
 	completedBm := bm.New(info.NumPieces)
 	normalChunkLen := info.BlocksPerPiece()
 	stateCond := gsync.NewCond(&sync.RWMutex{})
 
 	d := &Download{
-		ctx:           ctx,
-		connectCtx:    connectCtx,
-		connectCancel: connectCancel,
-		bitfieldSize:  (info.NumPieces + 7) / 8,
+		ctx:          ctx,
+		bitfieldSize: (info.NumPieces + 7) / 8,
 		session: &session.Session{
 			ConnSem:           semaphore.NewWeighted(200),
 			DownloadLimiter:   ratelimit.New(0),

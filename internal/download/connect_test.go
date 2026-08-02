@@ -217,11 +217,15 @@ func TestDispatchConnectionsSkipsBannedCandidateAndDialsNext(t *testing.T) {
 	require.False(t, candidateDialing(d, banned))
 
 	d.cancel()
-	require.Eventually(t, func() bool { return d.pendingOutgoing.Load() == 0 }, time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool { return dialingCandidateCount(d) == 0 }, time.Second, 10*time.Millisecond)
 	sess.ConnSem.Release(1)
 }
 
-func TestStopCancelsWaitingConnectionAttempt(t *testing.T) {
+// TestStopAbandonsWaitingDial verifies that a dial waiting on the global
+// connection slot is abandoned once the download stops: it acquires the slot
+// when one is released, fails the IsActive re-check, and releases the slot
+// without dialing.
+func TestStopAbandonsWaitingDial(t *testing.T) {
 	sess := newConnectSession(t, 4)
 	blockGlobalConnectionSlot(t, sess)
 	d := newConnectDownload(t, sess)
@@ -232,14 +236,17 @@ func TestStopCancelsWaitingConnectionAttempt(t *testing.T) {
 	require.Eventually(t, func() bool { return candidateDialing(d, addr) }, time.Second, 10*time.Millisecond)
 
 	require.NoError(t, d.Stop())
-	require.Eventually(t, func() bool {
-		return !candidateDialing(d, addr) && d.pendingOutgoing.Load() == 0
-	}, time.Second, 10*time.Millisecond)
+	// Stop does not cancel the wait; the next released slot lets the dial
+	// observe the inactive state and give up.
+	sess.ConnSem.Release(1)
+	require.Eventually(t, func() bool { return dialingCandidateCount(d) == 0 }, time.Second, 10*time.Millisecond)
 	require.True(t, sess.DialSem.TryAcquire(4), "stopped download must release dial slots")
 	sess.DialSem.Release(4)
-	sess.ConnSem.Release(1)
 }
 
+// TestDispatchConnectionsCountsPendingOutgoingSlots verifies the per-torrent
+// in-flight accounting: while one candidate occupies the only slot, a second
+// dispatch pass must not start another dial.
 func TestDispatchConnectionsCountsPendingOutgoingSlots(t *testing.T) {
 	sess := newConnectSession(t, 4)
 	blockGlobalConnectionSlot(t, sess)
@@ -249,14 +256,13 @@ func TestDispatchConnectionsCountsPendingOutgoingSlots(t *testing.T) {
 	d.peerList.addPeer(netip.MustParseAddrPort("10.0.0.10:6881"), tracker.PeerSourcePEX)
 
 	d.dispatchConnections()
-	require.Eventually(t, func() bool { return d.pendingOutgoing.Load() == 1 }, time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool { return dialingCandidateCount(d) == 1 }, time.Second, 10*time.Millisecond)
 	d.dispatchConnections()
 
-	require.Equal(t, int32(1), d.pendingOutgoing.Load())
-	require.Equal(t, 1, dialingCandidateCount(d))
+	require.Equal(t, 1, dialingCandidateCount(d), "second dispatch must not exceed the per-torrent limit")
 
 	d.cancel()
-	require.Eventually(t, func() bool { return d.pendingOutgoing.Load() == 0 }, time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool { return dialingCandidateCount(d) == 0 }, time.Second, 10*time.Millisecond)
 	sess.ConnSem.Release(1)
 }
 
