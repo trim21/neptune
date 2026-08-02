@@ -92,10 +92,10 @@ func comparePeer(lhs, rhs *persistentPeer) bool {
 // findConnectCandidates when empty.
 type peerList struct {
 	d                    *Download
-	candidateCache       []candidateEntry // sorted cache of top candidates (max 10)
-	peers                []*persistentPeer
 	bannedAddrs          map[netip.Addr]int64
 	incomingConnections  map[netip.AddrPort]uint32
+	candidateCache       []candidateEntry
+	peers                []*persistentPeer
 	numConnectCandidates int
 	roundRobin           int
 	maxFailcount         int
