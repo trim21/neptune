@@ -214,14 +214,13 @@ func (d *Download) tryDial(pp *persistentPeer) {
 		return
 	}
 
-	p := newUnstartedOutgoingPeer(pc.conn, d, pp.addrPort, pc.encrypted)
-	// Attach ownership before starting the handshake goroutine so every close
-	// path can remove exactly this connection from the persistent peer entry.
+	p := NewOutgoingPeer(pc.conn, d, pp.addrPort, pc.encrypted)
+	// Attach ownership so every close path can remove exactly this
+	// connection from the persistent peer entry.
 	if !d.peerList.newConnection(pp.addrPort, p, time.Now().Unix()) {
 		p.Close()
 		return
 	}
-	p.startAsync(false)
 }
 
 // recordDisconnect is called by Peer.Close() to clean up shared peer tracking.

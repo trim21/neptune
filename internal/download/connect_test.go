@@ -195,9 +195,8 @@ func TestOutgoingHandshakeFailureReleasesPeerListSlot(t *testing.T) {
 
 	local, remote := net.Pipe()
 	defer remote.Close()
-	p := newUnstartedOutgoingPeer(local, d, addr, false)
+	p := NewOutgoingPeer(local, d, addr, false)
 	require.True(t, d.peerList.newConnection(addr, p, time.Now().Unix()))
-	p.startAsync(false)
 
 	remoteDone := make(chan struct{})
 	go func() {

@@ -142,19 +142,11 @@ func NewPeerID() (peerID proto.PeerID) {
 }
 
 func NewOutgoingPeer(conn net.Conn, d *Download, addr netip.AddrPort, encrypted bool) Peer {
-	p := newPeer(conn, d, addr, false, nil, encrypted)
-	p.startAsync(false)
-	return p
+	return newPeer(conn, d, addr, false, nil, encrypted)
 }
 
 func NewIncomingPeer(conn net.Conn, d *Download, addr netip.AddrPort, h proto.Handshake, encrypted bool) Peer {
-	p := newPeer(conn, d, addr, true, &h, encrypted)
-	p.startAsync(true)
-	return p
-}
-
-func newUnstartedOutgoingPeer(conn net.Conn, d *Download, addr netip.AddrPort, encrypted bool) *peerImpl {
-	return newPeer(conn, d, addr, false, nil, encrypted)
+	return newPeer(conn, d, addr, true, &h, encrypted)
 }
 
 func newPeer(
@@ -234,12 +226,10 @@ func newPeer(
 		p.peerID.Store(&h.PeerID)
 	}
 
-	return p
-}
-
-func (p *peerImpl) startAsync(skipReadHandshake bool) {
 	go p.scheduleRequests()
 	go p.start(skipReadHandshake)
+
+	return p
 }
 
 var ErrPeerSendInvalidData = errors.New("addrPort send invalid data")
