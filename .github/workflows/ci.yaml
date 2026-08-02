@@ -20,22 +20,6 @@ env:
   GOTOOLCHAIN: local
 
 jobs:
-  check:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7.0.1
-
-      - uses: trim21/actions/setup-go@master
-        with:
-          cache-namespace: sec
-
-      # check go mod clean
-      - run: go mod tidy
-      - run: git diff --exit-code
-      - run: go install golang.org/x/vuln/cmd/govulncheck@latest
-
-      - run: govulncheck -tags release ./...
-
   test:
     runs-on: "${{ matrix.os }}"
     strategy:
@@ -121,12 +105,6 @@ jobs:
           cache-namespace: fuzz
       - run: go test -race -fuzz=. -fuzztime=35s ./internal/piece_picker/
 
-  license:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7.0.1
-      - run: python tools/scan-license-header.py
-
   lint:
     permissions:
       contents: read
@@ -137,21 +115,33 @@ jobs:
         with:
           cache-namespace: lint
 
+      # check go mod clean
+      - run: go mod tidy
+      - run: git diff --exit-code
+
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9.3.0
         with:
           version: v2.12.2
 
-  dprint:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v7.0.1
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck -tags release ./...
 
-      - run: curl -fsSL https://dprint.dev/install.sh | sh -
-      - run: echo "/home/runner/.dprint/bin" >> $GITHUB_PATH
-      - run: dprint output-file-paths
-      - run: dprint check
+      - name: Check license headers
+        run: python tools/scan-license-header.py
+
+      - name: Install dprint
+        run: curl -fsSL https://dprint.dev/install.sh | sh -
+
+      - name: Add dprint to PATH
+        run: echo "/home/runner/.dprint/bin" >> $GITHUB_PATH
+
+      - name: dprint check
+        run: |
+          dprint output-file-paths
+          dprint check
 
   # Test RC4 asm on native arm64. The amd64 cross-compile only verifies
   # syntax; native execution catches logic bugs in the arm64 assembly.
