@@ -7,12 +7,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/netip"
 	"strconv"
 	"sync"
 	"time"
 
-	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/rs/zerolog"
 	"go.uber.org/atomic"
 
@@ -138,10 +136,10 @@ func (d *Download) commitStateTransition(from, to State) {
 }
 
 func (d *Download) clearPeerDownloadRequests() {
-	if d.peers == nil {
+	if d.peerList == nil {
 		return
 	}
-	d.peers.Range(func(_ uint64, p Peer) bool {
+	d.peerList.Range(func(_ uint64, p Peer) bool {
 		p.ClearDownloadRequests()
 		return true
 	})
@@ -173,32 +171,29 @@ type Download struct {
 	log                    zerolog.Logger
 	AddAt                  time.Time
 	ctx                    context.Context
-	store                  piece_store.PieceStore           // Never nil.
-	connectedAddrs         *xsync.Map[netip.AddrPort, Peer] // Never nil.
-	picker                 atomic.Pointer[PiecePicker]      // nil during initial checking or when the download is complete
-	session                *session.Session                 // Never nil.
-	pieceDownloadRate      *flowrate.Monitor                // Never nil.
-	ioDownloadRate         *flowrate.Monitor                // Never nil.
-	pieceUploadRate        *flowrate.Monitor                // Never nil.
-	resChan                chan chunkSubmit                 // Never nil.
-	uploadLimiter          *ratelimit.Limiter               // Never nil.
-	peersCh                chan []tracker.DiscoveredPeer    // Never nil.
-	peers                  *xsync.Map[uint64, Peer]         // Never nil.
-	bannedAddrs            map[netip.Addr]time.Time         // Never nil.
-	stateCond              *gsync.Cond                      // Never nil.
-	peerList               *peerList                        // Never nil.
-	connectSignal          chan struct{}                    // Never nil in real downloads.
-	downloadLimiter        *ratelimit.Limiter               // Never nil.
-	err                    atomic.Pointer[error]            // nil unless download enters Error state
-	cancel                 context.CancelFunc               // Never nil after New().
-	scheduleResponseSignal chan empty.Empty                 // Never nil.
-	tracker                *tracker.Trackers                // Never nil.
-	completedBm            *bm.Bitmap                       // Never nil.
-	missingBm              *bm.LockFreeBitmap               // Never nil.
-	wantedBm               *bm.Bitmap                       // Never nil.
-	selectedFilesSet       *bm.Bitmap                       // Never nil.
-	corruptedPieces        map[uint32]int                   // Never nil.
-	moveCancel             context.CancelFunc               // nil unless a move operation is in progress
+	store                  piece_store.PieceStore        // Never nil.
+	picker                 atomic.Pointer[PiecePicker]   // nil during initial checking or when the download is complete
+	session                *session.Session              // Never nil.
+	pieceDownloadRate      *flowrate.Monitor             // Never nil.
+	ioDownloadRate         *flowrate.Monitor             // Never nil.
+	pieceUploadRate        *flowrate.Monitor             // Never nil.
+	resChan                chan chunkSubmit              // Never nil.
+	uploadLimiter          *ratelimit.Limiter            // Never nil.
+	peersCh                chan []tracker.DiscoveredPeer // Never nil.
+	peerList               *peerList                     // Never nil.
+	stateCond              *gsync.Cond                   // Never nil.
+	connectSignal          chan struct{}                 // Never nil in real downloads.
+	downloadLimiter        *ratelimit.Limiter            // Never nil.
+	err                    atomic.Pointer[error]         // nil unless download enters Error state
+	cancel                 context.CancelFunc            // Never nil after New().
+	scheduleResponseSignal chan empty.Empty              // Never nil.
+	tracker                *tracker.Trackers             // Never nil.
+	completedBm            *bm.Bitmap                    // Never nil.
+	missingBm              *bm.LockFreeBitmap            // Never nil.
+	wantedBm               *bm.Bitmap                    // Never nil.
+	selectedFilesSet       *bm.Bitmap                    // Never nil.
+	corruptedPieces        map[uint32]int                // Never nil.
+	moveCancel             context.CancelFunc            // nil unless a move operation is in progress
 	s                      downloadState
 	info                   meta.Info
 	backgroundWg           sync.WaitGroup
@@ -212,7 +207,6 @@ type Download struct {
 	uploaded               atomic.Int64
 	wastedStale            atomic.Int64
 	peerSeeds              atomic.Int64
-	peerIDCounter          atomic.Uint64
 	uploadAtStart          int64
 	// completed is the amount of data for wanted pieces that have passed
 	// hash verification. Used for UI progress display and tracker 'left'
@@ -230,7 +224,6 @@ type Download struct {
 	completedOnce      atomic.Bool
 	moveCancelMu       sync.RWMutex
 	transitionMu       sync.Mutex
-	bannedAddrsMu      sync.Mutex
 	corruptedPiecesMu  sync.Mutex
 	normalChunkLen     uint32
 	bitfieldSize       uint32
@@ -436,7 +429,7 @@ func (d *Download) peerSeedLeecherCounts() (seeds, leechers int) {
 // recalcPeerCounts iterates all connected peers and refreshes the cached seed/leecher counters.
 func (d *Download) recalcPeerCounts() {
 	var seeds, leechers int64
-	d.peers.Range(func(_ uint64, p Peer) bool {
+	d.peerList.Range(func(_ uint64, p Peer) bool {
 		if p.IsSeed() {
 			seeds++
 		} else {

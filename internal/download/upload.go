@@ -86,7 +86,7 @@ func (d *Download) recalculateUnchokeSlots() {
 
 	var candidates []candidate
 
-	d.peers.Range(func(_ uint64, p Peer) bool {
+	d.peerList.Range(func(_ uint64, p Peer) bool {
 		if p.Closed() {
 			return true
 		}
@@ -228,7 +228,7 @@ func (d *Download) onPeerInterested(p Peer) {
 
 	// Count currently unchoked peers.
 	unchoked := 0
-	d.peers.Range(func(_ uint64, p2 Peer) bool {
+	d.peerList.Range(func(_ uint64, p2 Peer) bool {
 		if !p2.Closed() && !p2.IsOurChoking() {
 			unchoked++
 		}
@@ -274,7 +274,7 @@ func (d *Download) backgroundReqHandler() {
 
 			dispatched := 0
 			queueFull := false
-			d.peers.Range(func(_ uint64, p Peer) bool {
+			d.peerList.Range(func(_ uint64, p Peer) bool {
 				if dispatched >= maxResponsesPerWake || queueFull {
 					return false
 				}

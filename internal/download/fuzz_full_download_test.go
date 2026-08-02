@@ -151,8 +151,8 @@ func wireDownloadState(d *Download, numPieces uint32) string {
 	picker := d.picker.Load()
 	if picker == nil {
 		return fmt.Sprintf("state=%s complete=%d/%d missing=%v peers=%d picker=released",
-			d.GetState(), d.completedBm.Count(), numPieces, missing, d.peers.Size())
+			d.GetState(), d.completedBm.Count(), numPieces, missing, d.peerList.Size())
 	}
 	return fmt.Sprintf("state=%s complete=%d/%d missing=%v peers=%d\n%s",
-		d.GetState(), d.completedBm.Count(), numPieces, missing, d.peers.Size(), picker.DebugDump())
+		d.GetState(), d.completedBm.Count(), numPieces, missing, d.peerList.Size(), picker.DebugDump())
 }

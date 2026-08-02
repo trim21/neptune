@@ -221,7 +221,7 @@ func BuildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 
 	// Peers
 	var peers []debugPeer
-	d.peers.Range(func(_ uint64, p Peer) bool {
+	d.peerList.Range(func(_ uint64, p Peer) bool {
 		dir := "out"
 		if p.Incoming() {
 			dir = "in"
@@ -264,7 +264,7 @@ func BuildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 	// Peer rate & total vs download
 	var peerTotalCurRate int64
 	var peerTotalBytes int64
-	d.peers.Range(func(_ uint64, p Peer) bool {
+	d.peerList.Range(func(_ uint64, p Peer) bool {
 		peerTotalCurRate += p.DownloadRate()
 		peerTotalBytes += p.DownloadTotal()
 		return true

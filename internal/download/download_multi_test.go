@@ -71,7 +71,7 @@ func FuzzDownloadMultiPeer_Async(f *testing.F) {
 		combined := bm.New(numPieces)
 		for i := range numPeers {
 			p := asyncPeer(d, numPieces, seed+uint64(i))
-			d.peers.Store(p.ID(), p)
+			d.peerList.activeByID.Store(p.ID(), p)
 			t.Cleanup(p.Close)
 			p.bitmap.Range(func(pi uint32) {
 				d.picker.Load().IncRefcount(pi)
@@ -99,7 +99,7 @@ func FuzzDownloadMultiPeer_Async(f *testing.F) {
 				peersAlive := 0
 				peersUnchoked := 0
 				peersInterested := 0
-				d.peers.Range(func(_ uint64, p Peer) bool {
+				d.peerList.Range(func(_ uint64, p Peer) bool {
 					if !p.Closed() {
 						hasCapable = true
 						peersAlive++
@@ -127,7 +127,7 @@ func FuzzDownloadMultiPeer_Async(f *testing.F) {
 				}
 
 				// Call requestABlock for all open peers.
-				d.peers.Range(func(_ uint64, p Peer) bool {
+				d.peerList.Range(func(_ uint64, p Peer) bool {
 					if p.Closed() {
 						return true
 					}
@@ -137,7 +137,7 @@ func FuzzDownloadMultiPeer_Async(f *testing.F) {
 
 				// Random events.
 				if rng.IntN(20) == 0 {
-					d.peers.Range(func(_ uint64, p Peer) bool {
+					d.peerList.Range(func(_ uint64, p Peer) bool {
 						if rng.IntN(3) == 0 {
 							if p.IsOurChoking() {
 								p.SendUnchoke()
@@ -150,7 +150,7 @@ func FuzzDownloadMultiPeer_Async(f *testing.F) {
 				}
 				if rng.IntN(30) == 0 {
 					var toClose []Peer
-					d.peers.Range(func(_ uint64, p Peer) bool {
+					d.peerList.Range(func(_ uint64, p Peer) bool {
 						if rng.IntN(3) == 0 {
 							toClose = append(toClose, p)
 						}
@@ -159,7 +159,7 @@ func FuzzDownloadMultiPeer_Async(f *testing.F) {
 					for _, p := range toClose {
 						// Don't close a peer if it would make any non-completed
 						// piece unavailable among remaining peers.
-						if d.peers.Size() <= 1 {
+						if d.peerList.Size() <= 1 {
 							break
 						}
 						safeToClose := true
@@ -168,7 +168,7 @@ func FuzzDownloadMultiPeer_Async(f *testing.F) {
 								return
 							}
 							hasOther := false
-							d.peers.Range(func(_ uint64, other Peer) bool {
+							d.peerList.Range(func(_ uint64, other Peer) bool {
 								if other.ID() != p.ID() && !other.Closed() && other.PeerBitmap().Contains(pi) {
 									hasOther = true
 									return false

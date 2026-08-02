@@ -7,10 +7,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/netip"
 	"time"
 
-	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/rs/zerolog/log"
 	"go.uber.org/atomic"
 
@@ -168,11 +166,7 @@ func newDownload(
 		ioDownloadRate:    flowrate.New(time.Second, 5*time.Second),
 		pieceUploadRate:   flowrate.New(time.Second, 5*time.Second),
 
-		peers:           xsync.NewMap[uint64, Peer](),
-		connectedAddrs:  xsync.NewMap[netip.AddrPort, Peer](),
-		peerList:        newPeerList(nil), // d set below
 		corruptedPieces: make(map[uint32]int),
-		bannedAddrs:     make(map[netip.Addr]time.Time),
 
 		store: store,
 
@@ -188,6 +182,8 @@ func newDownload(
 
 		peersCh: make(chan []tracker.DiscoveredPeer, 1),
 	}
+
+	d.peerList = newPeerList(d)
 
 	d.completedBm = completedBm
 	d.wantedBm = bm.New(info.NumPieces)
@@ -236,8 +232,6 @@ func newDownload(
 		cancel()
 		return nil, err
 	}
-
-	d.peerList.d = d
 
 	d.tracker = tracker.New(d.ctx, tracker.Config{
 		Key:             trackerKey,

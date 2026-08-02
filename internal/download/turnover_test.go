@@ -32,7 +32,7 @@ func testTurnoverDownload(t *testing.T, connLimit int) *Download {
 func addConnectedPeer(d *Download, id uint64, p *mockPeer) *mockPeer {
 	p.connectedAt = time.Now().Add(-time.Hour)
 	p.SetOurInterested(true)
-	d.peers.Store(id, p)
+	d.peerList.activeByID.Store(id, p)
 	return p
 }
 
