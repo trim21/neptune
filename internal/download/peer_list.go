@@ -94,7 +94,7 @@ type peerList struct {
 	d                    *Download
 	bannedAddrs          map[netip.Addr]int64
 	incomingConnections  map[netip.AddrPort]uint32
-	candidateCache       []candidateEntry
+	candidateCache       []candidateEntry // sorted cache of top candidates (max 10)
 	peers                []*persistentPeer
 	numConnectCandidates int
 	roundRobin           int
