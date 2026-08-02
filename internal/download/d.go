@@ -301,31 +301,10 @@ func (d *Download) signalConnect() {
 	}
 }
 
-// occupiedConnectionCount returns the number of per-torrent connection slots
-// currently occupied: registered peers (including incoming) plus outbound
-// connections still in flight — candidate selected, dialing, or handshake
-// pending registration. It is derived from peerList state on every call
-// instead of being maintained as a counter, so no reserve/release pairing is
-// needed: the peerList state transitions (dialing → connection → registered)
-// make the count continuous by construction.
+// occupiedConnectionCount includes incoming connections and every outbound
+// connection from candidate selection through peer shutdown.
 func (d *Download) occupiedConnectionCount() int {
-	d.peerList.mu.Lock()
-	defer d.peerList.mu.Unlock()
-	inFlight := 0
-	for _, pp := range d.peerList.peers {
-		if pp.dialing {
-			inFlight++
-			continue
-		}
-		if pp.connection != nil {
-			// Dial succeeded; the peer is not registered in d.peers until its
-			// handshake completes (or it fails and closes).
-			if _, ok := d.peers.Load(pp.connection.ID()); !ok {
-				inFlight++
-			}
-		}
-	}
-	return d.peers.Size() + inFlight
+	return d.peerList.connectionCount()
 }
 
 // QueueWeight returns the queue priority weight (higher = higher priority).

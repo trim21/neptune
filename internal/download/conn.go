@@ -35,13 +35,12 @@ func (d *Download) AddConn(addr netip.AddrPort, conn net.Conn, h proto.Handshake
 		conn.Close()
 		return
 	}
-	if d.peers.Size() >= d.maxConnections() {
+	if !d.peerList.tryOpenIncoming(addr, d.maxConnections()) {
 		d.session.ConnSem.Release(1)
 		d.session.ConnCount.Sub(1)
 		conn.Close()
 		return
 	}
-	d.peerList.incomingConnectionOpened(addr)
 	NewIncomingPeer(conn, d, addr, h, encrypted)
 }
 
@@ -66,7 +65,9 @@ func (d *Download) connectLoop() {
 	defer reconnectTicker.Stop()
 
 	for {
-		d.dispatchConnections()
+		if d.dispatchConnections() {
+			continue
+		}
 
 		select {
 		case <-d.ctx.Done():
@@ -77,39 +78,30 @@ func (d *Download) connectLoop() {
 	}
 }
 
-// dispatchConnections dispatches up to the current per-torrent free capacity.
-// Candidates are selected before waiting on DialSem, so downloads with no work
-// do not occupy positions in its FIFO wait queue.
-func (d *Download) dispatchConnections() {
-	for {
-		if !d.IsActive() || d.occupiedConnectionCount() >= d.maxConnections() {
-			return
-		}
-
-		now := time.Now().Unix()
-		candidates := d.peerList.connectPeers(now, 1)
-		if len(candidates) == 0 {
-			return
-		}
-		candidate := candidates[0]
-
-		// Re-check after peerList unlocks: an incoming connection or ban may
-		// have raced candidate selection.
-		if !d.peerList.canDial(candidate, now) {
-			d.peerList.clearDialing(candidate)
-			continue
-		}
-
-		if err := d.session.DialSem.Acquire(d.ctx, 1); err != nil {
-			d.peerList.clearDialing(candidate)
-			return
-		}
-
-		go func() {
-			defer d.session.DialSem.Release(1)
-			d.tryDial(candidate)
-		}()
+// dispatchConnections executes one fair connection turn. The download joins
+// DialSem before selecting a candidate, re-checks all local state after the
+// wait, and releases the turn after one transport attempt. A download can
+// therefore occupy at most one position in each global FIFO.
+func (d *Download) dispatchConnections() bool {
+	now := time.Now().Unix()
+	if !d.IsActive() || !d.peerList.hasConnectWork(now, d.maxConnections()) {
+		return false
 	}
+	if err := d.session.DialSem.Acquire(d.ctx, 1); err != nil {
+		return false
+	}
+	defer d.session.DialSem.Release(1)
+
+	if !d.IsActive() {
+		return false
+	}
+	candidate := d.peerList.pickConnectCandidate(time.Now().Unix(), d.maxConnections())
+	if candidate == nil {
+		return false
+	}
+
+	d.tryDial(candidate)
+	return true
 }
 
 // peerConn is an established peer transport connection.
@@ -222,28 +214,33 @@ func (d *Download) tryDial(pp *persistentPeer) {
 		return
 	}
 
-	p := NewOutgoingPeer(pc.conn, d, pp.addrPort, pc.encrypted)
-	// Register the connection in the persistent peer list.
-	d.peerList.newConnection(pp.addrPort, p, time.Now().Unix())
+	p := newUnstartedOutgoingPeer(pc.conn, d, pp.addrPort, pc.encrypted)
+	// Attach ownership before starting the handshake goroutine so every close
+	// path can remove exactly this connection from the persistent peer entry.
+	if !d.peerList.newConnection(pp.addrPort, p, time.Now().Unix()) {
+		p.Close()
+		return
+	}
+	p.startAsync(false)
 }
 
 // recordDisconnect is called by Peer.Close() to clean up shared peer tracking.
-// The connectedAddrs/peerList part is skipped if p is not the primary peer
-// for its address (e.g. when a replacement has already arrived).
+// Outgoing peer-list ownership is cleared by identity, while connectedAddrs is
+// removed only when p is still the primary peer for its address.
 func (d *Download) recordDisconnect(p Peer) {
 	if p.Incoming() {
 		d.peerList.incomingConnectionClosed(p.Addr())
 	}
+
+	failed := p.CloseError() != nil &&
+		!errors.Is(p.CloseError(), io.EOF) &&
+		!errors.Is(p.CloseError(), context.Canceled)
+	if !p.Incoming() {
+		d.peerList.connectionClosed(p.Addr(), p, time.Now().Unix(), p.HadTransfer(), failed)
+	}
+
 	if actual, ok := d.connectedAddrs.Load(p.Addr()); ok && actual == p {
 		d.connectedAddrs.Delete(p.Addr())
-
-		failed := p.CloseError() != nil &&
-			!errors.Is(p.CloseError(), io.EOF) &&
-			!errors.Is(p.CloseError(), context.Canceled)
-
-		if !p.Incoming() {
-			d.peerList.connectionClosed(p.Addr(), time.Now().Unix(), p.HadTransfer(), failed)
-		}
 	}
 
 	d.peers.Delete(p.ID())

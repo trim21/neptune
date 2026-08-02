@@ -267,7 +267,7 @@ func (pl *peerList) newConnection(addr netip.AddrPort, conn Peer, sessionTime in
 // connectionClosed is called when a peer connection closes.
 // Mirrors libtorrent's peer_list::connection_closed().
 // Does NOT touch candidateCache.
-func (pl *peerList) connectionClosed(addr netip.AddrPort, sessionTime int64, hadTrans bool, failed bool) {
+func (pl *peerList) connectionClosed(addr netip.AddrPort, conn Peer, sessionTime int64, hadTrans bool, failed bool) {
 	pl.mu.Lock()
 	defer pl.mu.Unlock()
 
@@ -277,6 +277,9 @@ func (pl *peerList) connectionClosed(addr netip.AddrPort, sessionTime int64, had
 	}
 
 	pp := pl.peers[idx]
+	if pp.connection != conn {
+		return
+	}
 	pp.connection = nil
 	pp.hadTrans = pp.hadTrans || hadTrans
 
@@ -366,16 +369,9 @@ func (pl *peerList) findConnectCandidates(sessionTime int64) {
 	}
 }
 
-// connectPeers returns up to n best currently allowed connect candidates in a
-// single locked call.
-// Mirrors libtorrent's connect_one_peer logic:
-// 1. Clean cache (remove non-candidates)
-// 2. Refill if empty via findConnectCandidates
-// 3. Pop from front.
-func (pl *peerList) connectPeers(sessionTime int64, n int) []*persistentPeer {
-	pl.mu.Lock()
-	defer pl.mu.Unlock()
-
+// prepareCandidateCacheLocked removes stale entries and refills an empty
+// candidate cache. Caller must hold pl.mu.
+func (pl *peerList) prepareCandidateCacheLocked(sessionTime int64) bool {
 	// Clean cache: remove entries that are no longer connect candidates.
 	cleaned := pl.candidateCache[:0]
 	for _, entry := range pl.candidateCache {
@@ -387,22 +383,58 @@ func (pl *peerList) connectPeers(sessionTime int64, n int) []*persistentPeer {
 
 	if len(pl.candidateCache) == 0 {
 		pl.findConnectCandidates(sessionTime)
-		if len(pl.candidateCache) == 0 {
-			return nil
+	}
+	return len(pl.candidateCache) > 0
+}
+
+// hasConnectWork avoids joining the global DialSem FIFO when this download has
+// no immediately eligible work. Selection and capacity are checked again after
+// acquisition.
+func (pl *peerList) hasConnectWork(sessionTime int64, maxConnections int) bool {
+	pl.mu.Lock()
+	defer pl.mu.Unlock()
+
+	incoming, outgoing := pl.connectionCountsLocked()
+	return incoming+outgoing < maxConnections && pl.prepareCandidateCacheLocked(sessionTime)
+}
+
+// pickConnectCandidate atomically re-checks per-download capacity and marks
+// one candidate dialing after this download has acquired its global dial turn.
+func (pl *peerList) pickConnectCandidate(sessionTime int64, maxConnections int) *persistentPeer {
+	pl.mu.Lock()
+	defer pl.mu.Unlock()
+
+	incoming, outgoing := pl.connectionCountsLocked()
+	if incoming+outgoing >= maxConnections || !pl.prepareCandidateCacheLocked(sessionTime) {
+		return nil
+	}
+
+	pp := pl.candidateCache[0].p
+	remaining := copy(pl.candidateCache, pl.candidateCache[1:])
+	pl.candidateCache = pl.candidateCache[:remaining]
+	pp.dialing = true
+	return pp
+}
+
+// connectionCountsLocked derives connection capacity from peer-list-owned
+// lifecycle state. Caller must hold pl.mu.
+func (pl *peerList) connectionCountsLocked() (incoming, outgoing int) {
+	for _, count := range pl.incomingConnections {
+		incoming += int(count)
+	}
+	for _, pp := range pl.peers {
+		if pp.dialing || pp.connection != nil {
+			outgoing++
 		}
 	}
+	return incoming, outgoing
+}
 
-	result := make([]*persistentPeer, 0, min(n, len(pl.candidateCache)))
-	for len(result) < n && len(pl.candidateCache) > 0 {
-		pp := pl.candidateCache[0].p
-		// Shift left to preserve backing array capacity.
-		remaining := copy(pl.candidateCache, pl.candidateCache[1:])
-		pl.candidateCache = pl.candidateCache[:remaining]
-		pp.dialing = true
-		result = append(result, pp)
-	}
-
-	return result
+func (pl *peerList) connectionCount() int {
+	pl.mu.Lock()
+	defer pl.mu.Unlock()
+	incoming, outgoing := pl.connectionCountsLocked()
+	return incoming + outgoing
 }
 
 // isConnectCandidateLocked applies peer-list-owned availability state in
@@ -458,6 +490,27 @@ func (pl *peerList) incomingConnectionOpened(addr netip.AddrPort) {
 	pl.mu.Lock()
 	pl.incomingConnections[addr]++
 	pl.mu.Unlock()
+}
+
+// tryOpenIncoming atomically admits an incoming connection. Downloads with a
+// limit of at least two always keep one lane available for outgoing dialing,
+// preventing incoming peers from filling every per-download slot.
+func (pl *peerList) tryOpenIncoming(addr netip.AddrPort, maxConnections int) bool {
+	pl.mu.Lock()
+	defer pl.mu.Unlock()
+
+	if maxConnections <= 0 {
+		return false
+	}
+	incoming, outgoing := pl.connectionCountsLocked()
+	if incoming+outgoing >= maxConnections {
+		return false
+	}
+	if maxConnections > 1 && outgoing == 0 && incoming >= maxConnections-1 {
+		return false
+	}
+	pl.incomingConnections[addr]++
+	return true
 }
 
 func (pl *peerList) incomingConnectionClosed(addr netip.AddrPort) {
