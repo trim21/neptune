@@ -188,11 +188,11 @@ async function reannounce(e) {
 <h2>Pending Peers</h2>
 <div class="table-responsive">
 <table class="table table-sm table-dark table-striped">
-<thead><tr><th>Address</th><th class="num">Fail</th><th>Last Seen</th><th>Last Error</th><th>HadTrans</th><th>Conn</th></tr></thead>
+<thead><tr><th>Address</th><th class="num">Fail</th><th>Last Seen</th><th>Last Error</th><th>HadTrans</th><th>Conn</th><th>Dial</th></tr></thead>
 <tbody>
 {{range .PendingPeers}}<tr>
   <td>{{.Address}}</td><td class="num">{{.Failcount}}</td><td>{{.LastSeen}}</td>
-  <td class="text-break">{{.LastError}}</td><td>{{.HadTrans}}</td><td>{{.Connectable}}</td>
+  <td class="text-break">{{.LastError}}</td><td>{{.HadTrans}}</td><td>{{.Connectable}}</td><td>{{.Dialing}}</td>
 </tr>
 {{end}}</tbody>
 </table>

@@ -72,10 +72,18 @@ func TestConnectPeerFallbackToPlaintext(t *testing.T) {
 	defer cancel()
 
 	pp := &persistentPeer{addrPort: addr}
-	pc, err := d.connectPeer(ctx, pp)
+	// Reserve a global connection slot the way tryDial does before dialing.
+	require.True(t, d.session.ConnSem.TryAcquire(1))
+	d.session.ConnCount.Add(1)
+	pc, err := d.connectPeerWithReservedSlot(ctx, pp)
 	require.NoError(t, err)
 	require.False(t, pc.encrypted, "fallback connection must be plaintext")
-	defer pc.conn.Close()
+	defer func() {
+		pc.conn.Close()
+		// Success transfers slot ownership to the caller; release it here.
+		d.session.ConnSem.Release(1)
+		d.session.ConnCount.Sub(1)
+	}()
 
 	// Plaintext handshake on the fresh connection (normally done by the peer).
 	require.NoError(t, proto.SendHandshake(pc.conn, d.info.Hash, testOutgoingPeerID, d.private))
@@ -122,7 +130,9 @@ func TestConnectPeerMSEForceNoFallback(t *testing.T) {
 	defer cancel()
 
 	pp := &persistentPeer{addrPort: addr}
-	pc, err := d.connectPeer(ctx, pp)
+	require.True(t, d.session.ConnSem.TryAcquire(1))
+	d.session.ConnCount.Add(1)
+	pc, err := d.connectPeerWithReservedSlot(ctx, pp)
 	require.Error(t, err, "force mode must fail on MSE handshake error")
 	require.Nil(t, pc.conn)
 
@@ -133,36 +143,7 @@ func TestConnectPeerMSEForceNoFallback(t *testing.T) {
 	_, err = ln.Accept()
 	require.Error(t, err, "force mode must not attempt a plaintext fallback connection")
 
-	// The failed attempt must have released the connection slot.
+	// The failed attempt must have released the reserved connection slot.
 	require.True(t, d.session.ConnSem.TryAcquire(200), "failed connect must release the connection slot")
-}
-
-// TestConnectPeerReturnsErrConnectionLimit verifies that a full global
-// connection slot fails fast with errConnectionLimit, without dialing or
-// establishing any connection. tryDial skips the peer's failcount for this
-// error because it is our own capacity limit, not a peer failure.
-func TestConnectPeerReturnsErrConnectionLimit(t *testing.T) {
-	var lc net.ListenConfig
-	ln, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	defer ln.Close()
-
-	addr := ln.Addr().(*net.TCPAddr).AddrPort()
-
-	d := newTestDownload(t, 1, 4, piece_store.NewMemStore)
-	// Occupy the full connection semaphore.
-	require.True(t, d.session.ConnSem.TryAcquire(200))
-
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-
-	pp := &persistentPeer{addrPort: addr}
-	pc, err := d.connectPeer(ctx, pp)
-	require.ErrorIs(t, err, errConnectionLimit)
-	require.Nil(t, pc.conn)
-
-	// No connection should have been dialed.
-	_ = ln.(*net.TCPListener).SetDeadline(time.Now().Add(100 * time.Millisecond))
-	_, err = ln.Accept()
-	require.Error(t, err, "no connection should be dialed when the slot is full")
+	require.Zero(t, d.session.ConnCount.Load(), "failed connect must restore the connection counter")
 }

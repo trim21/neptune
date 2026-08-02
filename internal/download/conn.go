@@ -16,7 +16,6 @@ import (
 	"github.com/trim21/errgo"
 
 	"neptune/internal/mse"
-	"neptune/internal/pkg/empty"
 	"neptune/internal/pkg/global"
 	"neptune/internal/proto"
 )
@@ -36,7 +35,7 @@ func (d *Download) AddConn(addr netip.AddrPort, conn net.Conn, h proto.Handshake
 		conn.Close()
 		return
 	}
-	if d.peers.Size() >= d.maxConnections() {
+	if !d.peerList.tryOpenIncoming(addr, d.maxConnections()) {
 		d.session.ConnSem.Release(1)
 		d.session.ConnCount.Sub(1)
 		conn.Close()
@@ -45,53 +44,64 @@ func (d *Download) AddConn(addr netip.AddrPort, conn net.Conn, h proto.Handshake
 	NewIncomingPeer(conn, d, addr, h, encrypted)
 }
 
-// connectToPeers tries to connect to candidate peers from the peer list.
-// Mirrors libtorrent's torrent::try_connect_peer loop.
-func (d *Download) connectToPeers(maxSlots int) int {
-	now := time.Now().Unix()
-	connected := 0
+// connectLoop is the per-download connection driver. It dispatches dials for
+// candidate peers until there is nothing left to do, then sleeps until an
+// event (new peers, a closed connection, a state change) wakes it.
+//
+// Fairness across downloads comes from DialSem itself: Acquire is FIFO, so
+// when the global dial slots are exhausted, competing downloads queue up and
+// are served in arrival order — one download whose peers are all slow to
+// time out can no longer starve others out of the slots. The download's own
+// ctx bounds the loop, so closing the download releases everything (no
+// goroutine leak, no dialing flag leak).
+//
+// The periodic ticker mirrors libtorrent's on_tick connection pass: peer
+// candidates become eligible again purely as a function of time (failcount
+// backoff in findConnectCandidates), so time-driven retries need a periodic
+// wakeup, not just events. The interval is long enough that the loop is
+// otherwise event-driven and stays quiet when there is nothing to do.
+func (d *Download) connectLoop() {
+	reconnectTicker := time.NewTicker(30 * time.Second)
+	defer reconnectTicker.Stop()
 
-	for connected < maxSlots {
-		remaining := maxSlots - connected
-		candidates := d.peerList.connectPeers(now, remaining)
-		if len(candidates) == 0 {
-			break
+	for {
+		if d.dispatchConnections() {
+			continue
 		}
 
-		semFull := false
-		for _, candidate := range candidates {
-			if semFull {
-				d.peerList.clearDialing(candidate)
-				continue
-			}
-			if _, ok := d.connectedAddrs.Load(candidate.addrPort); ok {
-				d.peerList.clearDialing(candidate)
-				continue
-			}
-			if d.isAddrBanned(candidate.addrPort.Addr()) {
-				d.peerList.clearDialing(candidate)
-				continue
-			}
-			if !d.session.DialSem.TryAcquire(1) {
-				d.peerList.clearDialing(candidate)
-				semFull = true
-				// Continue the inner loop to clearDialing remaining
-				// candidates, then stop: no point retrying until slots free up.
-				continue
-			}
-			go d.tryDial(candidate)
-			connected++
-			if connected >= maxSlots {
-				return connected
-			}
-		}
-
-		if semFull {
-			return connected
+		select {
+		case <-d.ctx.Done():
+			return
+		case <-d.connectSignal:
+		case <-reconnectTicker.C:
 		}
 	}
+}
 
-	return connected
+// dispatchConnections executes one fair connection turn. The download joins
+// DialSem before selecting a candidate, re-checks all local state after the
+// wait, and releases the turn after one transport attempt. A download can
+// therefore occupy at most one position in each global FIFO.
+func (d *Download) dispatchConnections() bool {
+	now := time.Now().Unix()
+	if !d.IsActive() || !d.peerList.hasConnectWork(now, d.maxConnections()) {
+		return false
+	}
+	if err := d.session.DialSem.Acquire(d.ctx, 1); err != nil {
+		return false
+	}
+	defer d.session.DialSem.Release(1)
+
+	if !d.IsActive() {
+		return false
+	}
+	candidate := d.peerList.pickConnectCandidate(time.Now().Unix(), d.maxConnections())
+	if candidate == nil {
+		return false
+	}
+
+	d.tryDial(candidate)
+	return true
 }
 
 // peerConn is an established peer transport connection.
@@ -99,9 +109,6 @@ type peerConn struct {
 	conn      net.Conn
 	encrypted bool
 }
-
-// errConnectionLimit is reported when the global connection slot is exhausted.
-var errConnectionLimit = errors.New("connection limit reached")
 
 // dial establishes a TCP connection to addr, configuring deadline and linger.
 func (d *Download) dial(ctx context.Context, addr netip.AddrPort) (net.Conn, error) {
@@ -119,24 +126,17 @@ func (d *Download) dial(ctx context.Context, addr netip.AddrPort) (net.Conn, err
 	return conn, nil
 }
 
-// connectPeer establishes a full connection to a peer: TCP dial plus an
-// optional MSE handshake. The caller holds DialSem.
-//
-// The returned peerConn owns a global connection slot; on success the slot
-// ownership transfers with the conn to the registered peer (released by
-// recordDisconnect). On failure the slot is released automatically.
+// connectPeerWithReservedSlot establishes a full connection to a peer: TCP
+// dial plus an optional MSE handshake, using a ConnSem slot already reserved
+// and counted by the caller. It transfers that slot to the caller (and
+// eventually the registered peer) on success, or releases it on every failure
+// path. The caller holds DialSem.
 //
 // In prefer mode a failed MSE handshake closes the polluted connection and
 // retries plaintext on a fresh TCP connection: the old connection's byte
 // stream already contains MSE handshake data, so a plaintext handshake on
 // it can never succeed.
-func (d *Download) connectPeer(ctx context.Context, pp *persistentPeer) (peerConn, error) {
-	// Grab a global connection slot before dialing.
-	if !d.session.ConnSem.TryAcquire(1) {
-		return peerConn{}, errConnectionLimit
-	}
-	d.session.ConnCount.Add(1)
-
+func (d *Download) connectPeerWithReservedSlot(ctx context.Context, pp *persistentPeer) (peerConn, error) {
 	// Every failure path releases the slot; success transfers ownership.
 	owned := false
 	defer func() {
@@ -178,65 +178,78 @@ func (d *Download) connectPeer(ctx context.Context, pp *persistentPeer) (peerCon
 	return peerConn{conn: plainConn}, nil
 }
 
-// tryDial attempts to establish a connection to a candidate peer.
-// DialSem is held by the caller; it is released on every exit path.
-// On success, registers the connection in the peer list.
-// On failure, increments failcount.
+// tryDial waits fairly for a global connection slot, then establishes a
+// connection to a candidate peer. DialSem is held while waiting, which bounds
+// the number of ConnSem waiters and preserves FIFO scheduling across downloads.
 func (d *Download) tryDial(pp *persistentPeer) {
-	defer d.session.DialSem.Release(1)
+	// ConnSem represents the actual scarce resource. Blocking here rather
+	// than failing fast makes the next released connection slot go to the
+	// longest-waiting dial, instead of only waking its owning download.
+	if err := d.session.ConnSem.Acquire(d.ctx, 1); err != nil {
+		d.peerList.clearDialing(pp)
+		return
+	}
+	d.session.ConnCount.Add(1)
 
+	// The download state or candidate may have changed while waiting for the
+	// global slot. Do not start a stale dial, and return ownership immediately.
+	if !d.IsActive() || !d.peerList.canDial(pp, time.Now().Unix()) {
+		d.peerList.clearDialing(pp)
+		d.session.ConnSem.Release(1)
+		d.session.ConnCount.Sub(1)
+		d.signalConnect()
+		return
+	}
 	ctx, cancel := context.WithTimeout(d.ctx, peerConnectTimeout)
 	defer cancel()
 
 	d.log.Trace().Msgf("try to connect to peer %s", pp.addrPort)
 
-	pc, err := d.connectPeer(ctx, pp)
+	pc, err := d.connectPeerWithReservedSlot(ctx, pp)
 	if err != nil {
-		// A full global connection slot is our own capacity limit, not a
-		// failure of the peer — don't penalize the peer's failcount.
-		if !errors.Is(err, errConnectionLimit) {
-			d.peerList.incFailcount(pp, err.Error())
-		}
-		// Wake up connection loop to try next candidate.
-		select {
-		case d.pendingPeersSignal <- empty.Empty{}:
-		default:
-		}
+		d.peerList.incFailcount(pp, err.Error())
+		// The failed dial clears the candidate's dialing flag, freeing this
+		// download's in-flight slot: wake the loop to dispatch the next one.
+		d.signalConnect()
 		return
 	}
 
-	p := NewOutgoingPeer(pc.conn, d, pp.addrPort, pc.encrypted)
-	// Register the connection in the persistent peer list.
-	d.peerList.newConnection(pp.addrPort, p, time.Now().Unix())
+	p := newUnstartedOutgoingPeer(pc.conn, d, pp.addrPort, pc.encrypted)
+	// Attach ownership before starting the handshake goroutine so every close
+	// path can remove exactly this connection from the persistent peer entry.
+	if !d.peerList.newConnection(pp.addrPort, p, time.Now().Unix()) {
+		p.Close()
+		return
+	}
+	p.startAsync(false)
 }
 
 // recordDisconnect is called by Peer.Close() to clean up shared peer tracking.
-// The connectedAddrs/peerList part is skipped if p is not the primary peer
-// for its address (e.g. when a replacement has already arrived).
+// Outgoing peer-list ownership is cleared by identity, while connectedAddrs is
+// removed only when p is still the primary peer for its address.
 func (d *Download) recordDisconnect(p Peer) {
+	if p.Incoming() {
+		d.peerList.incomingConnectionClosed(p.Addr())
+	}
+
+	failed := p.CloseError() != nil &&
+		!errors.Is(p.CloseError(), io.EOF) &&
+		!errors.Is(p.CloseError(), context.Canceled)
+	if !p.Incoming() {
+		d.peerList.connectionClosed(p.Addr(), p, time.Now().Unix(), p.HadTransfer(), failed)
+	}
+
 	if actual, ok := d.connectedAddrs.Load(p.Addr()); ok && actual == p {
 		d.connectedAddrs.Delete(p.Addr())
-
-		failed := p.CloseError() != nil &&
-			!errors.Is(p.CloseError(), io.EOF) &&
-			!errors.Is(p.CloseError(), context.Canceled)
-
-		if !p.Incoming() {
-			d.peerList.connectionClosed(p.Addr(), time.Now().Unix(), p.HadTransfer(), failed)
-		}
 	}
 
 	d.peers.Delete(p.ID())
 	d.session.ConnSem.Release(1)
 	d.session.ConnCount.Sub(1)
 
-	// Wake up connection loop to fill the freed slot.
-	if d.IsActive() {
-		select {
-		case d.pendingPeersSignal <- empty.Empty{}:
-		default:
-		}
-	}
+	// The freed global connection slot (and possibly a freed per-torrent
+	// slot) lets this download dispatch a new candidate immediately.
+	d.signalConnect()
 
 	// Notify scheduler: blocks freed by abortDownload are now available
 	// for other peers to pick up immediately.
@@ -295,22 +308,9 @@ func (d *Download) EvictPeers(n int) int {
 
 // peerTurnover disconnects least useful peers to make room for fresh candidates.
 // Mirrors libtorrent's optimistic disconnect (~2% per round).
-// When the download is pending (queued), all peers are disconnected to free
-// global connection slots for active downloads.
 func (d *Download) peerTurnover() {
 	peerCount := d.peers.Size()
 	if peerCount == 0 {
-		return
-	}
-
-	// Pending (queued) downloads don't need any peers — disconnect all to
-	// free global connection slots. Peers will be reconnected when the
-	// download is promoted back to Downloading.
-	if d.HasState(PendingDownloading) {
-		d.peers.Range(func(_ uint64, p Peer) bool {
-			p.Close()
-			return true
-		})
 		return
 	}
 
@@ -346,7 +346,9 @@ func (d *Download) isAddrBanned(addr netip.Addr) bool {
 
 // banAddr bans an address from connecting to this torrent for addrBanDuration.
 func (d *Download) banAddr(addr netip.Addr) {
+	expires := time.Now().Add(addrBanDuration)
 	d.bannedAddrsMu.Lock()
-	d.bannedAddrs[addr] = time.Now().Add(addrBanDuration)
+	d.bannedAddrs[addr] = expires
 	d.bannedAddrsMu.Unlock()
+	d.peerList.banAddr(addr, expires)
 }

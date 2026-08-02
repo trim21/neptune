@@ -71,6 +71,7 @@ type debugPendingPeer struct {
 	Failcount   uint8  `json:"failcount"`
 	HadTrans    bool   `json:"had_trans"`
 	Connectable bool   `json:"connectable"`
+	Dialing     bool   `json:"dialing"`
 }
 
 type debugFailingPiece struct {
@@ -389,6 +390,7 @@ func BuildDebugPageData(d *Download, infoHashHex string, fullMode bool) *debugPa
 				LastError:   pp.lastErr,
 				HadTrans:    pp.hadTrans,
 				Connectable: pp.connectable,
+				Dialing:     pp.dialing,
 			})
 		}
 	}

@@ -142,11 +142,19 @@ func NewPeerID() (peerID proto.PeerID) {
 }
 
 func NewOutgoingPeer(conn net.Conn, d *Download, addr netip.AddrPort, encrypted bool) Peer {
-	return newPeer(conn, d, addr, false, nil, encrypted)
+	p := newPeer(conn, d, addr, false, nil, encrypted)
+	p.startAsync(false)
+	return p
 }
 
 func NewIncomingPeer(conn net.Conn, d *Download, addr netip.AddrPort, h proto.Handshake, encrypted bool) Peer {
-	return newPeer(conn, d, addr, true, &h, encrypted)
+	p := newPeer(conn, d, addr, true, &h, encrypted)
+	p.startAsync(true)
+	return p
+}
+
+func newUnstartedOutgoingPeer(conn net.Conn, d *Download, addr netip.AddrPort, encrypted bool) *peerImpl {
+	return newPeer(conn, d, addr, false, nil, encrypted)
 }
 
 func newPeer(
@@ -156,7 +164,7 @@ func newPeer(
 	skipReadHandshake bool,
 	h *proto.Handshake,
 	encrypted bool,
-) Peer {
+) *peerImpl {
 	ctx, cancel := context.WithCancel(d.ctx)
 	l := d.log.With().Stringer("addr", addr)
 	var ua string
@@ -226,9 +234,12 @@ func newPeer(
 		p.peerID.Store(&h.PeerID)
 	}
 
+	return p
+}
+
+func (p *peerImpl) startAsync(skipReadHandshake bool) {
 	go p.scheduleRequests()
 	go p.start(skipReadHandshake)
-	return p
 }
 
 var ErrPeerSendInvalidData = errors.New("addrPort send invalid data")
@@ -802,6 +813,14 @@ func (p *peerImpl) start(skipHandshake bool) {
 			case <-p.ctx.Done():
 				return
 			case <-timer.C:
+				if !p.d.IsActive() {
+					// The download is not transferring (Stopped, queued,
+					// checking...): the connection only holds a global slot
+					// and keeps alive for nothing. Close it; the connect loop
+					// re-dials when the download becomes active again.
+					p.log.Debug().Msg("peer: download inactive, closing connection")
+					return
+				}
 				if time.Now().Unix()-p.lastSend.Load() >= 60 {
 					p.sendEventX(Event{keepAlive: true})
 				}
@@ -810,6 +829,9 @@ func (p *peerImpl) start(skipHandshake bool) {
 	}()
 
 	// Register in peers map by unique ID (never collides).
+	if p.closed.Load() {
+		return
+	}
 	p.d.peers.Store(p.id, p)
 
 	// Address dedup: ensure only one peer per address.

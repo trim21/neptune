@@ -122,6 +122,13 @@ func (d *Download) transition(to State) (stateTransition, error) {
 func (d *Download) commitStateTransition(from, to State) {
 	d.state.Store(uint32(to))
 
+	if (from != Downloading && from != Seeding) && (to == Downloading || to == Seeding) {
+		// Wake the connect loop so a resumed download does not have to wait
+		// for the next peer-intake event or periodic tick. Peers disconnect
+		// themselves via the keepalive check once the download turns inactive.
+		d.signalConnect()
+	}
+
 	fromAcceptsResponses := from == Downloading || from == PendingDownloading
 	toAcceptsResponses := to == Downloading || to == PendingDownloading
 	if fromAcceptsResponses && !toAcceptsResponses {
@@ -180,11 +187,11 @@ type Download struct {
 	bannedAddrs            map[netip.Addr]time.Time         // Never nil.
 	stateCond              *gsync.Cond                      // Never nil.
 	peerList               *peerList                        // Never nil.
+	connectSignal          chan struct{}                    // Never nil in real downloads.
 	downloadLimiter        *ratelimit.Limiter               // Never nil.
 	err                    atomic.Pointer[error]            // nil unless download enters Error state
 	cancel                 context.CancelFunc               // Never nil after New().
 	scheduleResponseSignal chan empty.Empty                 // Never nil.
-	pendingPeersSignal     chan empty.Empty                 // Never nil.
 	tracker                *tracker.Trackers                // Never nil.
 	completedBm            *bm.Bitmap                       // Never nil.
 	missingBm              *bm.LockFreeBitmap               // Never nil.
@@ -278,6 +285,26 @@ func (d *Download) IsAlive() bool {
 // IsActiveDownloading returns true when the download is in Downloading state (not PendingDownloading, not Seeding).
 func (d *Download) IsActiveDownloading() bool {
 	return d.GetState() == Downloading
+}
+
+// signalConnect wakes the per-download connection loop so it dispatches
+// another candidate. Any event that may free up a connection opportunity
+// (new peers, a closed connection, a state change) calls this. No-op for
+// downloads constructed without a connectSignal (unit tests).
+func (d *Download) signalConnect() {
+	if d.connectSignal == nil {
+		return
+	}
+	select {
+	case d.connectSignal <- struct{}{}:
+	default:
+	}
+}
+
+// occupiedConnectionCount includes incoming connections and every outbound
+// connection from candidate selection through peer shutdown.
+func (d *Download) occupiedConnectionCount() int {
+	return d.peerList.connectionCount()
 }
 
 // QueueWeight returns the queue priority weight (higher = higher priority).
