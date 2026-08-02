@@ -348,7 +348,19 @@ func (d *Download) reserveOutgoingSlot() bool {
 }
 
 func (d *Download) releaseOutgoingSlot() {
-	d.pendingOutgoing.Sub(1)
+	for {
+		pending := d.pendingOutgoing.Load()
+		if pending <= 0 {
+			// reserve/release 配平被破坏：release 比 reserve 多。不把计数
+			// 静默搞负（负值会让 reserveOutgoingSlot 的容量检查失效），
+			// 记录上下文后放弃这次释放。
+			d.log.Error().Msg("releaseOutgoingSlot: outgoing slot underflow (release without reserve)")
+			return
+		}
+		if d.pendingOutgoing.CompareAndSwap(pending, pending-1) {
+			return
+		}
+	}
 }
 
 func (d *Download) releaseOutgoingSlotAndSignal() {

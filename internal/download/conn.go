@@ -124,9 +124,6 @@ type peerConn struct {
 	encrypted bool
 }
 
-// errConnectionLimit is reported when the global connection slot is exhausted.
-var errConnectionLimit = errors.New("connection limit reached")
-
 // dial establishes a TCP connection to addr, configuring deadline and linger.
 func (d *Download) dial(ctx context.Context, addr netip.AddrPort) (net.Conn, error) {
 	conn, err := global.Dial(ctx, "tcp", addr.String())
@@ -143,29 +140,16 @@ func (d *Download) dial(ctx context.Context, addr netip.AddrPort) (net.Conn, err
 	return conn, nil
 }
 
-// connectPeer establishes a full connection to a peer: TCP dial plus an
-// optional MSE handshake. The caller holds DialSem.
-//
-// The returned peerConn owns a global connection slot; on success the slot
-// ownership transfers with the conn to the registered peer (released by
-// recordDisconnect). On failure the slot is released automatically.
+// connectPeerWithReservedSlot establishes a full connection to a peer: TCP
+// dial plus an optional MSE handshake, using a ConnSem slot already reserved
+// and counted by the caller. It transfers that slot to the caller (and
+// eventually the registered peer) on success, or releases it on every failure
+// path. The caller holds DialSem.
 //
 // In prefer mode a failed MSE handshake closes the polluted connection and
 // retries plaintext on a fresh TCP connection: the old connection's byte
 // stream already contains MSE handshake data, so a plaintext handshake on
 // it can never succeed.
-func (d *Download) connectPeer(ctx context.Context, pp *persistentPeer) (peerConn, error) {
-	// Grab a global connection slot before dialing.
-	if !d.session.ConnSem.TryAcquire(1) {
-		return peerConn{}, errConnectionLimit
-	}
-	d.session.ConnCount.Add(1)
-	return d.connectPeerWithReservedSlot(ctx, pp)
-}
-
-// connectPeerWithReservedSlot establishes a connection using a ConnSem slot
-// already reserved by the caller. It transfers that slot to the peer on
-// success, or releases it on every failure path.
 func (d *Download) connectPeerWithReservedSlot(ctx context.Context, pp *persistentPeer) (peerConn, error) {
 	// Every failure path releases the slot; success transfers ownership.
 	owned := false
