@@ -37,7 +37,7 @@ func addConnectedPeer(d *Download, id uint64, p *mockPeer) *mockPeer {
 }
 
 func addCandidate(d *Download) {
-	d.peerList.addPeer(netip.MustParseAddrPort("10.0.0.1:6881"), tracker.PeerSourceTracker, true)
+	d.peerList.addPeer(netip.MustParseAddrPort("10.0.0.1:6881"), tracker.PeerSourceTracker)
 }
 
 func countClosed(peers ...*mockPeer) int {
@@ -148,7 +148,7 @@ func TestEvictPeersLimitedByCandidates(t *testing.T) {
 
 	// Only 2 candidates available.
 	addCandidate(d)
-	d.peerList.addPeer(netip.MustParseAddrPort("10.0.0.2:6881"), tracker.PeerSourceTracker, true)
+	d.peerList.addPeer(netip.MustParseAddrPort("10.0.0.2:6881"), tracker.PeerSourceTracker)
 
 	var peers = make([]*mockPeer, 0, 4)
 	for i := range uint64(4) {

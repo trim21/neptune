@@ -61,7 +61,6 @@ type Session struct {
 	randKey                    []byte
 	Config                     config.Config
 	RecheckOnComplete          atomic.Bool
-	Connecting                 atomic.Bool
 	DownloadSlots              atomic.Uint32
 	TorrentConnLimit           atomic.Uint32
 	SlowDownloadSpeedThreshold atomic.Int64

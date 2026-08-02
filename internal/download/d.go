@@ -180,11 +180,11 @@ type Download struct {
 	bannedAddrs            map[netip.Addr]time.Time         // Never nil.
 	stateCond              *gsync.Cond                      // Never nil.
 	peerList               *peerList                        // Never nil.
+	connectSignal          chan struct{}                    // Never nil in real downloads.
 	downloadLimiter        *ratelimit.Limiter               // Never nil.
 	err                    atomic.Pointer[error]            // nil unless download enters Error state
 	cancel                 context.CancelFunc               // Never nil after New().
 	scheduleResponseSignal chan empty.Empty                 // Never nil.
-	pendingPeersSignal     chan empty.Empty                 // Never nil.
 	tracker                *tracker.Trackers                // Never nil.
 	completedBm            *bm.Bitmap                       // Never nil.
 	missingBm              *bm.LockFreeBitmap               // Never nil.
@@ -278,6 +278,20 @@ func (d *Download) IsAlive() bool {
 // IsActiveDownloading returns true when the download is in Downloading state (not PendingDownloading, not Seeding).
 func (d *Download) IsActiveDownloading() bool {
 	return d.GetState() == Downloading
+}
+
+// signalConnect wakes the per-download connection loop so it dispatches
+// another candidate. Any event that may free up a connection opportunity
+// (new peers, a closed connection, a state change) calls this. No-op for
+// downloads constructed without a connectSignal (unit tests).
+func (d *Download) signalConnect() {
+	if d.connectSignal == nil {
+		return
+	}
+	select {
+	case d.connectSignal <- struct{}{}:
+	default:
+	}
 }
 
 // QueueWeight returns the queue priority weight (higher = higher priority).

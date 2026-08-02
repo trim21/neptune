@@ -181,7 +181,7 @@ func newDownload(
 		bitfieldSize: (info.NumPieces + 7) / 8,
 
 		scheduleResponseSignal: make(chan empty.Empty, 1),
-		pendingPeersSignal:     make(chan empty.Empty, 1),
+		connectSignal:          make(chan struct{}, 1),
 
 		downloadLimiter: ratelimit.New(0),
 		uploadLimiter:   ratelimit.New(0),

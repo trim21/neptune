@@ -145,14 +145,14 @@ func (pl *peerList) insertCandidateCacheLocked(pp *persistentPeer) {
 
 // addPeer adds or updates a peer.
 // Mirrors libtorrent's peer_list::add_peer().
-func (pl *peerList) addPeer(addr netip.AddrPort, source tracker.PeerSource, connectable bool) {
+func (pl *peerList) addPeer(addr netip.AddrPort, source tracker.PeerSource) {
 	pl.mu.Lock()
 	defer pl.mu.Unlock()
 
 	idx, found := pl.findPeer(addr)
 	if found {
 		p := pl.peers[idx]
-		pl.updatePeerLocked(p, source, connectable)
+		pl.updatePeerLocked(p, source)
 		return
 	}
 
@@ -160,7 +160,7 @@ func (pl *peerList) addPeer(addr netip.AddrPort, source tracker.PeerSource, conn
 		addrPort:         addr,
 		source:           source,
 		cachedSourceRank: tracker.SourceRank(source),
-		connectable:      connectable,
+		connectable:      true,
 		lastSeen:         0,
 		priority:         pl.d.session.PeerPriority(addr),
 	}
@@ -175,14 +175,12 @@ func (pl *peerList) addPeer(addr netip.AddrPort, source tracker.PeerSource, conn
 
 // updatePeerLocked updates an existing peer's metadata. Caller holds pl.mu.
 // Mirrors libtorrent's peer_list::update_peer().
-func (pl *peerList) updatePeerLocked(p *persistentPeer, source tracker.PeerSource, connectable bool) {
+func (pl *peerList) updatePeerLocked(p *persistentPeer, source tracker.PeerSource) {
 	wasConnCand := p.isConnectCandidate(pl.finished, pl.maxFailcount)
 
 	p.source |= source
 	p.cachedSourceRank = tracker.SourceRank(p.source)
-	if connectable {
-		p.connectable = true
-	}
+	p.connectable = true
 
 	if source&tracker.PeerSourceTracker != 0 {
 		p.failcount = 0

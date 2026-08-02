@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"neptune/internal/client/tracker"
-	"neptune/internal/pkg/empty"
 )
 
 func (d *Download) Start() error {
@@ -29,6 +28,8 @@ func (d *Download) Start() error {
 
 	d.stateCond.Broadcast()
 	d.tracker.Resume()
+	// A restarted download may have accumulated candidates while stopped.
+	d.signalConnect()
 	return nil
 }
 
@@ -75,12 +76,9 @@ func (d *Download) PromoteFromQueued() {
 	d.stateCond.Broadcast()
 	d.notifyPeersToRequest()
 
-	// Also wake the connection loop so a promoted download does not have to wait
-	// for the next periodic connection tick.
-	select {
-	case d.pendingPeersSignal <- empty.Empty{}:
-	default:
-	}
+	// Also wake the connection scheduler so a promoted download does not have
+	// to wait for the next peer-intake event.
+	d.signalConnect()
 }
 
 func (d *Download) AsyncCheck() error {
@@ -122,11 +120,13 @@ func (d *Download) wait(state State) bool {
 func (d *Download) startBackground() {
 	d.log.Trace().Msg("start goroutine")
 
+	d.goBackground(d.connectLoop)
 	d.goBackground(d.backgroundResHandler)
 	d.goBackground(d.backgroundReqHandler)
+	d.startPeerIntake()
 
-	// Connection + peer intake loop: handles incoming peers from all sources
-	// (tracker, PEX) and periodic connect / turnover.
+	// Background housekeeping loop: unchoke recalculation, optimistic unchoke
+	// and peer turnover. Peer connection dispatch runs in its own connectLoop.
 	d.goBackground(func() {
 		defer d.log.Info().Msg("main connection loop: exiting")
 		unchokeTicker := time.NewTicker(UnchokeInterval)
@@ -134,9 +134,6 @@ func (d *Download) startBackground() {
 
 		optimisticTicker := time.NewTicker(30 * time.Second)
 		defer optimisticTicker.Stop()
-
-		connectTicker := time.NewTicker(30 * time.Second)
-		defer connectTicker.Stop()
 
 		turnoverTicker := time.NewTicker(5 * time.Minute)
 		defer turnoverTicker.Stop()
@@ -150,44 +147,33 @@ func (d *Download) startBackground() {
 			case <-unchokeTicker.C:
 				d.recalculateUnchokeSlots()
 				d.recalcPeerCounts()
-				continue
 			case <-optimisticTicker.C:
 				if d.IsActiveDownloading() {
 					d.optimisticUnchoke()
 				}
-				continue
-
-			case peers := <-d.peersCh:
-				for _, p := range peers {
-					d.peerList.addPeer(p.AddrPort, p.Source, true)
-				}
-
-			case <-d.pendingPeersSignal:
-			case <-connectTicker.C:
 			case <-turnoverTicker.C:
 				d.peerTurnover()
-				continue
 			}
+		}
+	})
+}
 
-			if !d.IsActive() {
-				continue
+// startPeerIntake consumes discovered peers (tracker announce, PEX) and adds
+// them to the peer list, then wakes the connection loop. Running in its own
+// goroutine decouples peer injection from connection dispatch: a loop blocked
+// on DialSem can never block tracker announces.
+func (d *Download) startPeerIntake() {
+	d.goBackground(func() {
+		for {
+			select {
+			case <-d.ctx.Done():
+				return
+			case peers := <-d.peersCh:
+				for _, p := range peers {
+					d.peerList.addPeer(p.AddrPort, p.Source)
+				}
+				d.signalConnect()
 			}
-
-			desired := d.maxConnections()
-			current := d.peerCount()
-			maxSlots := desired - current
-			if maxSlots <= 0 {
-				continue
-			}
-
-			// Serialize connect attempts across downloads to prevent
-			// connection storms (mirrors libtorrent's round-robin
-			// m_next_connect_torrent at the session level).
-			if !d.session.Connecting.CompareAndSwap(false, true) {
-				continue
-			}
-			d.connectToPeers(maxSlots)
-			d.session.Connecting.Store(false)
 		}
 	})
 }

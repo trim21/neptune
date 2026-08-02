@@ -16,7 +16,6 @@ import (
 	"github.com/trim21/errgo"
 
 	"neptune/internal/mse"
-	"neptune/internal/pkg/empty"
 	"neptune/internal/pkg/global"
 	"neptune/internal/proto"
 )
@@ -45,53 +44,76 @@ func (d *Download) AddConn(addr netip.AddrPort, conn net.Conn, h proto.Handshake
 	NewIncomingPeer(conn, d, addr, h, encrypted)
 }
 
-// connectToPeers tries to connect to candidate peers from the peer list.
-// Mirrors libtorrent's torrent::try_connect_peer loop.
-func (d *Download) connectToPeers(maxSlots int) int {
-	now := time.Now().Unix()
-	connected := 0
+// connectLoop is the per-download connection driver. It dispatches dials for
+// candidate peers until there is nothing left to do, then sleeps until an
+// event (new peers, a closed connection, a state change) wakes it.
+//
+// Fairness across downloads comes from DialSem itself: Acquire is FIFO, so
+// when the global dial slots are exhausted, competing downloads queue up and
+// are served in arrival order — one download whose peers are all slow to
+// time out can no longer starve others out of the slots. The download's own
+// ctx bounds the loop, so closing the download releases everything (no
+// goroutine leak, no dialing flag leak).
+//
+// The periodic ticker mirrors libtorrent's on_tick connection pass: peer
+// candidates become eligible again purely as a function of time (failcount
+// backoff in findConnectCandidates), so time-driven retries need a periodic
+// wakeup, not just events. The interval is long enough that the loop is
+// otherwise event-driven and stays quiet when there is nothing to do.
+func (d *Download) connectLoop() {
+	reconnectTicker := time.NewTicker(30 * time.Second)
+	defer reconnectTicker.Stop()
 
-	for connected < maxSlots {
-		remaining := maxSlots - connected
-		candidates := d.peerList.connectPeers(now, remaining)
-		if len(candidates) == 0 {
-			break
-		}
+	for {
+		d.dispatchConnections()
 
-		semFull := false
-		for _, candidate := range candidates {
-			if semFull {
-				d.peerList.clearDialing(candidate)
-				continue
-			}
-			if _, ok := d.connectedAddrs.Load(candidate.addrPort); ok {
-				d.peerList.clearDialing(candidate)
-				continue
-			}
-			if d.isAddrBanned(candidate.addrPort.Addr()) {
-				d.peerList.clearDialing(candidate)
-				continue
-			}
-			if !d.session.DialSem.TryAcquire(1) {
-				d.peerList.clearDialing(candidate)
-				semFull = true
-				// Continue the inner loop to clearDialing remaining
-				// candidates, then stop: no point retrying until slots free up.
-				continue
-			}
-			go d.tryDial(candidate)
-			connected++
-			if connected >= maxSlots {
-				return connected
-			}
-		}
-
-		if semFull {
-			return connected
+		select {
+		case <-d.ctx.Done():
+			return
+		case <-d.connectSignal:
+		case <-reconnectTicker.C:
 		}
 	}
+}
 
-	return connected
+// dispatchConnections dials candidates one at a time. DialSem slots are held
+// by the async dial goroutines until they finish, so a single download can
+// have multiple dials in flight (up to DialSem capacity) while other
+// downloads' pending Acquire calls still get served between our dials.
+func (d *Download) dispatchConnections() {
+	for {
+		if !d.IsActive() || d.peerCount() >= d.maxConnections() {
+			return
+		}
+
+		// Global connection pool full: stop dispatching. Without this short
+		// circuit, dials would fail immediately with errConnectionLimit and
+		// the loop would spin — each candidate is restored via clearDialing
+		// and immediately re-picked. recordDisconnect wakes the loop when a
+		// slot frees up.
+		if int(d.session.ConnCount.Load()) >= int(d.session.Config.App.GlobalConnectionLimit) {
+			return
+		}
+
+		if err := d.session.DialSem.Acquire(d.ctx, 1); err != nil {
+			return // download closed; DialSem unchanged on ctx cancel
+		}
+
+		// State may have changed while blocked on DialSem; re-check before
+		// committing a dial.
+		if !d.IsActive() || d.peerCount() >= d.maxConnections() {
+			d.session.DialSem.Release(1)
+			return
+		}
+
+		candidates := d.peerList.connectPeers(time.Now().Unix(), 1)
+		if len(candidates) == 0 {
+			d.session.DialSem.Release(1)
+			return // no candidates; re-woken when new peers arrive
+		}
+
+		go d.tryDial(candidates[0])
+	}
 }
 
 // peerConn is an established peer transport connection.
@@ -179,7 +201,8 @@ func (d *Download) connectPeer(ctx context.Context, pp *persistentPeer) (peerCon
 }
 
 // tryDial attempts to establish a connection to a candidate peer.
-// DialSem is held by the caller; it is released on every exit path.
+// DialSem is held by the caller (dispatchConnections); it is released on
+// every exit path so the next dial can start.
 // On success, registers the connection in the peer list.
 // On failure, increments failcount.
 func (d *Download) tryDial(pp *persistentPeer) {
@@ -192,16 +215,17 @@ func (d *Download) tryDial(pp *persistentPeer) {
 
 	pc, err := d.connectPeer(ctx, pp)
 	if err != nil {
-		// A full global connection slot is our own capacity limit, not a
-		// failure of the peer — don't penalize the peer's failcount.
-		if !errors.Is(err, errConnectionLimit) {
-			d.peerList.incFailcount(pp, err.Error())
+		if errors.Is(err, errConnectionLimit) {
+			// The global connection pool was full by the time we dialed (e.g.
+			// an incoming connection raced us for the last slot). This is our
+			// own capacity limit, not a peer failure: restore the candidate
+			// without penalizing its failcount, and rely on the ConnCount
+			// short-circuit in dispatchConnections to stop further attempts
+			// until a connection closes.
+			d.peerList.clearDialing(pp)
+			return
 		}
-		// Wake up connection loop to try next candidate.
-		select {
-		case d.pendingPeersSignal <- empty.Empty{}:
-		default:
-		}
+		d.peerList.incFailcount(pp, err.Error())
 		return
 	}
 
@@ -230,13 +254,9 @@ func (d *Download) recordDisconnect(p Peer) {
 	d.session.ConnSem.Release(1)
 	d.session.ConnCount.Sub(1)
 
-	// Wake up connection loop to fill the freed slot.
-	if d.IsActive() {
-		select {
-		case d.pendingPeersSignal <- empty.Empty{}:
-		default:
-		}
-	}
+	// The freed global connection slot (and possibly a freed per-torrent
+	// slot) lets this download dispatch a new candidate immediately.
+	d.signalConnect()
 
 	// Notify scheduler: blocks freed by abortDownload are now available
 	// for other peers to pick up immediately.
