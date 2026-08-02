@@ -111,7 +111,10 @@ func (d *Download) dispatchConnections() {
 			return
 		}
 
-		go d.tryDial(candidate)
+		go func() {
+			defer d.session.DialSem.Release(1)
+			d.tryDial(candidate)
+		}()
 	}
 }
 
@@ -209,7 +212,6 @@ func (d *Download) connectPeerWithReservedSlot(ctx context.Context, pp *persiste
 // connection to a candidate peer. DialSem is held while waiting, which bounds
 // the number of ConnSem waiters and preserves FIFO scheduling across downloads.
 func (d *Download) tryDial(pp *persistentPeer) {
-	defer d.session.DialSem.Release(1)
 	pendingOwned := true
 	defer func() {
 		if pendingOwned {
