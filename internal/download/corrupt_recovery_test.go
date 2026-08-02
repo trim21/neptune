@@ -8,12 +8,10 @@ package download
 import (
 	"context"
 	"crypto/sha1"
-	"net/netip"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/rs/zerolog"
 	"golang.org/x/sync/semaphore"
 
@@ -96,8 +94,6 @@ func newTestEnv(t *testing.T, numPieces, blocksPerPiece uint32, failPieces []uin
 		pieceUploadRate:   flowrate.New(time.Second, 5*time.Second),
 		uploadLimiter:     ratelimit.New(0),
 		downloadLimiter:   ratelimit.New(0),
-		peers:             xsync.NewMap[uint64, Peer](),
-		connectedAddrs:    xsync.NewMap[netip.AddrPort, Peer](),
 		stateCond:         stateCond,
 		private:           false,
 		corruptedPieces:   make(map[uint32]int),

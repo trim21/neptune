@@ -10,6 +10,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/puzpuzpuz/xsync/v4"
+	"go.uber.org/atomic"
+
 	"neptune/internal/client/tracker"
 )
 
@@ -25,14 +28,13 @@ type persistentPeer struct {
 	failcount        uint8
 	source           tracker.PeerSource
 	connectable      bool
-	seed             bool
 	hadTrans         bool
 	dialing          bool
 }
 
 // isConnectCandidate returns true if this peer is eligible for connection.
 // Mirrors libtorrent's is_connect_candidate().
-func (p *persistentPeer) isConnectCandidate(finished bool, maxFailcount int) bool {
+func (p *persistentPeer) isConnectCandidate(maxFailcount int) bool {
 	if p.connection != nil {
 		return false
 	}
@@ -40,9 +42,6 @@ func (p *persistentPeer) isConnectCandidate(finished bool, maxFailcount int) boo
 		return false
 	}
 	if !p.connectable {
-		return false
-	}
-	if p.seed && finished {
 		return false
 	}
 	if int(p.failcount) >= maxFailcount {
@@ -84,24 +83,29 @@ func comparePeer(lhs, rhs *persistentPeer) bool {
 	return false
 }
 
-// peerList mirrors libtorrent's peer_list — persistent storage of all known
-// peers with a pre-computed connect candidate cache.
+// peerList owns all peer state for a torrent: the persistent peer metadata
+// with a pre-computed connect candidate cache, plus the registry of active
+// connections. Download delegates every peer lifecycle operation here, so a
+// connection is recorded (and cleaned up) in exactly one place.
 //
-// Peers are stored sorted by address for O(log n) lookup. Candidates are kept
-// in a small sorted vector (max 10) that is lazily populated by
-// findConnectCandidates when empty.
+// Persistent peers are stored sorted by address for O(log n) lookup. Candidates
+// are kept in a small sorted vector (max 10) that is lazily populated by
+// findConnectCandidates when empty. Active connections are keyed both by
+// unique peer ID and by address (address dedup rejects duplicate connections).
 type peerList struct {
+	activeByID           *xsync.Map[uint64, Peer]
+	activeByAddr         *xsync.Map[netip.AddrPort, Peer]
 	d                    *Download
 	bannedAddrs          map[netip.Addr]int64
 	incomingConnections  map[netip.AddrPort]uint32
-	candidateCache       []candidateEntry // sorted cache of top candidates (max 10)
 	peers                []*persistentPeer
+	candidateCache       []candidateEntry
+	idCounter            atomic.Uint64
 	numConnectCandidates int
 	roundRobin           int
 	maxFailcount         int
 	minReconnectTime     int64
 	mu                   sync.Mutex
-	finished             bool
 }
 
 const candidateCount = 50
@@ -109,12 +113,63 @@ const candidateCount = 50
 func newPeerList(d *Download) *peerList {
 	return &peerList{
 		d:                   d,
+		activeByID:          xsync.NewMap[uint64, Peer](),
+		activeByAddr:        xsync.NewMap[netip.AddrPort, Peer](),
 		candidateCache:      make([]candidateEntry, 0, candidateCount),
 		bannedAddrs:         make(map[netip.Addr]int64),
 		incomingConnections: make(map[netip.AddrPort]uint32),
 		maxFailcount:        10,
 		minReconnectTime:    60,
 	}
+}
+
+// ── Active connection registry ────────────────────────────────────────
+
+// AllocID returns a unique peer ID for a new connection.
+func (pl *peerList) AllocID() uint64 {
+	return pl.idCounter.Add(1)
+}
+
+// Register records an active connection under both its unique ID and its
+// address. Returns false when another active connection already owns the
+// address — the caller must close the new connection; its by-ID entry is
+// removed by the subsequent Unregister.
+func (pl *peerList) Register(p Peer) bool {
+	pl.activeByID.Store(p.ID(), p)
+	_, loaded := pl.activeByAddr.LoadOrStore(p.Addr(), p)
+	return !loaded
+}
+
+// Unregister removes a connection from the active registry. Only the peer
+// that actually owns its address entry is removed from the address map, so a
+// peer that lost the duplicate-connection race only clears its by-ID entry.
+func (pl *peerList) Unregister(p Peer) {
+	if actual, ok := pl.activeByAddr.Load(p.Addr()); ok && actual == p {
+		pl.activeByAddr.Delete(p.Addr())
+	}
+	pl.activeByID.Delete(p.ID())
+}
+
+// Range iterates active connections by peer ID.
+func (pl *peerList) Range(fn func(uint64, Peer) bool) {
+	pl.activeByID.Range(fn)
+}
+
+// Load returns the active connection with the given peer ID.
+func (pl *peerList) Load(id uint64) (Peer, bool) {
+	return pl.activeByID.Load(id)
+}
+
+// Size returns the number of active connections.
+func (pl *peerList) Size() int {
+	return pl.activeByID.Size()
+}
+
+// isAddrBanned checks whether addr is currently banned for this torrent.
+func (pl *peerList) isAddrBanned(addr netip.Addr) bool {
+	pl.mu.Lock()
+	defer pl.mu.Unlock()
+	return pl.isAddrBannedLocked(addr, time.Now().Unix())
 }
 
 // insertCandidateCacheLocked inserts a peer into the sorted candidate cache
@@ -171,7 +226,7 @@ func (pl *peerList) addPeer(addr netip.AddrPort, source tracker.PeerSource) {
 
 	pl.peers = slices.Insert(pl.peers, idx, p)
 
-	if p.isConnectCandidate(pl.finished, pl.maxFailcount) {
+	if p.isConnectCandidate(pl.maxFailcount) {
 		pl.numConnectCandidates++
 		pl.insertCandidateCacheLocked(p)
 	}
@@ -180,7 +235,7 @@ func (pl *peerList) addPeer(addr netip.AddrPort, source tracker.PeerSource) {
 // updatePeerLocked updates an existing peer's metadata. Caller holds pl.mu.
 // Mirrors libtorrent's peer_list::update_peer().
 func (pl *peerList) updatePeerLocked(p *persistentPeer, source tracker.PeerSource) {
-	wasConnCand := p.isConnectCandidate(pl.finished, pl.maxFailcount)
+	wasConnCand := p.isConnectCandidate(pl.maxFailcount)
 
 	p.source |= source
 	p.cachedSourceRank = tracker.SourceRank(p.source)
@@ -190,7 +245,7 @@ func (pl *peerList) updatePeerLocked(p *persistentPeer, source tracker.PeerSourc
 		p.failcount = 0
 	}
 
-	isConnCand := p.isConnectCandidate(pl.finished, pl.maxFailcount)
+	isConnCand := p.isConnectCandidate(pl.maxFailcount)
 	if wasConnCand && !isConnCand {
 		pl.numConnectCandidates--
 	} else if !wasConnCand && isConnCand {
@@ -250,7 +305,7 @@ func (pl *peerList) newConnection(addr netip.AddrPort, conn Peer, sessionTime in
 		return false
 	}
 
-	wasConnCand := pp.isConnectCandidate(pl.finished, pl.maxFailcount)
+	wasConnCand := pp.isConnectCandidate(pl.maxFailcount)
 
 	pp.dialing = false
 	pp.connection = conn
@@ -298,7 +353,7 @@ func (pl *peerList) connectionClosed(addr netip.AddrPort, conn Peer, sessionTime
 		}
 	}
 
-	if pp.isConnectCandidate(pl.finished, pl.maxFailcount) {
+	if pp.isConnectCandidate(pl.maxFailcount) {
 		pl.numConnectCandidates++
 		pl.insertCandidateCacheLocked(pp)
 	}
@@ -440,7 +495,7 @@ func (pl *peerList) connectionCount() int {
 // isConnectCandidateLocked applies peer-list-owned availability state in
 // addition to persistent peer metadata. Caller holds pl.mu.
 func (pl *peerList) isConnectCandidateLocked(pp *persistentPeer, sessionTime int64) bool {
-	if !pp.isConnectCandidate(pl.finished, pl.maxFailcount) {
+	if !pp.isConnectCandidate(pl.maxFailcount) {
 		return false
 	}
 	if pl.incomingConnections[pp.addrPort] > 0 {
@@ -543,32 +598,10 @@ func (pl *peerList) incFailcount(p *persistentPeer, errStr string) {
 		return
 	}
 
-	wasConnCand := p.isConnectCandidate(pl.finished, pl.maxFailcount)
+	wasConnCand := p.isConnectCandidate(pl.maxFailcount)
 	p.failcount++
-	if wasConnCand && !p.isConnectCandidate(pl.finished, pl.maxFailcount) {
+	if wasConnCand && !p.isConnectCandidate(pl.maxFailcount) {
 		pl.numConnectCandidates--
-	}
-}
-
-// setFinished updates the finished flag and recalculates candidates.
-func (pl *peerList) setFinished(v bool) {
-	pl.mu.Lock()
-	defer pl.mu.Unlock()
-
-	if pl.finished == v {
-		return
-	}
-	pl.finished = v
-
-	// Invalidate cache since candidate eligibility may change.
-	pl.candidateCache = pl.candidateCache[:0]
-
-	// recalculate candidates
-	pl.numConnectCandidates = 0
-	for _, p := range pl.peers {
-		if p.isConnectCandidate(pl.finished, pl.maxFailcount) {
-			pl.numConnectCandidates++
-		}
 	}
 }
 
@@ -594,9 +627,9 @@ func (pl *peerList) updateConnectable(addr netip.AddrPort, connectable bool) {
 		return
 	}
 
-	wasConnCand := p.isConnectCandidate(pl.finished, pl.maxFailcount)
+	wasConnCand := p.isConnectCandidate(pl.maxFailcount)
 	p.connectable = connectable
-	isConnCand := p.isConnectCandidate(pl.finished, pl.maxFailcount)
+	isConnCand := p.isConnectCandidate(pl.maxFailcount)
 
 	if wasConnCand && !isConnCand {
 		pl.numConnectCandidates--

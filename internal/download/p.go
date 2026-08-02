@@ -178,7 +178,7 @@ func newPeer(
 		pieceDownloadRate: flowrate.New(time.Second, 5*time.Second),
 		Address:           addr,
 		connectedAt:       time.Now(),
-		id:                d.peerIDCounter.Add(1),
+		id:                d.peerList.AllocID(),
 		queueLimit:        *atomic.NewUint32(2000),
 		incoming:          skipReadHandshake,
 		encrypted:         encrypted,
@@ -818,19 +818,15 @@ func (p *peerImpl) start(skipHandshake bool) {
 		}
 	}()
 
-	// Register in peers map by unique ID (never collides).
+	// Register in the peer list by unique ID and address. Address dedup
+	// ensures only one connection per address; a loser of that race is
+	// closed by defer and cleaned up via Unregister (which only removes
+	// the by-ID entry it actually owns).
 	if p.closed.Load() {
 		return
 	}
-	p.d.peers.Store(p.id, p)
-
-	// Address dedup: ensure only one peer per address.
-	actual, loaded := p.d.connectedAddrs.LoadOrStore(p.Address, p)
-	if loaded {
-		// Another peer already owns this address. We lost the race.
-		// defer close() handles cleanup; it will see we are not in connectedAddrs
-		// and skip shared-state cleanup.
-		p.log.Trace().Uint64("existing_peer_id", actual.ID()).Msg("duplicate connection, closing")
+	if !p.d.peerList.Register(p) {
+		p.log.Trace().Msg("duplicate connection, closing")
 		return
 	}
 

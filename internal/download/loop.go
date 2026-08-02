@@ -186,7 +186,7 @@ func (d *Download) goBackground(fn func()) {
 
 func (d *Download) optimisticUnchoke() {
 	var peers []Peer
-	d.peers.Range(func(_ uint64, p Peer) bool {
+	d.peerList.Range(func(_ uint64, p Peer) bool {
 		if !p.Closed() && !p.IsSnubbed() {
 			peers = append(peers, p)
 		}
@@ -240,5 +240,5 @@ func (d *Download) maxConnections() int {
 
 // peerCount returns the number of currently connected peers.
 func (d *Download) peerCount() int {
-	return d.peers.Size()
+	return d.peerList.Size()
 }

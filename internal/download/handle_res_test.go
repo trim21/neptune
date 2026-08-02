@@ -10,14 +10,12 @@ import (
 	"crypto/sha1"
 	"fmt"
 	"math/rand/v2"
-	"net/netip"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"golang.org/x/sync/semaphore"
@@ -86,12 +84,9 @@ func newTestDownload(t testing.TB, numPieces uint32, blocksPerPiece uint32, newS
 		pieceUploadRate:        flowrate.New(time.Second, 5*time.Second),
 		uploadLimiter:          ratelimit.New(0),
 		downloadLimiter:        ratelimit.New(0),
-		peers:                  xsync.NewMap[uint64, Peer](),
-		connectedAddrs:         xsync.NewMap[netip.AddrPort, Peer](),
 		stateCond:              stateCond,
 		private:                false,
 		corruptedPieces:        make(map[uint32]int),
-		bannedAddrs:            make(map[netip.Addr]time.Time),
 		tracker:                tracker.New(ctx, tracker.Config{}),
 		scheduleResponseSignal: make(chan empty.Empty, 1),
 	}

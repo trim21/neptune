@@ -109,7 +109,7 @@ func TestLeavingDownloadingClearsNamedClaims(t *testing.T) {
 			peer.info = d.info
 			peer.setNumPieces(d.info.NumPieces)
 			peer.bitmap.Fill()
-			d.peers.Store(peer.ID(), peer)
+			d.peerList.activeByID.Store(peer.ID(), peer)
 
 			claim := claimBlockForTest(t, d, 0, 0, peer.ID())
 			peer.queued = append(peer.queued, claim)

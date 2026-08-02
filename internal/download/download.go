@@ -39,7 +39,7 @@ func (d *Download) notifyPeersToRequest() {
 	if !d.IsActiveDownloading() {
 		return
 	}
-	d.peers.Range(func(_ uint64, p Peer) bool {
+	d.peerList.Range(func(_ uint64, p Peer) bool {
 		if p.Closed() {
 			return true
 		}
@@ -52,7 +52,7 @@ func (d *Download) notifyPeersToRequest() {
 
 func (d *Download) have(index uint32) {
 	tasks.SubmitNet(func() {
-		d.peers.Range(func(_ uint64, p Peer) bool {
+		d.peerList.Range(func(_ uint64, p Peer) bool {
 			p.Have(index)
 			return true
 		})
@@ -553,7 +553,7 @@ func (d *Download) penalizePiecePeers(pieceIndex uint32, passed bool, pc *peerCo
 	}
 
 	for peerID := range contributors {
-		p, ok := d.peers.Load(peerID)
+		p, ok := d.peerList.Load(peerID)
 		if !ok {
 			continue
 		}
@@ -603,7 +603,7 @@ func (d *Download) gradualUnblockPiece(pieceIndex uint32) {
 		oldestTime time.Time
 	)
 
-	d.peers.Range(func(_ uint64, p Peer) bool {
+	d.peerList.Range(func(_ uint64, p Peer) bool {
 		if p.Closed() {
 			return true
 		}
@@ -663,7 +663,7 @@ func (d *Download) finalizeDownloadCompletion() {
 	d.pieceDownloadRate.Reset()
 	d.fireCompletedHook()
 
-	d.peers.Range(func(_ uint64, p Peer) bool {
+	d.peerList.Range(func(_ uint64, p Peer) bool {
 		if uint32(p.PeerBitmap().Count()) == d.info.NumPieces {
 			p.Close()
 		}

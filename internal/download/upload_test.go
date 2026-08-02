@@ -22,7 +22,7 @@ func TestBackgroundReqHandlerDoesNotQueueClaimedRequestAgain(t *testing.T) {
 
 	p := newMockPeer()
 	p.dl = d
-	d.peers.Store(p.ID(), p)
+	d.peerList.activeByID.Store(p.ID(), p)
 
 	req := proto.ChunkRequest{PieceIndex: 0, Begin: 0, Length: defaultBlockSize}
 	require.True(t, p.AddPeerRequest(req))

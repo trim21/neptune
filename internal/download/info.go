@@ -74,7 +74,7 @@ func (d *Download) Info(keys []string) TorrentInfo {
 		DownloadTotal:        d.downloaded.Load(),
 		UploadRate:           d.pieceUploadRate.Status().CurRate,
 		UploadTotal:          d.uploaded.Load(),
-		ConnectionCount:      d.peers.Size(),
+		ConnectionCount:      d.peerList.Size(),
 		BytesCompleted:       d.completed.Load(),
 		TotalLength:          d.info.TotalLength,
 		SelectedSize:         d.SelectedSize(),
@@ -139,8 +139,8 @@ type PeerInfo struct {
 
 // PeerInfos returns a snapshot of all connected peers.
 func (d *Download) PeerInfos() []PeerInfo {
-	results := make([]PeerInfo, 0, d.peers.Size())
-	d.peers.Range(func(_ uint64, p Peer) bool {
+	results := make([]PeerInfo, 0, d.peerList.Size())
+	d.peerList.Range(func(_ uint64, p Peer) bool {
 		results = append(results, PeerInfo{
 			Address:      p.Addr().String(),
 			Client:       p.UserAgent(),

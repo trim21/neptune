@@ -224,8 +224,9 @@ func (d *Download) tryDial(pp *persistentPeer) {
 }
 
 // recordDisconnect is called by Peer.Close() to clean up shared peer tracking.
-// Outgoing peer-list ownership is cleared by identity, while connectedAddrs is
-// removed only when p is still the primary peer for its address.
+// Outgoing peer-list ownership is cleared by identity, while the active
+// address entry is removed only when p is still the primary peer for its
+// address (see peerList.Unregister).
 func (d *Download) recordDisconnect(p Peer) {
 	if p.Incoming() {
 		d.peerList.incomingConnectionClosed(p.Addr())
@@ -238,11 +239,8 @@ func (d *Download) recordDisconnect(p Peer) {
 		d.peerList.connectionClosed(p.Addr(), p, time.Now().Unix(), p.HadTransfer(), failed)
 	}
 
-	if actual, ok := d.connectedAddrs.Load(p.Addr()); ok && actual == p {
-		d.connectedAddrs.Delete(p.Addr())
-	}
+	d.peerList.Unregister(p)
 
-	d.peers.Delete(p.ID())
 	d.session.ConnSem.Release(1)
 	d.session.ConnCount.Sub(1)
 
@@ -273,7 +271,7 @@ func (d *Download) EvictPeers(n int) int {
 		score int64
 	}
 	var scored []scoredPeer
-	d.peers.Range(func(_ uint64, p Peer) bool {
+	d.peerList.Range(func(_ uint64, p Peer) bool {
 		if !p.Closed() {
 			scored = append(scored, scoredPeer{
 				p:     p,
@@ -308,7 +306,7 @@ func (d *Download) EvictPeers(n int) int {
 // peerTurnover disconnects least useful peers to make room for fresh candidates.
 // Mirrors libtorrent's optimistic disconnect (~2% per round).
 func (d *Download) peerTurnover() {
-	peerCount := d.peers.Size()
+	peerCount := d.peerList.Size()
 	if peerCount == 0 {
 		return
 	}
@@ -329,25 +327,10 @@ func (d *Download) peerTurnover() {
 
 // isAddrBanned checks whether an address is currently banned for this torrent.
 func (d *Download) isAddrBanned(addr netip.Addr) bool {
-	d.bannedAddrsMu.Lock()
-	defer d.bannedAddrsMu.Unlock()
-
-	expires, ok := d.bannedAddrs[addr]
-	if !ok {
-		return false
-	}
-	if time.Now().After(expires) {
-		delete(d.bannedAddrs, addr)
-		return false
-	}
-	return true
+	return d.peerList.isAddrBanned(addr)
 }
 
 // banAddr bans an address from connecting to this torrent for addrBanDuration.
 func (d *Download) banAddr(addr netip.Addr) {
-	expires := time.Now().Add(addrBanDuration)
-	d.bannedAddrsMu.Lock()
-	d.bannedAddrs[addr] = expires
-	d.bannedAddrsMu.Unlock()
-	d.peerList.banAddr(addr, expires)
+	d.peerList.banAddr(addr, time.Now().Add(addrBanDuration))
 }

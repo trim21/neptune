@@ -73,7 +73,7 @@ func TestRequestABlock_UnchokedPeerEnqueuesBlocks(t *testing.T) {
 func TestPromoteFromQueuedSchedulesExistingPeers(t *testing.T) {
 	d, p := newRequestABlockFixture(t, 5)
 	d.state.Store(uint32(PendingDownloading))
-	d.peers.Store(p.ID(), p)
+	d.peerList.activeByID.Store(p.ID(), p)
 
 	p.requestABlock()
 	require.Empty(t, p.requestsSent, "queued download must not request blocks")

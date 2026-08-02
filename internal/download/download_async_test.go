@@ -30,7 +30,7 @@ func asyncHelper(d *Download) func() {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				d.peers.Range(func(_ uint64, p Peer) bool {
+				d.peerList.Range(func(_ uint64, p Peer) bool {
 					if !p.Closed() {
 						p.(*mockPeer).requestABlock()
 					}
@@ -107,7 +107,7 @@ func TestAsyncDownload_FullPeer(t *testing.T) {
 
 			for i := range numPeers {
 				p := fullPeer(d, numPieces, uint64(i+1))
-				d.peers.Store(p.ID(), p)
+				d.peerList.activeByID.Store(p.ID(), p)
 				for pi := range numPieces {
 					d.picker.Load().IncRefcount(pi)
 				}
@@ -149,7 +149,7 @@ func TestAsyncDownload_CorruptRecovery(t *testing.T) {
 			// Peer 1: first download attempt. Will get blocked for pieces
 			// that fail hash due to FailNPieceStore.
 			p1 := fullPeer(d, numPieces, 1)
-			d.peers.Store(p1.ID(), p1)
+			d.peerList.activeByID.Store(p1.ID(), p1)
 			for pi := range numPieces {
 				d.picker.Load().IncRefcount(pi)
 			}
@@ -163,7 +163,7 @@ func TestAsyncDownload_CorruptRecovery(t *testing.T) {
 			}
 
 			p2 := fullPeer(d, numPieces, 2)
-			d.peers.Store(p2.ID(), p2)
+			d.peerList.activeByID.Store(p2.ID(), p2)
 			for pi := range numPieces {
 				d.picker.Load().IncRefcount(pi)
 			}
@@ -192,7 +192,7 @@ func TestAsyncDownload_ParoleBan(t *testing.T) {
 	defer cancel()
 
 	p1 := fullPeer(d, numPieces, 1)
-	d.peers.Store(p1.ID(), p1)
+	d.peerList.activeByID.Store(p1.ID(), p1)
 	for pi := range numPieces {
 		d.picker.Load().IncRefcount(pi)
 	}

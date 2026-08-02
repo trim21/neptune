@@ -37,7 +37,7 @@ func FuzzStaleRequest(f *testing.F) {
 		combined := bm.New(numPieces)
 		for i := range numPeers {
 			p := asyncPeer(d, numPieces, seed+uint64(i))
-			d.peers.Store(p.ID(), p)
+			d.peerList.activeByID.Store(p.ID(), p)
 			p.bitmap.Range(func(pi uint32) {
 				d.picker.Load().IncRefcount(pi)
 				combined.Set(pi)
@@ -53,7 +53,7 @@ func FuzzStaleRequest(f *testing.F) {
 		go func() {
 			defer close(closerDone)
 			time.Sleep(500 * time.Microsecond)
-			d.peers.Range(func(_ uint64, p Peer) bool {
+			d.peerList.Range(func(_ uint64, p Peer) bool {
 				p.Close()
 				return true
 			})
@@ -70,7 +70,7 @@ func FuzzStaleRequest(f *testing.F) {
 			default:
 			}
 
-			d.peers.Range(func(_ uint64, p Peer) bool {
+			d.peerList.Range(func(_ uint64, p Peer) bool {
 				if !p.Closed() {
 					p.(*mockPeer).requestABlock()
 				}
@@ -82,7 +82,7 @@ func FuzzStaleRequest(f *testing.F) {
 		// were skipped by a racing map traversal. Calling requestABlock afterward
 		// waits on reqMu for any scheduler call that passed its initial Closed
 		// check before Close; once it returns, no such call can retain a claim.
-		d.peers.Range(func(_ uint64, p Peer) bool {
+		d.peerList.Range(func(_ uint64, p Peer) bool {
 			p.Close()
 			p.(*mockPeer).requestABlock()
 			return true

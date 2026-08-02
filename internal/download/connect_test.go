@@ -253,7 +253,7 @@ func TestAddConnReservesOutgoingLane(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, firstRemote.Close())
 	require.Eventually(t, func() bool {
-		return d.occupiedConnectionCount() == 0 && d.peers.Size() == 0
+		return d.occupiedConnectionCount() == 0 && d.peerList.Size() == 0
 	}, time.Second, 10*time.Millisecond)
 	require.True(t, sess.ConnSem.TryAcquire(200), "all incoming connection slots must be released")
 	sess.ConnSem.Release(200)
@@ -497,12 +497,12 @@ func TestConnectLoopExitsOnClose(t *testing.T) {
 	d.signalConnect()
 
 	// The dial succeeds and the peer registers after the handshake.
-	require.Eventually(t, func() bool { return d.peers.Size() > 0 }, 5*time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool { return d.peerList.Size() > 0 }, 5*time.Second, 10*time.Millisecond)
 	require.NoError(t, <-handshakeErr)
 
 	// Closing the download force-closes the connection and releases every slot.
 	d.Close()
-	require.Eventually(t, func() bool { return d.peers.Size() == 0 }, 5*time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool { return d.peerList.Size() == 0 }, 5*time.Second, 10*time.Millisecond)
 	require.True(t, sess.DialSem.TryAcquire(4), "DialSem slots must be released after close")
 	sess.DialSem.Release(4)
 	require.True(t, sess.ConnSem.TryAcquire(200), "ConnSem slots must be released after close")

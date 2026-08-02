@@ -87,7 +87,7 @@ func (d *Download) resetReSelectedPieces(fileIDs []int) {
 
 // CloseAllPeers closes all peer connections for this download.
 func (d *Download) CloseAllPeers() {
-	d.peers.Range(func(_ uint64, p Peer) bool {
+	d.peerList.Range(func(_ uint64, p Peer) bool {
 		p.Close()
 		return true
 	})
