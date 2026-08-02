@@ -347,7 +347,11 @@ func TestStopAbandonsWaitingDial(t *testing.T) {
 	// observe the inactive state and give up.
 	sess.ConnSem.Release(1)
 	require.Eventually(t, func() bool { return dialingCandidateCount(d) == 0 }, time.Second, 10*time.Millisecond)
-	require.True(t, sess.DialSem.TryAcquire(4), "stopped download must release dial slots")
+	// DialSem is released by dispatchConnections when tryDial returns. The
+	// dialing flag is cleared slightly earlier, so wait for the semaphore
+	// itself instead of inferring its release from the candidate state.
+	require.Eventually(t, func() bool { return sess.DialSem.TryAcquire(4) }, time.Second, 10*time.Millisecond,
+		"stopped download must release dial slots")
 	sess.DialSem.Release(4)
 }
 
