@@ -26,12 +26,15 @@ func (c *Client) NewDownload(
 		State:             download.Checking,
 		PiecePickStrategy: download.PiecePickStrategy(c.piecePickStrategy.Load()),
 		SkipHashCheck:     skipHashCheck,
-		TrackerStagger:    60 * time.Second,
+		TrackerStagger:    5 * time.Minute,
 	})
 }
 
 func (c *Client) UnmarshalResume(data []byte, totalDownloads int) error {
-	d, err := download.LoadFromResume(c.session, data, time.Duration(totalDownloads)*time.Second)
+	// Stagger the first announce of each resumed download by up to one second
+	// per download (capped at 5 minutes) so a bulk resume of many torrents
+	// does not announce all at once.
+	d, err := download.LoadFromResume(c.session, data, time.Duration(min(totalDownloads, 300))*time.Second)
 	if err != nil {
 		return err
 	}

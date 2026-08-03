@@ -555,6 +555,15 @@ func random5to10Min() time.Duration {
 	return time.Duration(5*60+rand.IntN(301)) * time.Second
 }
 
+// jitterInterval applies a relative ±15% jitter to an announce interval so
+// that downloads sharing a tracker do not announce in lockstep. The result is
+// clamped to stay at or above minDelta so the tracker's min_interval is never
+// violated (a negative jitter would otherwise announce too early).
+func jitterInterval(interval, minDelta time.Duration) time.Duration {
+	jittered := max(time.Duration(float64(interval)*(0.85+0.3*rand.Float64())), minDelta)
+	return jittered
+}
+
 // finishAnnounce performs the HTTP announce for a single tracker and updates its state.
 // Called from a goroutine spawned by doAnnounce.
 func (t *Trackers) finishAnnounce(tr *Tracker, event AnnounceEvent) {
@@ -565,22 +574,27 @@ func (t *Trackers) finishAnnounce(tr *Tracker, event AnnounceEvent) {
 	now := time.Now()
 
 	// Compute min_interval and interval from tracker response per user rules:
-	//   1. Only min_interval (no interval): interval = min_interval * 2
-	//   2. Only interval (no min_interval): min_interval = interval, interval += random(5-10min)
-	//   3. Both returned: min_interval as-is, interval += random(5-10min)
+	//   1. Only min_interval (no interval): interval = min_interval * 2 + random(5-10min)
+	//   2. Only interval (no min_interval): min_interval = interval, interval jittered ±15%
+	//   3. Both returned: min_interval as-is, interval jittered ±15%
 	//   4. Neither returned: default both to 30 min
+	//
+	// The jitter (rules 2/3) and the random add-on (rules 1/4) desynchronize
+	// announces across downloads so a restart of many torrents does not make
+	// them all announce at the same instant (which would cause connection
+	// spikes on every interval).
 
 	minDelta := r.MinInterval
 	interval := r.Interval
 
 	switch {
 	case r.MinInterval > 0 && r.Interval == 0:
-		interval = minDelta * 2
+		interval = minDelta*2 + random5to10Min()
 	case r.MinInterval == 0 && r.Interval > 0:
 		minDelta = interval
-		interval += random5to10Min()
+		interval = jitterInterval(interval, minDelta)
 	case r.MinInterval > 0 && r.Interval > 0:
-		interval += random5to10Min()
+		interval = jitterInterval(interval, minDelta)
 	default:
 		// Neither returned — use defaults.
 		minDelta = 30 * time.Minute

@@ -72,8 +72,11 @@ func LoadFromResume(sess *session.Session, data []byte, trackerStagger time.Dura
 	} else if complete {
 		state = Seeding
 	}
+	// Cap the first-announce stagger for downloading torrents so they still
+	// reach the tracker quickly after restart; 5 minutes keeps bulk resumes
+	// spread out while limiting the delay before downloads resume.
 	if state == Downloading {
-		trackerStagger = min(trackerStagger, 60*time.Second)
+		trackerStagger = min(trackerStagger, 5*time.Minute)
 	}
 
 	// Restore piece pick strategy from resume.
