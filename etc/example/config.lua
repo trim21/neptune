@@ -24,6 +24,7 @@ elseif node == "n5-slow" then
 elseif node == "seedbox" then
     neptune.set("application.global-upload-speed-limit", 0)
     neptune.set("application.global-connections-limit", 500)
+    neptune.set("application.connection-speed", 30)
     neptune.set("application.global-upload-slots", 200)
     neptune.set("application.download-dir", "/mnt/big/downloads")
 

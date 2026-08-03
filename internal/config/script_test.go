@@ -38,7 +38,7 @@ func TestLoadFromLua_Defaults(t *testing.T) {
 	cfg, err := LoadFromLua(script)
 	require.NoError(t, err)
 	assert.Equal(t, 100, cfg.App.MaxHTTPParallel)
-	assert.Equal(t, uint16(50), cfg.App.GlobalConnectionLimit)
+	assert.Equal(t, uint16(200), cfg.App.GlobalConnectionLimit)
 	assert.False(t, cfg.App.Fallocate)
 }
 
@@ -47,12 +47,12 @@ func TestLoadFromLua_GetAndSet(t *testing.T) {
 	script := filepath.Join(dir, "config.lua")
 	require.NoError(t, os.WriteFile(script, []byte(`
 		local conns = neptune.get("application.global-connections-limit")
-		neptune.set("application.global-connections-limit", math.max(conns, 100))
+		neptune.set("application.global-connections-limit", math.max(conns, 300))
 	`), 0644))
 
 	cfg, err := LoadFromLua(script)
 	require.NoError(t, err)
-	assert.Equal(t, uint16(100), cfg.App.GlobalConnectionLimit)
+	assert.Equal(t, uint16(300), cfg.App.GlobalConnectionLimit)
 }
 
 func TestLoadFromLua_LastSetWins(t *testing.T) {

@@ -58,10 +58,13 @@ func (d *Download) AddConn(addr netip.AddrPort, conn net.Conn, h proto.Handshake
 // The periodic ticker mirrors libtorrent's on_tick connection pass: peer
 // candidates become eligible again purely as a function of time (failcount
 // backoff in findConnectCandidates), so time-driven retries need a periodic
-// wakeup, not just events. The interval is long enough that the loop is
-// otherwise event-driven and stays quiet when there is nothing to do.
+// wakeup, not just events. It also re-checks the global dial rate limiter:
+// when the per-second dial budget is exhausted, the next tick (within a
+// second) resumes where the budget allowed. The interval is long enough that
+// the loop is otherwise event-driven and stays quiet when there is nothing
+// to do.
 func (d *Download) connectLoop() {
-	reconnectTicker := time.NewTicker(30 * time.Second)
+	reconnectTicker := time.NewTicker(time.Second)
 	defer reconnectTicker.Stop()
 
 	for {
@@ -85,6 +88,13 @@ func (d *Download) connectLoop() {
 func (d *Download) dispatchConnections() bool {
 	now := time.Now().Unix()
 	if !d.IsActive() || !d.peerList.hasConnectWork(now, d.maxConnections()) {
+		return false
+	}
+	// Global dial rate limit (application.connection-speed): cap outgoing
+	// connection attempts per second regardless of DialSem concurrency.
+	// When the budget is exhausted, skip this turn; the 1s ticker in
+	// connectLoop retries shortly after tokens are replenished.
+	if !d.session.DialLimiter.TryAcquire() {
 		return false
 	}
 	if err := d.session.DialSem.Acquire(d.ctx, 1); err != nil {

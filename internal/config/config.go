@@ -62,6 +62,7 @@ type Application struct {
 	P2PPort                    uint16     `toml:"p2p-port"`
 	GlobalConnectionLimit      uint16     `toml:"global-connections-limit"`
 	TorrentConnectionLimit     uint16     `toml:"torrent-connection-limit"`
+	ConnectionSpeed            uint16     `toml:"connection-speed"`
 	DownloadSlots              uint16     `toml:"download-slots"`
 	GlobalUploadSlots          uint16     `toml:"global-upload-slots"`
 	NumWant                    uint16     `toml:"num-want"`

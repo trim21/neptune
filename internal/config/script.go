@@ -17,12 +17,24 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
+// DefaultConfig returns the built-in defaults used when a setting is not
+// provided by the config file. Shared by the TOML and Lua loaders.
+func DefaultConfig() Config {
+	return Config{
+		App: Application{
+			MaxHTTPParallel:        100,
+			GlobalConnectionLimit:  200,
+			TorrentConnectionLimit: 50,
+			ConnectionSpeed:        30,
+			MaxRequestBodySize:     50 << 20,
+		},
+	}
+}
+
 // LoadFromTOML loads the base config from a TOML file.
 // Moved from config.go to keep the public API clean.
 func LoadFromTOML(path string) (Config, error) {
-	var cfg = Config{
-		App: Application{MaxHTTPParallel: 100, GlobalConnectionLimit: 500, TorrentConnectionLimit: 50, MaxRequestBodySize: 50 << 20},
-	}
+	cfg := DefaultConfig()
 
 	f, err := os.Open(path)
 	if err != nil {
@@ -46,14 +58,7 @@ func LoadFromTOML(path string) (Config, error) {
 // LoadFromLua loads config entirely from a Lua script, starting with defaults.
 // TOML and Lua are mutually exclusive: if config.lua exists, config.toml is ignored.
 func LoadFromLua(path string) (Config, error) {
-	base := Config{
-		App: Application{
-			MaxHTTPParallel:        100,
-			GlobalConnectionLimit:  50,
-			TorrentConnectionLimit: 50,
-			MaxRequestBodySize:     50 << 20,
-		},
-	}
+	base := DefaultConfig()
 
 	cfg, err := loadFromLua(path, base)
 	if err != nil {
@@ -192,6 +197,17 @@ var configFields = map[string]configField{
 			return nil
 		},
 		getter: func(a *Application) lua.LValue { return lua.LNumber(a.NumWant) },
+	},
+	"application.connection-speed": {
+		setter: func(a *Application, v lua.LValue) error {
+			n, err := toGoUint16(v)
+			if err != nil {
+				return err
+			}
+			a.ConnectionSpeed = n
+			return nil
+		},
+		getter: func(a *Application) lua.LValue { return lua.LNumber(a.ConnectionSpeed) },
 	},
 	"application.global-connections-limit": {
 		setter: func(a *Application, v lua.LValue) error {

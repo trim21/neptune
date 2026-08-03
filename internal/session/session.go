@@ -48,6 +48,7 @@ type Session struct {
 	HTTP                       *resty.Client
 	ConnSem                    *semaphore.Weighted
 	DialSem                    *semaphore.Weighted
+	DialLimiter                *DialRateLimiter
 	TrackerSem                 *semaphore.Weighted
 	IPv6                       atomic.Pointer[netip.Addr]
 	PieceUploadRate            *flowrate.Monitor
@@ -142,9 +143,10 @@ func New(cfg config.Config, sessionPath string, debug bool) *Session {
 		IOContext: gfs.NewIOContext(),
 		HTTP:      newTrackerHTTPClient(cfg.App.MaxHTTPParallel),
 
-		ConnSem:    semaphore.NewWeighted(int64(cfg.App.GlobalConnectionLimit)),
-		DialSem:    semaphore.NewWeighted(max(int64(cfg.App.GlobalConnectionLimit)/10, 20)),
-		TrackerSem: semaphore.NewWeighted(int64(cfg.App.MaxHTTPParallel)),
+		ConnSem:     semaphore.NewWeighted(int64(cfg.App.GlobalConnectionLimit)),
+		DialSem:     semaphore.NewWeighted(max(int64(cfg.App.GlobalConnectionLimit)/10, 20)),
+		DialLimiter: NewDialRateLimiter(int64(cfg.App.ConnectionSpeed)),
+		TrackerSem:  semaphore.NewWeighted(int64(cfg.App.MaxHTTPParallel)),
 
 		DownloadLimiter: ratelimit.New(cfg.App.GlobalDownloadSpeedLimit),
 		UploadLimiter:   ratelimit.New(cfg.App.GlobalUploadSpeedLimit),

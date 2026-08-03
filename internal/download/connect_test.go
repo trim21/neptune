@@ -30,8 +30,9 @@ import (
 func newConnectSession(t *testing.T, dialSlots int64) *session.Session {
 	t.Helper()
 	sess := &session.Session{
-		ConnSem: semaphore.NewWeighted(200),
-		DialSem: semaphore.NewWeighted(dialSlots),
+		ConnSem:     semaphore.NewWeighted(200),
+		DialSem:     semaphore.NewWeighted(dialSlots),
+		DialLimiter: session.NewDialRateLimiter(-1), // unlimited in tests
 		Config: config.Config{App: config.Application{
 			GlobalConnectionLimit: 200,
 		}},
