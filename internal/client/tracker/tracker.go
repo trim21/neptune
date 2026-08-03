@@ -375,13 +375,13 @@ func (t *Trackers) URLs() [][]string {
 
 // Stagger adds a random delay to all NextAnnounce times.
 // maxDelay caps the random delay added to each tracker.
-// The delay is clamped between 5 seconds and 30 minutes.
+// The delay is clamped between 5 seconds and 60 minutes.
 func (t *Trackers) Stagger(maxDelay time.Duration) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
 	seconds := int(maxDelay.Seconds())
-	seconds = min(max(seconds, 5), 30*60)
+	seconds = min(max(seconds, 5), 60*60)
 
 	for _, tier := range t.tiers {
 		for _, tr := range tier.Trackers {
