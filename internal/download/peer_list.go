@@ -30,6 +30,7 @@ type persistentPeer struct {
 	connectable      bool
 	hadTrans         bool
 	dialing          bool
+	seed             bool
 }
 
 // isConnectCandidate returns true if this peer is eligible for connection.
@@ -103,9 +104,24 @@ type peerList struct {
 	idCounter            atomic.Uint64
 	numConnectCandidates int
 	roundRobin           int
-	maxFailcount         int
 	minReconnectTime     int64
 	mu                   sync.Mutex
+}
+
+// maxFailcount returns the dial-failure cap for the current download state.
+// Seeding dials rarely pay off (leechers are the only useful target), so we
+// give up on a peer sooner than when downloading.
+func (pl *peerList) maxFailcount() int {
+	if pl.d.HasState(Seeding) {
+		return 3
+	}
+	return 10
+}
+
+// finished reports whether the download is seeding: we are complete, so the
+// only peers worth connecting to are leechers.
+func (pl *peerList) finished() bool {
+	return pl.d.HasState(Seeding)
 }
 
 const candidateCount = 50
@@ -118,7 +134,6 @@ func newPeerList(d *Download) *peerList {
 		candidateCache:      make([]candidateEntry, 0, candidateCount),
 		bannedAddrs:         make(map[netip.Addr]int64),
 		incomingConnections: make(map[netip.AddrPort]uint32),
-		maxFailcount:        10,
 		minReconnectTime:    60,
 	}
 }
@@ -226,7 +241,7 @@ func (pl *peerList) addPeer(addr netip.AddrPort, source tracker.PeerSource) {
 
 	pl.peers = slices.Insert(pl.peers, idx, p)
 
-	if p.isConnectCandidate(pl.maxFailcount) {
+	if p.isConnectCandidate(pl.maxFailcount()) {
 		pl.numConnectCandidates++
 		pl.insertCandidateCacheLocked(p)
 	}
@@ -235,7 +250,7 @@ func (pl *peerList) addPeer(addr netip.AddrPort, source tracker.PeerSource) {
 // updatePeerLocked updates an existing peer's metadata. Caller holds pl.mu.
 // Mirrors libtorrent's peer_list::update_peer().
 func (pl *peerList) updatePeerLocked(p *persistentPeer, source tracker.PeerSource) {
-	wasConnCand := p.isConnectCandidate(pl.maxFailcount)
+	wasConnCand := p.isConnectCandidate(pl.maxFailcount())
 
 	p.source |= source
 	p.cachedSourceRank = tracker.SourceRank(p.source)
@@ -245,7 +260,7 @@ func (pl *peerList) updatePeerLocked(p *persistentPeer, source tracker.PeerSourc
 		p.failcount = 0
 	}
 
-	isConnCand := p.isConnectCandidate(pl.maxFailcount)
+	isConnCand := p.isConnectCandidate(pl.maxFailcount())
 	if wasConnCand && !isConnCand {
 		pl.numConnectCandidates--
 	} else if !wasConnCand && isConnCand {
@@ -305,7 +320,7 @@ func (pl *peerList) newConnection(addr netip.AddrPort, conn Peer, sessionTime in
 		return false
 	}
 
-	wasConnCand := pp.isConnectCandidate(pl.maxFailcount)
+	wasConnCand := pp.isConnectCandidate(pl.maxFailcount())
 
 	pp.dialing = false
 	pp.connection = conn
@@ -353,7 +368,7 @@ func (pl *peerList) connectionClosed(addr netip.AddrPort, conn Peer, sessionTime
 		}
 	}
 
-	if pp.isConnectCandidate(pl.maxFailcount) {
+	if pp.isConnectCandidate(pl.maxFailcount()) {
 		pl.numConnectCandidates++
 		pl.insertCandidateCacheLocked(pp)
 	}
@@ -495,7 +510,13 @@ func (pl *peerList) connectionCount() int {
 // isConnectCandidateLocked applies peer-list-owned availability state in
 // addition to persistent peer metadata. Caller holds pl.mu.
 func (pl *peerList) isConnectCandidateLocked(pp *persistentPeer, sessionTime int64) bool {
-	if !pp.isConnectCandidate(pl.maxFailcount) {
+	if !pp.isConnectCandidate(pl.maxFailcount()) {
+		return false
+	}
+	// When seeding, a peer that has the full piece set has nothing to give us
+	// and needs nothing from us — connecting is pure waste (mirrors
+	// libtorrent's ((p.seed || p.upload_only) && m_finished) rule).
+	if pl.finished() && pp.seed {
 		return false
 	}
 	if pl.incomingConnections[pp.addrPort] > 0 {
@@ -598,9 +619,9 @@ func (pl *peerList) incFailcount(p *persistentPeer, errStr string) {
 		return
 	}
 
-	wasConnCand := p.isConnectCandidate(pl.maxFailcount)
+	wasConnCand := p.isConnectCandidate(pl.maxFailcount())
 	p.failcount++
-	if wasConnCand && !p.isConnectCandidate(pl.maxFailcount) {
+	if wasConnCand && !p.isConnectCandidate(pl.maxFailcount()) {
 		pl.numConnectCandidates--
 	}
 }
@@ -610,6 +631,35 @@ func (pl *peerList) numCandidates() int {
 	pl.mu.Lock()
 	defer pl.mu.Unlock()
 	return pl.numConnectCandidates
+}
+
+// updatePeerSeed records that a connected peer has the full piece set (seed).
+// Kept across disconnections so a seeding download never re-dials a known
+// seed. Called while the peer is connected; the flag survives the disconnect.
+func (pl *peerList) updatePeerSeed(addr netip.AddrPort, seed bool) {
+	pl.mu.Lock()
+	defer pl.mu.Unlock()
+
+	idx, found := pl.findPeer(addr)
+	if !found {
+		return
+	}
+
+	p := pl.peers[idx]
+	if p.seed == seed {
+		return
+	}
+
+	wasConnCand := p.isConnectCandidate(pl.maxFailcount())
+	p.seed = seed
+	isConnCand := p.isConnectCandidate(pl.maxFailcount())
+
+	if wasConnCand && !isConnCand {
+		pl.numConnectCandidates--
+	} else if !wasConnCand && isConnCand {
+		pl.numConnectCandidates++
+		pl.insertCandidateCacheLocked(p)
+	}
 }
 
 // updateConnectable updates a peer's connectable flag when they advertise a port.
@@ -627,9 +677,9 @@ func (pl *peerList) updateConnectable(addr netip.AddrPort, connectable bool) {
 		return
 	}
 
-	wasConnCand := p.isConnectCandidate(pl.maxFailcount)
+	wasConnCand := p.isConnectCandidate(pl.maxFailcount())
 	p.connectable = connectable
-	isConnCand := p.isConnectCandidate(pl.maxFailcount)
+	isConnCand := p.isConnectCandidate(pl.maxFailcount())
 
 	if wasConnCand && !isConnCand {
 		pl.numConnectCandidates--

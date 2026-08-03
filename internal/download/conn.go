@@ -90,6 +90,15 @@ func (d *Download) dispatchConnections() bool {
 	if !d.IsActive() || !d.peerList.hasConnectWork(now, d.maxConnections()) {
 		return false
 	}
+	// Seeding into a swarm with no downloaders (per explicit tracker reports):
+	// nothing to serve, so skip dialing entirely. Only explicit tracker
+	// reports are trusted here — current-connection state is not a valid
+	// proxy, since a missing leecher is exactly the peer we'd be dialing to
+	// find. HasNoLeechers() returns false when no tracker has reported, which
+	// keeps the conservative default of dialing.
+	if d.HasState(Seeding) && d.tracker.HasNoLeechers() {
+		return false
+	}
 	// Global dial rate limit (application.connection-speed): cap outgoing
 	// connection attempts per second regardless of DialSem concurrency.
 	// When the budget is exhausted, skip this turn; the 1s ticker in

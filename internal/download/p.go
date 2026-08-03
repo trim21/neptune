@@ -864,6 +864,7 @@ func (p *peerImpl) start(skipHandshake bool) {
 			})
 			if !p.isSeed.Load() && uint32(p.Bitmap.Count()) == p.d.info.NumPieces {
 				p.isSeed.Store(true)
+				p.d.peerList.updatePeerSeed(p.Addr(), true)
 			}
 		case proto.Have:
 			if event.Index >= p.d.info.NumPieces {
@@ -877,6 +878,7 @@ func (p *peerImpl) start(skipHandshake bool) {
 			}
 			if !p.isSeed.Load() && uint32(p.Bitmap.Count()) == p.d.info.NumPieces {
 				p.isSeed.Store(true)
+				p.d.peerList.updatePeerSeed(p.Addr(), true)
 			}
 		case proto.Interested:
 			p.peerInterested.Store(true)
@@ -997,6 +999,7 @@ func (p *peerImpl) start(skipHandshake bool) {
 				}
 			}
 			p.isSeed.Store(true)
+			p.d.peerList.updatePeerSeed(p.Addr(), true)
 		case proto.HaveNone:
 			// Decrement old pieces before clearing
 			p.Bitmap.Range(func(u uint32) {

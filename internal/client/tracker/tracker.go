@@ -80,14 +80,17 @@ func SourceRank(source PeerSource) int {
 // AnnounceResponse is the parsed result from a tracker announce.
 // Interval and MinInterval are zero if the tracker did not return them;
 // the caller (finishAnnounce) applies the merging rules.
+// LeechersKnown is true when the tracker response explicitly included an
+// "incomplete" field (Leechers is authoritative, including zero).
 type AnnounceResponse struct {
-	Err          error
-	FailedReason string
-	Peers        []netip.AddrPort
-	Interval     time.Duration
-	MinInterval  time.Duration
-	Seeders      int
-	Leechers     int
+	Err           error
+	FailedReason  string
+	Peers         []netip.AddrPort
+	Interval      time.Duration
+	MinInterval   time.Duration
+	Seeders       int
+	Leechers      int
+	LeechersKnown bool
 }
 
 // Tracker is a single announce URL with its state.
@@ -249,6 +252,24 @@ func (t *Trackers) Totals() (seeders, leechers int) {
 		return true
 	})
 	return
+}
+
+// HasNoLeechers reports whether every tracker that has reported leecher
+// counts says the swarm currently has zero downloaders. Returns false when no
+// tracker has reported yet (or all reports are stale-missing), so callers
+// keep their conservative default of assuming leechers may exist.
+func (t *Trackers) HasNoLeechers() bool {
+	anyReport := false
+	hasLeecher := false
+	t.Leechers.Range(func(_ string, l int) bool {
+		anyReport = true
+		if l > 0 {
+			hasLeecher = true
+			return false
+		}
+		return true
+	})
+	return anyReport && !hasLeecher
 }
 
 // SetError updates the error message for a tracker URL.
@@ -622,7 +643,10 @@ func (t *Trackers) finishAnnounce(tr *Tracker, event AnnounceEvent) {
 	if r.Seeders > 0 {
 		t.Seeds.Store(tr.URL, r.Seeders)
 	}
-	if r.Leechers > 0 {
+	// Store leecher counts whenever the tracker explicitly reported an
+	// "incomplete" field (including zero). Only explicit reports are stored so
+	// callers can distinguish "swarm has no leechers" from "no data yet".
+	if r.LeechersKnown {
 		t.Leechers.Store(tr.URL, r.Leechers)
 	}
 
@@ -674,8 +698,13 @@ func (t *Trackers) announceHTTP(tr *Tracker, event AnnounceEvent) AnnounceRespon
 		Interval:     time.Second * time.Duration(r.Interval),
 		MinInterval:  time.Second * time.Duration(r.MinInterval),
 		FailedReason: r.FailureReason,
-		Seeders:      r.Complete,
-		Leechers:     r.Incomplete,
+	}
+	if r.Complete != nil {
+		result.Seeders = *r.Complete
+	}
+	if r.Incomplete != nil {
+		result.Leechers = *r.Incomplete
+		result.LeechersKnown = true
 	}
 
 	if len(r.Peers) != 0 {
@@ -780,13 +809,13 @@ func (t *Trackers) announceReq(ctx context.Context, event AnnounceEvent) *resty.
 // ---- internal types and helpers ----
 
 type trackerAnnounceResponse struct {
+	Complete      *int             `bencode:"complete"`
+	Incomplete    *int             `bencode:"incomplete"`
 	FailureReason string           `bencode:"failure reason"`
 	Peers         bencode.RawBytes `bencode:"peers"`
 	Peers6        bencode.RawBytes `bencode:"peers6"`
 	Interval      int64            `bencode:"interval"`
 	MinInterval   int64            `bencode:"min interval"`
-	Complete      int              `bencode:"complete"`
-	Incomplete    int              `bencode:"incomplete"`
 }
 
 type nonCompactPeer struct {
