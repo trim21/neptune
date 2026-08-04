@@ -56,6 +56,10 @@ func discoverDevices() []deviceInfo {
 			continue
 		}
 
+		if strings.HasPrefix(device.mountPoint, "/sys/") || strings.HasPrefix(device.mountPoint, "/proc/") {
+			continue
+		}
+
 		if _, ok := seen[device.id]; ok {
 			continue
 		}
