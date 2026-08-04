@@ -72,10 +72,14 @@ func LoadFromResume(sess *session.Session, data []byte, trackerStagger time.Dura
 	} else if complete {
 		state = Seeding
 	}
-	// Cap the first-announce stagger for downloading torrents so they still
+	// Cap the first-announce stagger for incomplete torrents so they still
 	// reach the tracker quickly after restart; 5 minutes keeps bulk resumes
-	// spread out while limiting the delay before downloads resume.
-	if state == Downloading {
+	// spread out while limiting the delay before downloads resume. The resume
+	// file only distinguishes Stopped from Active (not downloading vs
+	// seeding), so completeness is the right discriminator: an incomplete
+	// torrent that resumes Stopped is still mid-download and needs to get
+	// back on the tracker fast once started.
+	if !complete {
 		trackerStagger = min(trackerStagger, 5*time.Minute)
 	}
 
@@ -160,9 +164,4 @@ func validateResumeBitfield(info meta.Info, basePath string, selectedFilesSet *b
 		}
 	}
 	return invalidBytes, nil
-}
-
-// TrkStagger calls Stagger on the download's tracker set.
-func (d *Download) TrkStagger(maxDelay time.Duration) {
-	d.tracker.Stagger(maxDelay)
 }

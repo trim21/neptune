@@ -5,8 +5,6 @@ package download
 
 import (
 	"time"
-
-	"neptune/internal/client/tracker"
 )
 
 func (d *Download) Start() error {
@@ -27,7 +25,6 @@ func (d *Download) Start() error {
 	}
 
 	d.stateCond.Broadcast()
-	d.tracker.Resume()
 	// A restarted download may have accumulated candidates while stopped.
 	d.signalConnect()
 	return nil
@@ -44,8 +41,6 @@ func (d *Download) Stop() error {
 	d.CancelMove()
 
 	d.stateCond.Broadcast()
-
-	d.tracker.Pause()
 	return nil
 }
 
@@ -99,7 +94,6 @@ func (d *Download) AsyncCheck() error {
 func (d *Download) startRuntime() {
 	d.startBackground()
 	d.goBackground(d.tracker.Run)
-	d.tracker.Announce(tracker.EventStarted)
 	d.saveResume()
 }
 

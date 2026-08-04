@@ -5,7 +5,6 @@ package download
 
 import (
 	"net/netip"
-	"time"
 
 	"github.com/samber/lo"
 	"github.com/samber/lo/mutable"
@@ -34,10 +33,10 @@ func (d *Download) ReplaceTrackers(replacements map[string]string) {
 	d.tracker.Replace(replacements)
 }
 
-// Reannounce triggers an immediate reannounce to all trackers with the given event.
+// Reannounce triggers an immediate regular reannounce to all eligible trackers.
 // Returns false if the earliest announce interval hasn't expired.
-func (d *Download) Reannounce(event tracker.AnnounceEvent) bool {
-	return d.tracker.ForceReannounce(event)
+func (d *Download) Reannounce() bool {
+	return d.tracker.Reannounce()
 }
 
 // TrackerURLs returns all tracker URLs.
@@ -70,7 +69,10 @@ func (d *Download) setAnnounceList(list metainfo.AnnounceList) {
 		mutable.Shuffle(tier)
 		tiers = append(tiers, tracker.TrackerTier{
 			Trackers: lo.Map(tier, func(item string, _ int) *tracker.Tracker {
-				return &tracker.Tracker{URL: item, NextAnnounce: time.Now()}
+				// Zero NextAnnounce marks a tracker that never announced: it
+				// is attempted on the next round that reaches its tier, but
+				// does not drive scheduling on its own (see tracker docs).
+				return &tracker.Tracker{URL: item}
 			}),
 		})
 	}

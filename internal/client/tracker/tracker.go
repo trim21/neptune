@@ -79,7 +79,7 @@ func SourceRank(source PeerSource) int {
 
 // AnnounceResponse is the parsed result from a tracker announce.
 // Interval and MinInterval are zero if the tracker did not return them;
-// the caller (finishAnnounce) applies the merging rules.
+// the caller (applyAnnounceResult) applies the merging rules.
 // LeechersKnown is true when the tracker response explicitly included an
 // "incomplete" field (Leechers is authoritative, including zero).
 type AnnounceResponse struct {
@@ -93,16 +93,27 @@ type AnnounceResponse struct {
 	LeechersKnown bool
 }
 
-// Tracker is a single announce URL with its state.
+// Tracker is a single announce URL with its own throttling state.
+// Scheduling itself is group-level (see Trackers); a Tracker only records the
+// times after which it may be announced again and its last result.
 type Tracker struct {
-	URL              string
 	LastAnnounceTime time.Time
-	NextAnnounce     time.Time
+	// NextAnnounce is the earliest time a regular (no-event) round may try
+	// this tracker again. It is renewed after every attempt by the response
+	// interval (or the failure retry interval).
+	NextAnnounce time.Time
+	// EarliestAnnounce is the earliest time a manual reannounce may try this
+	// tracker (min_interval). It is only used for Reannounce throttling.
 	EarliestAnnounce time.Time
 	Err              error
+	URL              string
 	FailureMessage   string
+	Interval         time.Duration
 	PeerCount        int
-	inFlight         atomic.Bool
+	// everAttempted marks that a request has been sent to this tracker at
+	// least once. It defines the set of trackers that receive stopped on
+	// shutdown: a tracker that never got a request has no record to clear.
+	everAttempted atomic.Bool
 }
 
 // ErrorMessage returns the current error state description.
@@ -142,32 +153,59 @@ type Config struct {
 }
 
 // Trackers manages announce trackers and the background announce loop.
+//
+// Scheduling is group-level: every announce (a lifecycle event or a regular
+// round) walks the tiers in order (BEP 12). A round first tries every tracker
+// in tier 0 in parallel; when at least one succeeds the round ends and the
+// backup tiers are left untouched. Only when the whole tier fails does the
+// round advance to the next tier. The next regular round is driven by the
+// per-tracker NextAnnounce times (renewed by each response interval), so a
+// tracker that is never reached (a working backup) simply never expires.
 type Trackers struct {
-	log             zerolog.Logger
-	ctx             context.Context
-	downloaded      *atomic.Int64
-	uploaded        *atomic.Int64
-	Seeds           *xsync.Map[string, int]
-	Leechers        *xsync.Map[string, int]
-	Errors          *xsync.Map[string, string]
-	resumeCh        chan struct{}
-	peersCh         chan<- []DiscoveredPeer
-	queue           chan AnnounceEvent
-	http            *resty.Client
-	completed       *atomic.Int64
-	trackerSem      *semaphore.Weighted
-	peerID          string
-	Key             string
-	infoHash        string
-	tiers           []TrackerTier
-	totalSize       int64
-	paused          atomic.Bool
-	downloadedStart int64
+	log zerolog.Logger
+	// pendingAt is the earliest time pendingEvent may be dispatched. A zero
+	// time means "as soon as possible"; Start(maxDelay) staggers it.
+	pendingAt time.Time
+	ctx       context.Context
+	Errors    *xsync.Map[string, string]
+	Seeds     *xsync.Map[string, int]
+	Leechers  *xsync.Map[string, int]
+	uploaded  *atomic.Int64
+	wakeCh    chan struct{}
+	peersCh   chan<- []DiscoveredPeer
+	http      *resty.Client
+	completed *atomic.Int64
+
+	trackerSem *semaphore.Weighted
+	downloaded *atomic.Int64
+	infoHash   string
+
+	inFlightEvent AnnounceEvent
+	peerID        string
+	// pendingEvent is the latest desired lifecycle state (started/stopped)
+	// that has not been sent yet. It is overwritten by newer states.
+	pendingEvent AnnounceEvent
+	Key          string
+	tiers        []TrackerTier
+
 	uploadedStart   int64
+	downloadedStart int64
+	totalSize       int64
 	mu              sync.RWMutex
 	numWant         int32
 	port            uint16
 	debug           bool
+	active          bool
+	// inFlight marks that a round is currently executing. Only one round runs
+	// at a time; events arriving meanwhile are latched below and executed
+	// right after the current round completes.
+	inFlight bool
+	// pendingCompleted latches the one-shot completed event. It is sent
+	// before pendingEvent and never replaced by a newer started/stopped.
+	pendingCompleted bool
+	// reannounce requests one manual regular round throttled by
+	// EarliestAnnounce instead of NextAnnounce.
+	reannounce bool
 }
 
 // New creates a Trackers instance. ctx controls the announce loop lifetime.
@@ -194,10 +232,9 @@ func New(ctx context.Context, cfg Config) *Trackers {
 		totalSize:       cfg.TotalSize,
 		numWant:         cfg.NumWant,
 
-		resumeCh: make(chan struct{}, 1),
-		queue:    make(chan AnnounceEvent, 1),
-		peersCh:  cfg.PeersCh,
-		debug:    cfg.Debug,
+		wakeCh:  make(chan struct{}, 1),
+		peersCh: cfg.PeersCh,
+		debug:   cfg.Debug,
 	}
 }
 
@@ -207,34 +244,77 @@ func (t *Trackers) Run() {
 	t.loop()
 }
 
-// Announce enqueues an announce event. Non-blocking.
+// Start activates periodic announcing and schedules one event=started round.
+// maxDelay is the stagger window of the whole round; zero announces
+// immediately.
+func (t *Trackers) Start(maxDelay time.Duration) {
+	now := time.Now()
+	window := maxDelay
+	if window > 0 {
+		window = min(max(window, 5*time.Second), 60*time.Minute)
+	}
+
+	t.mu.Lock()
+	t.active = true
+	t.pendingEvent = EventStarted
+	t.pendingAt = now
+	if window > 0 {
+		t.pendingAt = now.Add(time.Duration(rand.Int64N(int64(window))))
+	}
+	t.mu.Unlock()
+	t.wake()
+}
+
+// Announce submits an externally-triggered lifecycle event. A stopped event
+// terminates periodic announcing; all other events keep the announce chain
+// active.
 func (t *Trackers) Announce(event AnnounceEvent) {
+	now := time.Now()
+	t.mu.Lock()
+	switch event {
+	case EventCompleted:
+		t.pendingCompleted = true
+		// A staggered started that has not been sent yet must follow the
+		// completed event immediately instead of waiting out its window.
+		if t.pendingEvent == EventStarted && now.Before(t.pendingAt) {
+			t.pendingAt = now
+		}
+	case EventStopped:
+		t.active = false
+		t.pendingEvent = EventStopped
+		t.pendingAt = now
+	}
+	t.mu.Unlock()
+	t.wake()
+}
+
+func (t *Trackers) wake() {
 	select {
-	case t.queue <- event:
+	case t.wakeCh <- struct{}{}:
 	default:
 	}
 }
 
-// ForceReannounce triggers an immediate announce if the current time is at or after
-// EarliestAnnounce for at least one tracker. Returns true if the announce was
-// enqueued, false if the earliest timeout has not expired yet.
-func (t *Trackers) ForceReannounce(event AnnounceEvent) bool {
+// Reannounce schedules one immediate regular round. It returns false when the
+// chain is inactive, a lifecycle event is pending, a round is in flight, or
+// no tracker has reached its EarliestAnnounce yet.
+func (t *Trackers) Reannounce() bool {
 	now := time.Now()
-	ok := false
 	t.mu.Lock()
+	defer t.mu.Unlock()
+	if !t.active || t.inFlight || t.pendingCompleted || t.pendingEvent != "" {
+		return false
+	}
 	for _, tier := range t.tiers {
 		for _, tr := range tier.Trackers {
 			if !now.Before(tr.EarliestAnnounce) {
-				tr.NextAnnounce = now
-				ok = true
+				t.reannounce = true
+				t.wake()
+				return true
 			}
 		}
 	}
-	t.mu.Unlock()
-	if ok {
-		t.Announce(event)
-	}
-	return ok
+	return false
 }
 
 // Totals returns the max seeders and leechers across all trackers.
@@ -281,32 +361,42 @@ type Info struct {
 	Tier int
 }
 
-// SetTiers replaces the tracker tier list.
+// SetTiers replaces the tracker tier list. It does not schedule anything by
+// itself: trackers are picked up by the next round (their NextAnnounce is
+// zero-valued, i.e. immediately due).
 func (t *Trackers) SetTiers(tiers []TrackerTier) {
 	t.mu.Lock()
 	t.tiers = tiers
 	t.mu.Unlock()
+	t.wake()
 }
 
-// Add adds a tracker URL at the given tier.
+// Add adds a tracker URL at the given tier. The new tracker is announced by
+// the next regular round without a lifecycle event.
 func (t *Trackers) Add(url string, tier int) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	for _, t := range t.tiers {
-		for _, tr := range t.Trackers {
+	for _, existingTier := range t.tiers {
+		for _, tr := range existingTier.Trackers {
 			if tr.URL == url {
 				return
 			}
 		}
 	}
 
-	tr := &Tracker{URL: url, NextAnnounce: time.Now()}
+	tr := &Tracker{URL: url}
+	if t.active {
+		// Mark the new tracker immediately due so the leading tier drives one
+		// regular round for it without touching the other trackers.
+		tr.NextAnnounce = time.Now()
+	}
 	if tier >= 0 && tier < len(t.tiers) {
 		t.tiers[tier].Trackers = append(t.tiers[tier].Trackers, tr)
 	} else {
 		t.tiers = append(t.tiers, TrackerTier{Trackers: []*Tracker{tr}})
 	}
+	t.wake()
 }
 
 // Remove deletes a tracker by URL.
@@ -324,13 +414,14 @@ func (t *Trackers) Remove(url string) {
 				if len(t.tiers[i].Trackers) == 0 {
 					t.tiers = slices.Delete(t.tiers, i, i+1)
 				}
+				t.wake()
 				return
 			}
 		}
 	}
 }
 
-// Replace renames tracker URLs.
+// Replace renames tracker URLs. Scheduling state is kept on the same Tracker.
 func (t *Trackers) Replace(replacements map[string]string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -346,10 +437,10 @@ func (t *Trackers) Replace(replacements map[string]string) {
 					t.Leechers.Store(newURL, l)
 				}
 				tr.URL = newURL
-				tr.NextAnnounce = time.Now()
 			}
 		}
 	}
+	t.wake()
 }
 
 // List returns all tracker info for API responses.
@@ -369,7 +460,7 @@ func (t *Trackers) List() []Info {
 
 // Each calls fn for every tracker under read lock.
 // The callback must not call any Trackers method that acquires the write lock
-// (Add, Remove, SetTiers, Pause, Resume, etc.) — this would deadlock.
+// (Add, Remove, SetTiers, Start, Announce, etc.) — this would deadlock.
 func (t *Trackers) Each(fn func(tierIdx int, tr *Tracker)) {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
@@ -394,23 +485,6 @@ func (t *Trackers) URLs() [][]string {
 	return urls
 }
 
-// Stagger adds a random delay to all NextAnnounce times.
-// maxDelay caps the random delay added to each tracker.
-// The delay is clamped between 5 seconds and 60 minutes.
-func (t *Trackers) Stagger(maxDelay time.Duration) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	seconds := int(maxDelay.Seconds())
-	seconds = min(max(seconds, 5), 60*60)
-
-	for _, tier := range t.tiers {
-		for _, tr := range tier.Trackers {
-			tr.NextAnnounce = tr.NextAnnounce.Add(time.Duration(rand.IntN(seconds)) * time.Second)
-		}
-	}
-}
-
 func (t *Trackers) SetError(tr *Tracker) {
 	if msg := tr.ErrorMessage(); msg != "" {
 		t.Errors.Store(tr.URL, msg)
@@ -419,31 +493,39 @@ func (t *Trackers) SetError(tr *Tracker) {
 	}
 }
 
-// Pause stops the periodic announce loop and sends EventStopped to all trackers.
-// Safe to call multiple times; only the first call takes effect.
-func (t *Trackers) Pause() {
-	if !t.paused.CompareAndSwap(false, true) {
-		return
-	}
-	go t.announceToAll(EventStopped)
+// IsActive reports whether the announce chain is currently active: periodic
+// announcing is enabled and lifecycle events will be processed. Downloads use
+// this to decide whether a state transition must start or stop the chain.
+func (t *Trackers) IsActive() bool {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.active
 }
 
-// Shutdown synchronously sends EventStopped to all trackers. It uses a
-// background context so it works even when the Trackers' own context has
-// already been cancelled (e.g. during graceful process shutdown).
+// Shutdown synchronously sends EventStopped to every tracker that ever
+// received a request, including ones with a request currently in flight.
+// Transport errors are recorded on the tracker; the in-flight request may
+// complete concurrently, but its response has no renewal effect because the
+// chain is already inactive and the pending state has been cleared.
 func (t *Trackers) Shutdown() {
-	t.mu.RLock()
-	trackers := make([]*Tracker, 0)
+	t.mu.Lock()
+	t.active = false
+	t.pendingEvent = ""
+	t.pendingAt = time.Time{}
+	t.pendingCompleted = false
+	t.reannounce = false
+	var trackers []*Tracker
 	for _, tier := range t.tiers {
-		trackers = append(trackers, tier.Trackers...)
+		for _, tr := range tier.Trackers {
+			if tr.everAttempted.Load() {
+				trackers = append(trackers, tr)
+			}
+		}
 	}
-	t.mu.RUnlock()
+	t.mu.Unlock()
+	t.wake()
 
 	for _, tr := range trackers {
-		if !tr.inFlight.CompareAndSwap(false, true) {
-			continue
-		}
-
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		_, err := t.announceReqWithSem(ctx, EventStopped, tr.URL, 5*time.Second)
 		cancel()
@@ -454,191 +536,296 @@ func (t *Trackers) Shutdown() {
 			t.SetError(tr)
 			t.mu.Unlock()
 		}
-
-		tr.inFlight.Store(false)
 	}
 }
 
-// Resume restarts the periodic announce loop, resets NextAnnounce for all
-// trackers so the next tick announces immediately, and signals the loop to wake up.
-// Safe to call multiple times; only the first call after a Pause takes effect.
-func (t *Trackers) Resume() {
-	if !t.paused.CompareAndSwap(true, false) {
-		return
-	}
-
-	t.mu.Lock()
-	now := time.Now()
-	for _, tier := range t.tiers {
-		for _, tr := range tier.Trackers {
-			tr.NextAnnounce = now
-			tr.EarliestAnnounce = now
-		}
-	}
-	t.mu.Unlock()
-
-	select {
-	case t.resumeCh <- struct{}{}:
-	default:
-	}
-}
-
-// announceToAll sends an announce event to every tracker (best-effort, 5s timeout per request).
-// Stops early if context is cancelled or Trackers is resumed.
-func (t *Trackers) announceToAll(event AnnounceEvent) {
-	t.mu.RLock()
-	trackers := make([]*Tracker, 0)
-	for _, tier := range t.tiers {
-		trackers = append(trackers, tier.Trackers...)
-	}
-	t.mu.RUnlock()
-
-	for _, tr := range trackers {
-		if t.ctx.Err() != nil || !t.paused.Load() {
-			return
-		}
-		if !tr.inFlight.CompareAndSwap(false, true) {
-			continue
-		}
-
-		_, err := t.announceReqWithSem(t.ctx, event, tr.URL, 5*time.Second)
-
-		if err != nil {
-			t.mu.Lock()
-			tr.Err = err
-			t.SetError(tr)
-			t.mu.Unlock()
-		}
-
-		tr.inFlight.Store(false)
-	}
-}
-
+// loop owns the only timer. It dispatches at most one round at a time and
+// sleeps until the earliest NextAnnounce (or a staggered pending event).
 func (t *Trackers) loop() {
 	defer t.log.Debug().Msg("tracker loop: exiting")
 
-	ticker := time.NewTicker(time.Minute)
-	defer ticker.Stop()
+	timer := time.NewTimer(time.Hour)
+	if !timer.Stop() {
+		<-timer.C
+	}
+	defer timer.Stop()
 
 	for {
+		if t.runDueRound() {
+			// A round was dispatched; re-check immediately for latched events.
+			continue
+		}
+
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+		var timerC <-chan time.Time
+		if next, ok := t.earliestNextAnnounce(); ok {
+			timer.Reset(max(time.Until(next), 0))
+			timerC = timer.C
+		}
+
 		select {
 		case <-t.ctx.Done():
 			return
-		case event := <-t.queue:
-			t.doAnnounce(event)
-		case <-t.resumeCh:
-			if !t.paused.Load() {
-				t.doAnnounce(EventStarted)
-			}
-		case <-ticker.C:
-			if !t.paused.Load() {
-				t.doAnnounce("")
-			}
+		case <-t.wakeCh:
+		case <-timerC:
 		}
 	}
 }
 
-// doAnnounce finds all due trackers that are not currently in-flight and launches
-// goroutines to perform the HTTP announce. The loop runs until no more due
-// trackers remain, then returns without blocking.
-func (t *Trackers) doAnnounce(event AnnounceEvent) {
-	for {
-		t.mu.Lock()
-		var target *Tracker
-		for _, tier := range t.tiers {
-			for _, tr := range tier.Trackers {
-				if !tr.inFlight.Load() && !tr.NextAnnounce.After(time.Now()) {
-					target = tr
-					tr.inFlight.Store(true)
-					break
-				}
-			}
-			if target != nil {
-				break
+// runDueRound dispatches the next round if any is due: a latched lifecycle
+// event, a manual reannounce, or a regular round with an expired tracker.
+// Returns true when a round was dispatched (in its own goroutine).
+func (t *Trackers) runDueRound() bool {
+	now := time.Now()
+	t.mu.Lock()
+	if t.inFlight {
+		t.mu.Unlock()
+		return false
+	}
+
+	var event AnnounceEvent
+	if t.pendingCompleted {
+		event = EventCompleted
+		t.pendingCompleted = false
+	} else if t.pendingEvent != "" && !now.Before(t.pendingAt) {
+		event = t.pendingEvent
+		t.pendingEvent = ""
+		t.pendingAt = time.Time{}
+	}
+	if event != "" {
+		t.inFlight = true
+		t.inFlightEvent = event
+		t.mu.Unlock()
+		go t.runRound(event, false)
+		return true
+	}
+
+	if t.reannounce {
+		t.reannounce = false
+		if !t.active {
+			t.mu.Unlock()
+			return false
+		}
+		t.inFlight = true
+		t.mu.Unlock()
+		go t.runRound("", true)
+		return true
+	}
+
+	if t.active && t.anyDueLocked(now) {
+		t.inFlight = true
+		t.mu.Unlock()
+		go t.runRound("", false)
+		return true
+	}
+
+	t.mu.Unlock()
+	return false
+}
+
+// anyDueLocked reports whether a regular round has work to do: some tracker in
+// the first non-empty tier is due. The leading tier drives the regular rhythm;
+// backup tiers are only reached through the failover path inside a round, so
+// their expiry alone never starts one (otherwise a quiet-but-alive leading
+// tier would spin empty rounds).
+func (t *Trackers) anyDueLocked(now time.Time) bool {
+	for _, tier := range t.tiers {
+		if len(tier.Trackers) == 0 {
+			continue
+		}
+		for _, tr := range tier.Trackers {
+			if !tr.NextAnnounce.IsZero() && !now.Before(tr.NextAnnounce) {
+				return true
 			}
 		}
-		t.mu.Unlock()
+		return false
+	}
+	return false
+}
 
-		if target == nil {
+// earliestNextAnnounce returns the next time the loop must wake up: a
+// staggered pending event or the earliest leading-tier NextAnnounce. Backup
+// tier times are excluded: they are only reached through the failover path
+// inside a round, so they must not wake the loop on their own.
+func (t *Trackers) earliestNextAnnounce() (time.Time, bool) {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	var next time.Time
+	var ok bool
+	consider := func(at time.Time) {
+		if at.IsZero() {
 			return
 		}
+		if !ok || at.Before(next) {
+			next = at
+			ok = true
+		}
+	}
+	if t.pendingCompleted {
+		consider(time.Now())
+	} else if t.pendingEvent != "" {
+		consider(t.pendingAt)
+	}
+	for _, tier := range t.tiers {
+		if len(tier.Trackers) == 0 {
+			continue
+		}
+		for _, tr := range tier.Trackers {
+			consider(tr.NextAnnounce)
+		}
+		break
+	}
+	return next, ok
+}
 
-		if event == EventStopped {
-			go t.finishStop(target)
-		} else {
-			go t.finishAnnounce(target, event)
+// runRound executes one group-level announce round in its own goroutine.
+// A stopped round broadcasts stopped to every attempted tracker; any other
+// round walks the tiers in order (BEP 12).
+func (t *Trackers) runRound(event AnnounceEvent, useEarliest bool) {
+	defer t.finishRound()
+
+	if event == EventStopped {
+		t.announceStopped()
+		return
+	}
+	t.attemptTiers(event, useEarliest)
+}
+
+func (t *Trackers) finishRound() {
+	t.mu.Lock()
+	t.inFlight = false
+	t.inFlightEvent = ""
+	t.mu.Unlock()
+	t.wake()
+}
+
+// attemptTiers walks the tiers in order. Within a tier all eligible trackers
+// are announced in parallel; when at least one succeeds the round ends. Only
+// when the whole tier is attempted and every attempt fails does the round
+// advance to the next tier. A tracker that is still throttled (not due yet)
+// ends the round: the tier is alive, just quiet, so backups must not be
+// activated.
+func (t *Trackers) attemptTiers(event AnnounceEvent, useEarliest bool) {
+	now := time.Now()
+
+	// Deep-copy the tier list so a concurrent Remove/Replace during the HTTP
+	// requests cannot race with reading the tracker slices.
+	t.mu.RLock()
+	tiers := make([]TrackerTier, len(t.tiers))
+	for i, tier := range t.tiers {
+		tiers[i].Trackers = slices.Clone(tier.Trackers)
+	}
+	t.mu.RUnlock()
+
+	for i := range tiers {
+		tier := tiers[i]
+		if len(tier.Trackers) == 0 {
+			continue
+		}
+
+		type attempt struct {
+			resp    AnnounceResponse
+			skipped bool
+		}
+		attempts := make([]attempt, len(tier.Trackers))
+		var wg sync.WaitGroup
+		skippedAny := false
+		for j, tr := range tier.Trackers {
+			if event == "" {
+				if useEarliest {
+					if now.Before(tr.EarliestAnnounce) {
+						attempts[j].skipped = true
+						skippedAny = true
+						continue
+					}
+				} else if !tr.NextAnnounce.IsZero() && now.Before(tr.NextAnnounce) {
+					attempts[j].skipped = true
+					skippedAny = true
+					continue
+				}
+			}
+			wg.Add(1)
+			go func(j int, tr *Tracker) {
+				defer wg.Done()
+				tr.everAttempted.Store(true)
+				attempts[j].resp = t.announceHTTP(tr, event)
+			}(j, tr)
+		}
+		wg.Wait()
+
+		var best *Tracker
+		for j, tr := range tier.Trackers {
+			if attempts[j].skipped {
+				continue
+			}
+			t.applyAnnounceResult(tr, attempts[j].resp)
+			if attempts[j].resp.Err == nil && best == nil {
+				best = tr
+			}
+		}
+		if best != nil {
+			t.mu.Lock()
+			if i < len(t.tiers) {
+				t.moveToFrontLocked(i, best)
+			}
+			t.mu.Unlock()
+			return
+		}
+		if skippedAny {
+			// Some tracker in this tier is still within its interval: the
+			// tier is alive but quiet, so do not fall through to backups.
+			return
 		}
 	}
 }
 
-// random5to10Min returns a random duration between 5 and 10 minutes at second granularity.
-func random5to10Min() time.Duration {
-	return time.Duration(5*60+rand.IntN(301)) * time.Second
-}
-
-// jitterInterval applies a relative ±15% jitter to an announce interval so
-// that downloads sharing a tracker do not announce in lockstep. The result is
-// clamped to stay at or above minDelta so the tracker's min_interval is never
-// violated (a negative jitter would otherwise announce too early).
-func jitterInterval(interval, minDelta time.Duration) time.Duration {
-	jittered := max(time.Duration(float64(interval)*(0.85+0.3*rand.Float64())), minDelta)
-	return jittered
-}
-
-// finishAnnounce performs the HTTP announce for a single tracker and updates its state.
-// Called from a goroutine spawned by doAnnounce.
-func (t *Trackers) finishAnnounce(tr *Tracker, event AnnounceEvent) {
-	defer tr.inFlight.Store(false)
-
-	r := t.announceHTTP(tr, event)
-
-	now := time.Now()
-
-	// Compute min_interval and interval from tracker response per user rules:
-	//   1. Only min_interval (no interval): interval = min_interval * 2 + random(5-10min)
-	//   2. Only interval (no min_interval): min_interval = interval, interval jittered ±15%
-	//   3. Both returned: min_interval as-is, interval jittered ±15%
-	//   4. Neither returned: default both to 30 min
-	//
-	// The jitter (rules 2/3) and the random add-on (rules 1/4) desynchronize
-	// announces across downloads so a restart of many torrents does not make
-	// them all announce at the same instant (which would cause connection
-	// spikes on every interval).
-
-	minDelta := r.MinInterval
-	interval := r.Interval
-
-	switch {
-	case r.MinInterval > 0 && r.Interval == 0:
-		interval = minDelta*2 + random5to10Min()
-	case r.MinInterval == 0 && r.Interval > 0:
-		minDelta = interval
-		interval = jitterInterval(interval, minDelta)
-	case r.MinInterval > 0 && r.Interval > 0:
-		interval = jitterInterval(interval, minDelta)
-	default:
-		// Neither returned — use defaults.
-		minDelta = 30 * time.Minute
-		interval = 30*time.Minute + random5to10Min()
+// moveToFrontLocked moves tr to the front of its tier (BEP 12: a successful
+// connection is moved to the front of the tier). Caller must hold t.mu.
+func (t *Trackers) moveToFrontLocked(tierIdx int, tr *Tracker) {
+	tier := &t.tiers[tierIdx]
+	for j, x := range tier.Trackers {
+		if x == tr {
+			if j > 0 {
+				copy(tier.Trackers[1:j+1], tier.Trackers[:j])
+				tier.Trackers[0] = tr
+			}
+			return
+		}
 	}
+}
+
+// applyAnnounceResult records one tracker's response. A tracker removed while
+// its request was in flight has all side effects dropped.
+func (t *Trackers) applyAnnounceResult(tr *Tracker, r AnnounceResponse) {
+	now := time.Now()
+	interval, minDelta := computeIntervals(r)
 
 	t.mu.Lock()
-	tr.LastAnnounceTime = now
-	tr.NextAnnounce = now.Add(interval)
-	tr.EarliestAnnounce = now.Add(minDelta)
-	tr.FailureMessage = r.FailedReason
-	if r.Err != nil {
-		tr.Err = r.Err
-	} else {
-		tr.Err = nil
-		tr.PeerCount = len(r.Peers)
-	}
-	t.SetError(tr)
-	t.mu.Unlock()
-
-	if r.Err != nil {
+	if !t.containsTrackerLocked(tr) {
+		t.mu.Unlock()
 		return
 	}
+	tr.LastAnnounceTime = now
+	tr.EarliestAnnounce = now.Add(minDelta)
+	tr.Interval = interval
+	tr.FailureMessage = r.FailedReason
+	tr.NextAnnounce = now.Add(interval)
+	if r.Err != nil {
+		tr.Err = r.Err
+		t.SetError(tr)
+		t.mu.Unlock()
+		return
+	}
+	tr.Err = nil
+	tr.PeerCount = len(r.Peers)
+	t.SetError(tr)
+	t.mu.Unlock()
 
 	if r.Seeders > 0 {
 		t.Seeds.Store(tr.URL, r.Seeders)
@@ -660,20 +847,91 @@ func (t *Trackers) finishAnnounce(tr *Tracker, event AnnounceEvent) {
 	}
 }
 
-// finishStop completes the stopped announce for a single tracker.
-func (t *Trackers) finishStop(tr *Tracker) {
-	defer tr.inFlight.Store(false)
-	t.announceStop(tr)
+// containsTrackerLocked reports whether tr is still configured.
+// Caller must hold t.mu.
+func (t *Trackers) containsTrackerLocked(tr *Tracker) bool {
+	for _, tier := range t.tiers {
+		if slices.Contains(tier.Trackers, tr) {
+			return true
+		}
+	}
+	return false
 }
 
-func (t *Trackers) announceStop(tr *Tracker) {
-	_, err := t.announceReqWithSem(t.ctx, EventStopped, tr.URL, 15*time.Second)
-	if err != nil {
-		t.mu.Lock()
-		tr.Err = err
-		t.SetError(tr)
-		t.mu.Unlock()
+// announceStopped sends stopped to every tracker that ever received a
+// request. Trackers that never announced (untouched backups) have no record
+// on the tracker side and are skipped.
+func (t *Trackers) announceStopped() {
+	t.mu.RLock()
+	var trackers []*Tracker
+	for _, tier := range t.tiers {
+		for _, tr := range tier.Trackers {
+			if tr.everAttempted.Load() {
+				trackers = append(trackers, tr)
+			}
+		}
 	}
+	t.mu.RUnlock()
+
+	var wg sync.WaitGroup
+	for _, tr := range trackers {
+		wg.Add(1)
+		go func(tr *Tracker) {
+			defer wg.Done()
+			_, err := t.announceReqWithSem(t.ctx, EventStopped, tr.URL, 15*time.Second)
+			if err != nil {
+				t.mu.Lock()
+				tr.Err = err
+				t.SetError(tr)
+				t.mu.Unlock()
+			}
+		}(tr)
+	}
+	wg.Wait()
+}
+
+// random5to10Min returns a random duration between 5 and 10 minutes at second granularity.
+func random5to10Min() time.Duration {
+	return time.Duration(5*60+rand.IntN(301)) * time.Second
+}
+
+// computeIntervals derives the per-tracker announce interval and min interval
+// from a response:
+//
+//  1. Only min_interval (no interval): interval = min_interval * 2 + random(5-10min)
+//  2. Only interval (no min_interval): min_interval = interval, interval jittered ±15%
+//  3. Both returned: min_interval as-is, interval jittered ±15%
+//  4. Neither returned: default both to 30 min
+//
+// The jitter (rules 2/3) and the random add-on (rules 1/4) desynchronize
+// announces across downloads so a restart of many torrents does not make
+// them all announce at the same instant.
+func computeIntervals(r AnnounceResponse) (interval, minDelta time.Duration) {
+	switch {
+	case r.MinInterval > 0 && r.Interval == 0:
+		minDelta = r.MinInterval
+		interval = minDelta*2 + random5to10Min()
+	case r.MinInterval == 0 && r.Interval > 0:
+		minDelta = r.Interval
+		interval = jitterInterval(r.Interval, minDelta)
+	case r.MinInterval > 0 && r.Interval > 0:
+		minDelta = r.MinInterval
+		interval = jitterInterval(r.Interval, minDelta)
+	default:
+		// Neither returned — use defaults.
+		minDelta = 30 * time.Minute
+		interval = 30*time.Minute + random5to10Min()
+	}
+	return interval, minDelta
+}
+
+// jitterInterval applies a relative ±15% jitter to an announce interval so
+// that downloads sharing a tracker do not announce in lockstep. The result is
+// clamped to stay at or above minDelta so the tracker's min_interval is never
+// violated (a negative jitter would otherwise announce too early).
+func jitterInterval(interval, minDelta time.Duration) time.Duration {
+	jittered := max(time.Duration(float64(interval)*(0.85+0.3*rand.Float64())), minDelta)
+	return jittered
 }
 
 func (t *Trackers) announceHTTP(tr *Tracker, event AnnounceEvent) AnnounceResponse {

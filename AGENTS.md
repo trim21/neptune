@@ -67,6 +67,9 @@ etc/
 
 ## Core Client
 - [internal/client/c.go](../internal/client/c.go) 负责所有下载的增删查、全局连接数限制、文件句柄池。
+- Tracker announce 的首次错峰、response 续约、外部事件覆盖和并发不变量定义在
+  [docs/tracker-announce-scheduling.md](docs/tracker-announce-scheduling.md)。修改或 review
+  `internal/client/tracker` 及 Download/tracker 生命周期接线时必须遵守该文档。
 
 ## Download
 - [internal/download/](../internal/download/) 单个下载的全生命周期：文件校验、peer 管理、piece 调度、BEP 协议交互。

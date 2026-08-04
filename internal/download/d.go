@@ -133,6 +133,33 @@ func (d *Download) commitStateTransition(from, to State) {
 		d.picker.Load().ReleaseAllClaims()
 		d.clearPeerDownloadRequests()
 	}
+
+	d.syncTrackerState(to)
+}
+
+// syncTrackerState keeps the tracker announce chain in sync with the
+// download's lifecycle. It is the single place that translates state
+// transitions into tracker events, so every transition path (Start/Stop,
+// recheck, file-priority changes, errors, moves) is covered without each
+// caller having to remember to notify the tracker.
+//
+// PendingDownloading, Checking and Moving are transient or queueing states
+// that deliberately leave the chain untouched.
+//
+// completed is NOT derived here: it is only sent explicitly by
+// finalizeDownloadCompletion, because "data verified complete" (resume,
+// manual recheck, file-priority changes) must not emit completed.
+func (d *Download) syncTrackerState(to State) {
+	switch to {
+	case Stopped, Error:
+		if d.tracker.IsActive() {
+			d.tracker.Announce(tracker.EventStopped)
+		}
+	case Downloading, Seeding:
+		if !d.tracker.IsActive() {
+			d.tracker.Start(0)
+		}
+	}
 }
 
 func (d *Download) clearPeerDownloadRequests() {

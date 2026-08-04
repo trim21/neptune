@@ -26,7 +26,6 @@ func (c *Client) NewDownload(
 		State:             download.Checking,
 		PiecePickStrategy: download.PiecePickStrategy(c.piecePickStrategy.Load()),
 		SkipHashCheck:     skipHashCheck,
-		TrackerStagger:    5 * time.Minute,
 	})
 }
 

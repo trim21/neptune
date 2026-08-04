@@ -254,19 +254,23 @@ func newDownload(
 
 	d.stateCond = gsync.NewCond(&gsync.EmptyLock{})
 	d.setAnnounceList(announceList)
-	if init.TrackerStagger > 0 {
-		d.TrkStagger(init.TrackerStagger)
-	}
 
 	if init.State == Checking {
 		d.goBackground(func() {
 			d.checkNew(init.SkipHashCheck)
 			d.initializePiecePicker()
 			d.startRuntime()
+			// checkNew's transitions publish the resulting state through
+			// syncTrackerState, which starts the chain for new downloads.
 		})
 	} else {
 		d.initializePiecePicker()
 		d.startRuntime()
+		// Resume restores the final state directly instead of transitioning,
+		// so syncTrackerState never fires here: apply the stagger explicitly.
+		if d.IsActive() {
+			d.tracker.Start(init.TrackerStagger)
+		}
 	}
 
 	return d, nil

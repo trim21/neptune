@@ -728,14 +728,21 @@ func (d *Download) runHashCheck(afterSeeding func()) {
 				return
 			}
 			if afterSeeding != nil {
+				// Completion rechecks announce completed after verification. Do not
+				// follow it with started, which would replace that terminal event.
 				afterSeeding()
 			}
+			// Manual rechecks that pass (afterSeeding == nil) must not emit
+			// completed or started; syncTrackerState only keeps the chain's
+			// active/inactive side in sync with the resulting state.
 		} else {
 			d.completedOnce.Store(false)
 			if _, err := d.transition(Downloading); err != nil {
 				d.log.Error().Err(err).Msg("failed to transition after hash check")
 				return
 			}
+			// A failed recheck returns to Downloading; syncTrackerState starts
+			// the chain if it was inactive so the swarm can supply peers.
 		}
 		d.stateCond.Broadcast()
 	}()
