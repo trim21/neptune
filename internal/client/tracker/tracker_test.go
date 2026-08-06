@@ -43,6 +43,26 @@ func newTestTrackers(ctx context.Context, transport http.RoundTripper) *Trackers
 	})
 }
 
+// TestEarliestNextAnnounceWhileInflight verifies that the loop must not arm
+// its timer on the stale NextAnnounce of an in-flight round: the times that
+// started the round stay expired until applyAnnounceResult runs, so a timer
+// set on them fires immediately and the loop busy-spins for the whole HTTP
+// request. While a round is in flight the loop sleeps on the wake channel
+// instead (finishRound always wakes it).
+func TestEarliestNextAnnounceWhileInflight(t *testing.T) {
+	trackers := New(context.Background(), Config{})
+	due := time.Now().Add(-time.Minute) // stale: the in-flight round started at this time
+	tr := &Tracker{URL: "http://tracker.test/announce", NextAnnounce: due}
+	trackers.SetTiers([]TrackerTier{{Trackers: []*Tracker{tr}}})
+	trackers.mu.Lock()
+	trackers.inFlight = true
+	trackers.mu.Unlock()
+
+	next, ok := trackers.earliestNextAnnounce()
+	require.False(t, ok, "loop must not arm a timer on the stale NextAnnounce while a round is in-flight")
+	require.True(t, next.IsZero())
+}
+
 // TestSchedulerRunsRegularRoundAtDueTime verifies that a regular (no-event)
 // round fires when a tracker's NextAnnounce expires.
 func TestSchedulerRunsRegularRoundAtDueTime(t *testing.T) {

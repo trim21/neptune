@@ -656,6 +656,15 @@ func (t *Trackers) earliestNextAnnounce() (time.Time, bool) {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 
+	if t.inFlight {
+		// A round is executing: the trackers it announced still hold the
+		// stale NextAnnounce that started the round, so a timer set on that
+		// time would fire immediately and busy-spin for the whole request.
+		// finishRound always wakes the loop when the round completes, so the
+		// loop only needs to sleep on the wake channel here.
+		return time.Time{}, false
+	}
+
 	var next time.Time
 	var ok bool
 	consider := func(at time.Time) {
