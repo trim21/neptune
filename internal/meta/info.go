@@ -123,6 +123,12 @@ func FromTorrent(m metainfo.MetaInfo) (Info, error) {
 		return Info{}, errors.New("invalid pieces length, len(info.pieces)%sha1.Size != 0")
 	}
 
+	// A zero or negative piece length would divide by zero (or underflow)
+	// in the piece-count check below. Reject it before doing any arithmetic.
+	if info.PieceLength <= 0 {
+		return Info{}, ErrInvalidLength
+	}
+
 	var pieces = make([]metainfo.Hash, info.NumPieces())
 	for i := range info.NumPieces() {
 		pieces[i] = metainfo.Hash(info.Pieces[i*sha1.Size : (i+1)*sha1.Size])
