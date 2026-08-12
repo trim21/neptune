@@ -282,11 +282,11 @@ dev = [
 
 [[package]]
 name = "packaging"
-version = "26.2"
+version = "26.3"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/d7/f1/e7a6dd94a8d4a5626c03e4e99c87f241ba9e350cd9e6d75123f992427270/packaging-26.2.tar.gz", hash = "sha256:ff452ff5a3e828ce110190feff1178bb1f2ea2281fa2075aadb987c2fb221661", size = 228134, upload-time = "2026-04-24T20:15:23.917Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/7d/fa/3944b40b07da9ce895c0e6303a5ab7d53da063554f534556b134a54d6093/packaging-26.3.tar.gz", hash = "sha256:94edc256424af38762eb31306eed28beb9f0efc50a8837492c9d6fd6004aed79", size = 313412, upload-time = "2026-08-04T18:15:28.737Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/df/b2/87e62e8c3e2f4b32e5fe99e0b86d576da1312593b39f47d8ceef365e95ed/packaging-26.2-py3-none-any.whl", hash = "sha256:5fc45236b9446107ff2415ce77c807cee2862cb6fac22b8a73826d0693b0980e", size = 100195, upload-time = "2026-04-24T20:15:22.081Z" },
+    { url = "https://files.pythonhosted.org/packages/63/34/ba1c580383c9eada3711951fef0795c80b829a078d72188184bcab9dd527/packaging-26.3-py3-none-any.whl", hash = "sha256:d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c", size = 129956, upload-time = "2026-08-04T18:15:27.159Z" },
 ]
 
 [[package]]
@@ -335,7 +335,7 @@ wheels = [
 
 [[package]]
 name = "pyserde"
-version = "0.31.7"
+version = "0.32.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "beartype" },
@@ -345,9 +345,9 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "typing-inspect" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/84/0b/4f92e27cb1ff15a820edc7b06b51bba4ef0d95bbf09522a72730cc7ffd51/pyserde-0.31.7.tar.gz", hash = "sha256:a9ec2a5a61930b6fee4498adda20067eab516798e5a0348da7797778d8b02fb6", size = 525805, upload-time = "2026-07-05T12:30:23.961Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/4a/6e/5c839a4c83eeb7f00b126a4c76f61fd8303bb83ec86461bad71a42770abf/pyserde-0.32.0.tar.gz", hash = "sha256:653cb7405d323dc4dd2d90460f6db5cee2e74ca95eaec6779fe58affa071fc2a", size = 529180, upload-time = "2026-08-10T19:41:17.982Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/27/9c/055c3fb933119186541240e062973b44932fc10295965edac08c57bc5946/pyserde-0.31.7-py3-none-any.whl", hash = "sha256:5e72d5c2054d681b4aad712a40322fa2236ca5c181377daed4dbb4ec51a22ebb", size = 52340, upload-time = "2026-07-05T12:30:22.687Z" },
+    { url = "https://files.pythonhosted.org/packages/e0/c5/50d1a85e0b98333eb8a7518f5954088b5d3ecc377b957b124b174f901a56/pyserde-0.32.0-py3-none-any.whl", hash = "sha256:1e035034c75851ab518d369229868d7728a69b1330e42a0cdbe854dc2949b8c7", size = 52880, upload-time = "2026-08-10T19:41:16.669Z" },
 ]
 
 [[package]]
