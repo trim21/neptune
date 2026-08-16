@@ -39,21 +39,6 @@ func (d *Download) Reannounce() bool {
 	return d.tracker.Reannounce()
 }
 
-// TrackerURLs returns all tracker URLs.
-func (d *Download) TrackerURLs() []string {
-	var urls []string
-	d.tracker.Each(func(_ int, tr *tracker.Tracker) {
-		urls = append(urls, tr.URL)
-	})
-	return urls
-}
-
-// StoreTrackerStats stores seed/leecher counts from a scrape response.
-func (d *Download) StoreTrackerStats(url string, seeds, leechers int) {
-	d.tracker.Seeds.Store(url, seeds)
-	d.tracker.Leechers.Store(url, leechers)
-}
-
 // Close tears down the download: sends tracker stopped events, cancels the
 // context, waits for background goroutines, and closes all peer connections.
 func (d *Download) Close() {

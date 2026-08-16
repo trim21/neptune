@@ -37,16 +37,6 @@ func (c *Client) Start() error {
 	// pool exhaustion → evict from the busiest torrent).
 	go c.startGlobalTurnover()
 
-	// TODO: impl
-	if !global.Dev {
-		go func() {
-			for {
-				time.Sleep(time.Minute * 30)
-				c.scrape()
-			}
-		}()
-	}
-
 	go func() {
 		for {
 			time.Sleep(time.Minute * 5)

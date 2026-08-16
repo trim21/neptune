@@ -13,10 +13,8 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"net/netip"
-	"net/url"
 	"slices"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -1114,22 +1112,4 @@ func ParseCompact4(b []byte) netip.AddrPort {
 // ParseCompact6 parses an 18-byte compact IPv6 peer address.
 func ParseCompact6(b []byte) netip.AddrPort {
 	return netip.AddrPortFrom(netip.AddrFrom16([16]byte(b[:16])), binary.BigEndian.Uint16(b[16:18]))
-}
-
-// AnnounceToScrape converts an announce URL to a scrape URL per BEP 48.
-func AnnounceToScrape(announceURL string) (string, bool) {
-	u, err := url.Parse(announceURL)
-	if err != nil {
-		return "", false
-	}
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return "", false
-	}
-	lastSlash := strings.LastIndex(u.Path, "/")
-	lastPart := u.Path[lastSlash+1:]
-	if !strings.HasPrefix(lastPart, "announce") {
-		return "", false
-	}
-	u.Path = u.Path[:lastSlash+1] + "scrape" + lastPart[len("announce"):]
-	return u.String(), true
 }
