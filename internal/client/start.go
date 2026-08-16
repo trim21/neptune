@@ -78,7 +78,7 @@ func (c *Client) Start() error {
 
 	go func() {
 		for {
-			time.Sleep(time.Minute * 10)
+			time.Sleep(time.Minute * 30)
 			c.m.RLock()
 			log.Info().Msg("save session")
 			err := c.saveSessionUnsafe()
