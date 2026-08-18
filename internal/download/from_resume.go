@@ -10,20 +10,16 @@ import (
 	"time"
 
 	"github.com/trim21/errgo"
-	"github.com/trim21/go-bencode"
 
 	"neptune/internal/meta"
 	"neptune/internal/metainfo"
 	"neptune/internal/pkg/bm"
 	"neptune/internal/session"
+	"neptune/internal/session/store"
 )
 
 // LoadFromResume validates saved state and returns a fully initialized Download.
-func LoadFromResume(sess *session.Session, data []byte, trackerStagger time.Duration) (*Download, error) {
-	var r resume
-	if err := bencode.Unmarshal(data, &r); err != nil {
-		return nil, errgo.Wrap(err, "failed to decode resume data")
-	}
+func LoadFromResume(sess *session.Session, r store.Resume, trackerStagger time.Duration) (*Download, error) {
 	if len(r.InfoHash) != 40 {
 		return nil, fmt.Errorf("invalid resume info hash %q", r.InfoHash)
 	}
@@ -67,7 +63,7 @@ func LoadFromResume(sess *session.Session, data []byte, trackerStagger time.Dura
 	wantedBm := buildWantedBm(info, selectedFilesSet)
 	complete := wantedBm.WithAndNot(completedBm).Count() == 0
 	state := Downloading
-	if r.State == ResumeStopped {
+	if r.State == store.ResumeStopped {
 		state = Stopped
 	} else if complete {
 		state = Seeding

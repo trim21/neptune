@@ -32,6 +32,7 @@ import (
 	"neptune/internal/pkg/random"
 	"neptune/internal/pkg/ratelimit"
 	"neptune/internal/pkg/unsafe"
+	"neptune/internal/session/store"
 	"neptune/internal/util"
 )
 
@@ -57,7 +58,8 @@ type Session struct {
 	IPv4                       atomic.Pointer[netip.Addr]
 	PieceDownloadRate          *flowrate.Monitor
 	UploadQ                    chan func()
-	ResumePath                 string
+	Store                      *store.Store
+	SessionPath                string
 	TorrentPath                string
 	randKey                    []byte
 	Config                     config.Config
@@ -130,6 +132,8 @@ func New(cfg config.Config, sessionPath string, debug bool) *Session {
 	}
 	_ = conn // reserved for DHT, currently disabled
 
+	st := store.Open(sessionPath)
+
 	v4, v6, _ := util.GetIPAddress()
 
 	s := &Session{
@@ -159,11 +163,11 @@ func New(cfg config.Config, sessionPath string, debug bool) *Session {
 		MSESelector:        mseSelector,
 		MSEPreferredCrypto: msePreferredCrypto,
 
-		ResumePath:  filepath.Join(sessionPath, "resume"),
+		Store:       st,
+		SessionPath: sessionPath,
 		TorrentPath: filepath.Join(sessionPath, "torrents"),
-
-		randKey: random.Bytes(32),
-		Debug:   debug,
+		randKey:     random.Bytes(32),
+		Debug:       debug,
 	}
 
 	s.RecheckOnComplete.Store(cfg.App.RecheckOnComplete)

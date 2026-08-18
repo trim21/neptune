@@ -238,7 +238,6 @@ func errExit(msg ...any) {
 func createSessionDirectory(sessionPath string) {
 	for _, dir := range []string{
 		filepath.Join(sessionPath, "torrents"),
-		filepath.Join(sessionPath, "resume"),
 		filepath.Join(sessionPath, "logs"),
 	} {
 		err := os.MkdirAll(dir, os.ModePerm)
