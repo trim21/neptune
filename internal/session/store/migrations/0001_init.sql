@@ -1,0 +1,21 @@
+CREATE TABLE IF NOT EXISTS resume (
+	info_hash            TEXT PRIMARY KEY,
+	base_path            TEXT NOT NULL,
+	bitfield             BLOB,
+	tags                 TEXT,
+	custom               TEXT,
+	trackers             TEXT,
+	selected_files       TEXT,
+	file_paths           TEXT,
+	download_speed_limit INTEGER NOT NULL,
+	upload_speed_limit   INTEGER NOT NULL,
+	add_at               INTEGER NOT NULL,
+	completed_at         INTEGER NOT NULL,
+	downloaded           INTEGER NOT NULL,
+	uploaded             INTEGER NOT NULL,
+	corrupted            INTEGER NOT NULL,
+	tracker_key          TEXT NOT NULL DEFAULT '',
+	state                INTEGER NOT NULL,
+	piece_pick_strategy  INTEGER NOT NULL,
+	queue_weight         INTEGER NOT NULL
+);

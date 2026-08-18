@@ -123,7 +123,7 @@ linters:
         path: internal/web/jsonrpc/
       - linters:
           - govet
-        path: internal/download/resume.go
+        path: internal/session/store/store.go
         text: "fieldalignment"
       - linters:
           - govet

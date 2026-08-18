@@ -17,7 +17,6 @@ import (
 
 func TestSetFilePriorityDoesNotDeadlockWhileSavingResume(t *testing.T) {
 	d := newTestDownload(t, 2, 4, piece_store.NewMemStore)
-	d.session.ResumePath = t.TempDir()
 	d.selectedFilesSet = bm.New(uint32(len(d.info.Files)))
 	d.selectedFilesSet.Fill()
 
