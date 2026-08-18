@@ -4,101 +4,26 @@
 package download
 
 import (
-	"encoding"
-	"fmt"
-	"os"
-	"path/filepath"
 	"slices"
 	"time"
 
-	"github.com/rs/zerolog/log"
-	"github.com/trim21/go-bencode"
-
 	"neptune/internal/pkg/timestamp"
+	"neptune/internal/session/store"
 )
-
-var _ encoding.BinaryMarshaler = (*Download)(nil)
-
-// ResumeState is the persisted download state in resume files.
-// Only two meaningful states: stopped or active (Downloading/Seeding based on completion).
-type ResumeState uint8
-
-const (
-	ResumeStopped ResumeState = 0
-	ResumeActive  ResumeState = 1
-)
-
-func normalizeResumeState(s State) ResumeState {
-	if s == Stopped {
-		return ResumeStopped
-	}
-	return ResumeActive
-}
-
-//nolint:fieldalignment
-type resume struct {
-	BasePath      string
-	InfoHash      string
-	Bitfield      []byte
-	Tags          []string
-	Custom        map[string]string
-	Trackers      [][]string
-	SelectedFiles []int    // indices of files selected for download. nil means all files.
-	FilePaths     []string // file paths (relative to BasePath), persisted to survive truncation algorithm changes
-	// Per-torrent speed limits in bytes per second. 0 means unlimited.
-	DownloadSpeedLimit int64
-	UploadSpeedLimit   int64
-	AddAt              timestamp.Timestamp
-	CompletedAt        timestamp.Timestamp
-	Downloaded         int64
-	Uploaded           int64
-	Corrupted          int64
-	TrackerKey         string
-	State              ResumeState
-	PiecePickStrategy  uint32
-	QueueWeight        int64
-}
-
-func (d *Download) filePaths() []string {
-	paths := make([]string, len(d.info.Files))
-	for i, f := range d.info.Files {
-		paths[i] = f.Path
-	}
-	return paths
-}
-
-func (d *Download) resumeFilePath() (dir, file string) {
-	name := fmt.Sprintf("%x.resume", d.info.Hash)
-
-	dir = filepath.Join(d.session.ResumePath, name[:2])
-
-	return dir, filepath.Join(dir, name)
-}
 
 func (d *Download) saveResume() {
-	b, err := d.MarshalBinary()
-	if err != nil {
+	if d.session.Store == nil {
+		return
+	}
+	if err := d.session.Store.Upsert(d.resumeRecord()); err != nil {
 		d.log.Err(err).Msg("failed to save download")
-		return
-	}
-
-	dir, file := d.resumeFilePath()
-
-	err = os.MkdirAll(dir, os.ModePerm)
-	if err != nil {
-		log.Err(err).Msg("failed to save download")
-		return
-	}
-
-	err = os.WriteFile(file, b, os.ModePerm)
-	if err != nil {
-		log.Err(err).Msg("failed to save download")
 	}
 }
 
-func (d *Download) MarshalBinary() (data []byte, err error) {
+func (d *Download) resumeRecord() *store.Resume {
 	d.s.mu.RLock()
 	defer d.s.mu.RUnlock()
+
 	var selectedFiles []int
 	if d.selectedFilesSet.Count() != uint32(len(d.info.Files)) {
 		selectedFiles = make([]int, 0, d.selectedFilesSet.Count())
@@ -107,10 +32,9 @@ func (d *Download) MarshalBinary() (data []byte, err error) {
 		})
 		slices.Sort(selectedFiles)
 	}
-	basePath := d.s.basePath
 
-	return bencode.Marshal(resume{
-		BasePath:           basePath,
+	return &store.Resume{
+		BasePath:           d.s.basePath,
 		Downloaded:         d.downloaded.Load(),
 		Uploaded:           d.uploaded.Load(),
 		Corrupted:          d.corrupted.Load(),
@@ -129,5 +53,20 @@ func (d *Download) MarshalBinary() (data []byte, err error) {
 		TrackerKey:         d.tracker.Key,
 		PiecePickStrategy:  uint32(d.GetPiecePickStrategy()),
 		QueueWeight:        int64(d.QueueWeight()),
-	})
+	}
+}
+
+func normalizeResumeState(s State) store.ResumeState {
+	if s == Stopped {
+		return store.ResumeStopped
+	}
+	return store.ResumeActive
+}
+
+func (d *Download) filePaths() []string {
+	paths := make([]string, len(d.info.Files))
+	for i, f := range d.info.Files {
+		paths[i] = f.Path
+	}
+	return paths
 }

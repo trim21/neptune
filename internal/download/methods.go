@@ -86,11 +86,6 @@ func (d *Download) BackgroundWgWait() {
 	d.backgroundWg.Wait()
 }
 
-// ResumeFilePath returns the directory and filename for the resume file.
-func (d *Download) ResumeFilePath() (dir, file string) {
-	return d.resumeFilePath()
-}
-
 // InfoHashHex returns the torrent info hash as a hex string.
 func (d *Download) InfoHashHex() string {
 	return d.info.Hash.Hex()

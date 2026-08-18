@@ -389,11 +389,7 @@ func (c *Client) RemoveTorrent(h metainfo.Hash, removeData bool) error {
 	d.Close()
 	log.Info().Stringer("hash", h).Msg("torrent.remove: download closed, removing files")
 
-	dir, file := d.ResumeFilePath()
-
-	err := os.Remove(file)
-	log.Info().Msg("torrent.remove: download.PruneEmptyDirectories(dir)")
-	err = multierr.Append(err, download.PruneEmptyDirectories(dir))
+	err := c.session.Store.Delete(h.Hex())
 	if removeData {
 		basePath := d.BasePath()
 		log.Info().Stringer("hash", h).Str("base_path", basePath).Msg("torrent.remove: deleting data files")

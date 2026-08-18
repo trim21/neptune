@@ -5,12 +5,8 @@ package client
 
 import (
 	"fmt"
-	"io/fs"
 	"net"
 	"net/netip"
-	"os"
-	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -79,24 +75,20 @@ func (c *Client) Start() error {
 		}
 	}()
 
-	// pre-scan resume files to get total count for staggered announces
-	var resumeFiles []string
-	if err := filepath.Walk(c.session.ResumePath, func(path string, info fs.FileInfo, _ error) error {
-		if info != nil && !info.IsDir() && strings.HasSuffix(path, ".resume") {
-			resumeFiles = append(resumeFiles, path)
-		}
-		return nil
-	}); err != nil {
+	// migrate legacy .resume files into the session store
+	if err := c.migrateLegacyResume(); err != nil {
 		return err
 	}
 
-	totalDownloads := len(resumeFiles)
-	for _, path := range resumeFiles {
-		resumeData, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		if err := c.UnmarshalResume(resumeData, totalDownloads); err != nil {
+	// Load all saved downloads from the session store.
+	all, err := c.session.Store.All()
+	if err != nil {
+		return err
+	}
+
+	totalDownloads := len(all)
+	for i := range all {
+		if err := c.loadFromResume(all[i], totalDownloads); err != nil {
 			return err
 		}
 	}

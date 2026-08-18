@@ -11,6 +11,7 @@ import (
 	"neptune/internal/download"
 	"neptune/internal/meta"
 	"neptune/internal/metainfo"
+	"neptune/internal/session/store"
 )
 
 func (c *Client) NewDownload(
@@ -29,13 +30,13 @@ func (c *Client) NewDownload(
 	})
 }
 
-func (c *Client) UnmarshalResume(data []byte, totalDownloads int) error {
+func (c *Client) loadFromResume(r store.Resume, totalDownloads int) error {
 	// Stagger the first announce of each resumed download so a bulk resume of
 	// many torrents does not announce all at once. Seeding torrents are spread
 	// out at ~120 announces per minute (0.5s per download); downloading
 	// torrents are clamped to a short delay in LoadFromResume so they reach
 	// the tracker quickly and resume downloading.
-	d, err := download.LoadFromResume(c.session, data, time.Duration(totalDownloads/2)*time.Second)
+	d, err := download.LoadFromResume(c.session, r, time.Duration(totalDownloads/2)*time.Second)
 	if err != nil {
 		return err
 	}

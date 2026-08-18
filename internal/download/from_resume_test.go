@@ -23,6 +23,7 @@ import (
 	"neptune/internal/pkg/gfs"
 	"neptune/internal/pkg/ratelimit"
 	"neptune/internal/session"
+	"neptune/internal/session/store"
 )
 
 type resumeTestFixture struct {
@@ -45,7 +46,6 @@ func newResumeTestFixture(t *testing.T, numPieces uint32) resumeTestFixture {
 		UploadLimiter:     ratelimit.New(0),
 		PieceDownloadRate: flowrate.New(time.Second, 5*time.Second),
 		PieceUploadRate:   flowrate.New(time.Second, 5*time.Second),
-		ResumePath:        filepath.Join(root, "resume"),
 		TorrentPath:       filepath.Join(root, "torrents"),
 	}
 
@@ -81,25 +81,23 @@ func newResumeTestFixture(t *testing.T, numPieces uint32) resumeTestFixture {
 	}
 }
 
-func (f resumeTestFixture) resumeData(t *testing.T, state ResumeState, completedPieces ...uint32) []byte {
+func (f resumeTestFixture) resumeData(t *testing.T, state store.ResumeState, completedPieces ...uint32) store.Resume {
 	t.Helper()
 	completed := bm.New(f.info.NumPieces)
 	for _, pieceIndex := range completedPieces {
 		completed.Set(pieceIndex)
 	}
-	data, err := bencode.Marshal(resume{
+	return store.Resume{
 		BasePath: f.basePath,
 		InfoHash: f.info.Hash.Hex(),
 		Bitfield: completed.Bitfield(),
 		State:    state,
-	})
-	require.NoError(t, err)
-	return data
+	}
 }
 
-func (f resumeTestFixture) load(t *testing.T, data []byte) *Download {
+func (f resumeTestFixture) load(t *testing.T, r store.Resume) *Download {
 	t.Helper()
-	d, err := LoadFromResume(f.sess, data, 0)
+	d, err := LoadFromResume(f.sess, r, 0)
 	require.NoError(t, err)
 	t.Cleanup(d.Close)
 	return d
@@ -131,7 +129,7 @@ func TestNewCheckingCanCloseImmediately(t *testing.T) {
 
 func TestLoadFromResumeValidatesBeforeCreatingPicker(t *testing.T) {
 	f := newResumeTestFixture(t, 2)
-	d := f.load(t, f.resumeData(t, ResumeActive, 0))
+	d := f.load(t, f.resumeData(t, store.ResumeActive, 0))
 
 	require.Equal(t, Downloading, d.GetState())
 	require.Zero(t, d.completedBm.Count())
@@ -152,7 +150,7 @@ func TestLoadFromResumeValidatesBeforeCreatingPicker(t *testing.T) {
 
 func TestLoadFromResumeInvalidSeedBecomesDownloading(t *testing.T) {
 	f := newResumeTestFixture(t, 1)
-	d := f.load(t, f.resumeData(t, ResumeActive, 0))
+	d := f.load(t, f.resumeData(t, store.ResumeActive, 0))
 
 	require.Equal(t, Downloading, d.GetState())
 	require.NotNil(t, d.picker.Load())
@@ -163,7 +161,7 @@ func TestLoadFromResumeInvalidSeedBecomesDownloading(t *testing.T) {
 func TestLoadFromResumeCompleteSeed(t *testing.T) {
 	f := newResumeTestFixture(t, 1)
 	f.writeDataFile(t)
-	d := f.load(t, f.resumeData(t, ResumeActive, 0))
+	d := f.load(t, f.resumeData(t, store.ResumeActive, 0))
 
 	require.Equal(t, Seeding, d.GetState())
 	require.Nil(t, d.picker.Load())
@@ -173,7 +171,7 @@ func TestLoadFromResumeCompleteSeed(t *testing.T) {
 
 func TestLoadFromResumePreservesStoppedIntent(t *testing.T) {
 	f := newResumeTestFixture(t, 1)
-	d := f.load(t, f.resumeData(t, ResumeStopped))
+	d := f.load(t, f.resumeData(t, store.ResumeStopped))
 
 	require.Equal(t, Stopped, d.GetState())
 	require.NotNil(t, d.picker.Load())
@@ -182,7 +180,7 @@ func TestLoadFromResumePreservesStoppedIntent(t *testing.T) {
 func TestLoadFromResumeExcludesValidatedCompletedPieceFromPicker(t *testing.T) {
 	f := newResumeTestFixture(t, 2)
 	f.writeDataFile(t)
-	d := f.load(t, f.resumeData(t, ResumeActive, 0))
+	d := f.load(t, f.resumeData(t, store.ResumeActive, 0))
 
 	require.Equal(t, Downloading, d.GetState())
 	require.True(t, d.completedBm.Contains(0))
