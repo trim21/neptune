@@ -18,9 +18,12 @@ import (
 func newTestClientWithStore(t *testing.T) *Client {
 	t.Helper()
 	sessionPath := t.TempDir()
+	st, err := store.Open(sessionPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = st.Close() })
 	return &Client{session: &session.Session{
 		SessionPath: sessionPath,
-		Store:       store.Open(sessionPath),
+		Store:       st,
 	}}
 }
 

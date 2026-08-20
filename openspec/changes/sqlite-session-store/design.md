@@ -34,9 +34,9 @@ pure-Go 驱动，满足 `CGO_ENABLED=0` 约束；`database/sql` 是标准库接�
 
 数据库 schema 从一开始就通过版本化 migration 演进，而不是每次启动执行一条幂等 `CREATE TABLE`。migration 以 `internal/session/store/migrations/NNNN_name.sql` 文件组织，`go:embed` 打包进二进制，按文件名前缀版本号排序。打开数据库时读取 `PRAGMA user_version`，对每个高于当前版本的 migration 依次执行（每个 migration 一个事务，成功后更新 `user_version`）。中途失败时未完成的 migration 在下一次打开时重跑，语句保持幂等（`CREATE TABLE IF NOT EXISTS`）。新增 schema 变更只需添加下一个编号的 SQL 文件。备选：无版本机制的直接建表——表结构稳定时更简单，但 schema 演进必然发生，事后补 migration 成本更高；Go 代码内联 migration 列表——少一个目录但历史 SQL 与代码耦合，可读性差。
 
-### 4. Store 按需打开连接，不常驻
+### 4. Store 常驻单个连接，`Open` 时初始化
 
-`Store` 只持有数据库文件路径，每个操作方法内部打开连接（含 pragma 配置与 migration）、执行、关闭。理由：SQLite 打开开销低（毫秒级），避免长连接持有文件句柄与 WAL 状态；崩溃时无需处理常驻连接。`journal_mode=WAL` 持久化在数据库文件头，`busy_timeout`/`synchronous` 为连接级 pragma，每次打开重新设置。备选：常驻连接池（`MaxOpenConns=1`）——调用更少，但长持有连接，与"崩溃安全 + 轻资源"的目标相悖。
+`Store` 持有唯一一个 `*sql.DB`（`SetMaxOpenConns(1)`），在 `Open`（client 创建时）一次性建立连接、设置 pragma（含 `journal_mode=WAL`）并执行 migration，此后所有操作复用该连接；`Shutdown` 时 `Store.Close()` 收尾。初版曾采用"每操作按需开连接"，实测在关闭并发保存（`Shutdown` 5 路并发 `SaveResume` + 定时保存叠加）下必现 `SQLITE_BUSY`：每个连接都执行 `PRAGMA journal_mode=WAL`，该 pragma 即使库已在 WAL 模式也需获取排它锁，多个连接并发执行时互相竞争且 `busy_timeout` 不生效。常驻单连接同时消除了每次 open/close 的 WAL checkpoint 与重复 migration 开销。崩溃安全性不受影响：WAL 本身崩溃安全，进程退出时 OS 回收句柄。
 
 ### 5. 迁移：启动时一次扫描，成功才删
 

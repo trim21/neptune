@@ -19,7 +19,10 @@ import (
 
 func openTestStore(t *testing.T) *Store {
 	t.Helper()
-	return Open(t.TempDir())
+	s, err := Open(t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = s.Close() })
+	return s
 }
 
 func TestMigrateFreshDatabase(t *testing.T) {
@@ -30,9 +33,7 @@ func TestMigrateFreshDatabase(t *testing.T) {
 	require.Zero(t, n)
 
 	var v int
-	require.NoError(t, s.withDB(func(db *sql.DB) error {
-		return db.QueryRowContext(context.Background(), `PRAGMA user_version`).Scan(&v)
-	}))
+	require.NoError(t, s.db.QueryRowContext(context.Background(), `PRAGMA user_version`).Scan(&v))
 	require.Equal(t, migrations[len(migrations)-1].version, v)
 }
 
@@ -46,25 +47,29 @@ func TestMigrateUpgradesOldDatabase(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.Close())
 
-	s := Open(dir)
+	s, err := Open(dir)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = s.Close() })
 	n, err := s.Count()
 	require.NoError(t, err)
 	require.Zero(t, n)
 
 	var v int
-	require.NoError(t, s.withDB(func(db *sql.DB) error {
-		return db.QueryRowContext(context.Background(), `PRAGMA user_version`).Scan(&v)
-	}))
+	require.NoError(t, s.db.QueryRowContext(context.Background(), `PRAGMA user_version`).Scan(&v))
 	require.Equal(t, migrations[len(migrations)-1].version, v)
 }
 
 func TestMigrateIdempotentReopen(t *testing.T) {
 	dir := t.TempDir()
-	s := Open(dir)
+	s, err := Open(dir)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = s.Close() })
 	require.NoError(t, s.Upsert(&Resume{InfoHash: "h", BasePath: "/a"}))
 
 	// Reopening applies no migrations and keeps data.
-	s2 := Open(dir)
+	s2, err := Open(dir)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = s2.Close() })
 	all, err := s2.All()
 	require.NoError(t, err)
 	require.Len(t, all, 1)
@@ -75,7 +80,10 @@ func TestMigrateIdempotentReopen(t *testing.T) {
 // leaves WAL uncheckpointed) and verifies the database still loads on reopen.
 func TestCrashRecovery(t *testing.T) {
 	if os.Getenv("STORE_CRASH_CHILD") == "1" {
-		s := Open(os.Getenv("STORE_CRASH_DIR"))
+		s, err := Open(os.Getenv("STORE_CRASH_DIR"))
+		if err != nil {
+			os.Exit(1)
+		}
 		_ = s.Upsert(&Resume{InfoHash: "crashed", BasePath: "/data"})
 		os.Exit(1) //nolint:revive // simulate process crash
 	}
@@ -85,7 +93,9 @@ func TestCrashRecovery(t *testing.T) {
 	cmd.Env = append(os.Environ(), "STORE_CRASH_CHILD=1", "STORE_CRASH_DIR="+dir)
 	require.Error(t, cmd.Run()) // child exits non-zero
 
-	s := Open(dir)
+	s, err := Open(dir)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = s.Close() })
 	all, err := s.All()
 	require.NoError(t, err)
 	require.Len(t, all, 1)

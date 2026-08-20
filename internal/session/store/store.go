@@ -92,22 +92,26 @@ func loadMigrations() []migration {
 	return out
 }
 
-// Store locates the session database. Connections are opened on demand per
-// operation and closed afterwards; the handle itself holds no open connection.
+// Store holds the single SQLite connection to the session database. The
+// connection is opened and initialized (pragmas + migrations) once at Open;
+// every operation shares it and MaxOpenConns(1) serializes them, so concurrent
+// saves can never contend for WAL locks.
 type Store struct {
-	path string
+	db *sql.DB
 }
 
-func Open(sessionPath string) *Store {
-	return &Store{path: filepath.Join(sessionPath, "session.db")}
-}
-
-func (s *Store) withDB(fn func(*sql.DB) error) error {
-	db, err := sql.Open("sqlite", s.path)
+// Open opens the session database at {sessionPath}/session.db and applies
+// connection pragmas and pending migrations. The caller must Close the
+// returned Store.
+func Open(sessionPath string) (*Store, error) {
+	db, err := sql.Open("sqlite", filepath.Join(sessionPath, "session.db"))
 	if err != nil {
-		return err
+		return nil, err
 	}
-	defer db.Close()
+	// A single connection serializes all operations; WAL is single-writer and
+	// per-connection `PRAGMA journal_mode=WAL` would otherwise race between
+	// concurrent opens and fail with SQLITE_BUSY.
+	db.SetMaxOpenConns(1)
 
 	ctx := context.Background()
 	for _, pragma := range []string{
@@ -116,15 +120,21 @@ func (s *Store) withDB(fn func(*sql.DB) error) error {
 		`PRAGMA synchronous=NORMAL`,
 	} {
 		if _, err := db.ExecContext(ctx, pragma); err != nil {
-			return err
+			db.Close()
+			return nil, err
 		}
 	}
 
 	if err := migrate(ctx, db); err != nil {
-		return err
+		db.Close()
+		return nil, err
 	}
 
-	return fn(db)
+	return &Store{db: db}, nil
+}
+
+func (s *Store) Close() error {
+	return s.db.Close()
 }
 
 func migrate(ctx context.Context, db *sql.DB) error {
@@ -159,37 +169,36 @@ func migrate(ctx context.Context, db *sql.DB) error {
 }
 
 func (s *Store) Upsert(r *Resume) error {
-	return s.withDB(func(db *sql.DB) error {
-		ctx := context.Background()
+	ctx := context.Background()
 
-		tags, err := json.Marshal(r.Tags)
-		if err != nil {
-			return err
-		}
-		custom, err := json.Marshal(r.Custom)
-		if err != nil {
-			return err
-		}
-		trackers, err := json.Marshal(r.Trackers)
-		if err != nil {
-			return err
-		}
-		filePaths, err := json.Marshal(r.FilePaths)
-		if err != nil {
-			return err
-		}
+	tags, err := json.Marshal(r.Tags)
+	if err != nil {
+		return err
+	}
+	custom, err := json.Marshal(r.Custom)
+	if err != nil {
+		return err
+	}
+	trackers, err := json.Marshal(r.Trackers)
+	if err != nil {
+		return err
+	}
+	filePaths, err := json.Marshal(r.FilePaths)
+	if err != nil {
+		return err
+	}
 
-		// nil SelectedFiles means "all files" and is stored as NULL so it stays
-		// distinct from an explicitly empty selection.
-		var selectedFiles []byte
-		if r.SelectedFiles != nil {
-			selectedFiles, err = json.Marshal(r.SelectedFiles)
-			if err != nil {
-				return err
-			}
+	// nil SelectedFiles means "all files" and is stored as NULL so it stays
+	// distinct from an explicitly empty selection.
+	var selectedFiles []byte
+	if r.SelectedFiles != nil {
+		selectedFiles, err = json.Marshal(r.SelectedFiles)
+		if err != nil {
+			return err
 		}
+	}
 
-		_, err = db.ExecContext(ctx, `INSERT INTO resume (
+	_, err = s.db.ExecContext(ctx, `INSERT INTO resume (
 			info_hash, base_path, bitfield, tags, custom, trackers, selected_files,
 			file_paths, download_speed_limit, upload_speed_limit, add_at, completed_at,
 			downloaded, uploaded, corrupted, tracker_key, state, piece_pick_strategy, queue_weight
@@ -213,116 +222,108 @@ func (s *Store) Upsert(r *Resume) error {
 			state = excluded.state,
 			piece_pick_strategy = excluded.piece_pick_strategy,
 			queue_weight = excluded.queue_weight`,
-			r.InfoHash,
-			r.BasePath,
-			r.Bitfield,
-			tags,
-			custom,
-			trackers,
-			selectedFiles,
-			filePaths,
-			r.DownloadSpeedLimit,
-			r.UploadSpeedLimit,
-			r.AddAt.UnixNano(),
-			r.CompletedAt.UnixNano(),
-			r.Downloaded,
-			r.Uploaded,
-			r.Corrupted,
-			r.TrackerKey,
-			r.State,
-			r.PiecePickStrategy,
-			r.QueueWeight,
-		)
-		return err
-	})
+		r.InfoHash,
+		r.BasePath,
+		r.Bitfield,
+		tags,
+		custom,
+		trackers,
+		selectedFiles,
+		filePaths,
+		r.DownloadSpeedLimit,
+		r.UploadSpeedLimit,
+		r.AddAt.UnixNano(),
+		r.CompletedAt.UnixNano(),
+		r.Downloaded,
+		r.Uploaded,
+		r.Corrupted,
+		r.TrackerKey,
+		r.State,
+		r.PiecePickStrategy,
+		r.QueueWeight,
+	)
+	return err
 }
 
 func (s *Store) Delete(infoHash string) error {
-	return s.withDB(func(db *sql.DB) error {
-		_, err := db.ExecContext(context.Background(), `DELETE FROM resume WHERE info_hash = ?`, infoHash)
-		return err
-	})
+	_, err := s.db.ExecContext(context.Background(), `DELETE FROM resume WHERE info_hash = ?`, infoHash)
+	return err
 }
 
 func (s *Store) Count() (int, error) {
 	var n int
-	err := s.withDB(func(db *sql.DB) error {
-		return db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM resume`).Scan(&n)
-	})
+	err := s.db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM resume`).Scan(&n)
 	return n, err
 }
 
 func (s *Store) All() ([]Resume, error) {
 	var out []Resume
-	err := s.withDB(func(db *sql.DB) error {
-		ctx := context.Background()
-		rows, err := db.QueryContext(ctx, `SELECT
-			info_hash, base_path, bitfield, tags, custom, trackers, selected_files,
-			file_paths, download_speed_limit, upload_speed_limit, add_at, completed_at,
-			downloaded, uploaded, corrupted, tracker_key, state, piece_pick_strategy, queue_weight
-		FROM resume`)
-		if err != nil {
-			return err
+	ctx := context.Background()
+	rows, err := s.db.QueryContext(ctx, `SELECT
+		info_hash, base_path, bitfield, tags, custom, trackers, selected_files,
+		file_paths, download_speed_limit, upload_speed_limit, add_at, completed_at,
+		downloaded, uploaded, corrupted, tracker_key, state, piece_pick_strategy, queue_weight
+	FROM resume`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			r                  Resume
+			tags, custom       []byte
+			trackers           []byte
+			selectedFiles      []byte
+			filePaths          []byte
+			addAt, completedAt int64
+		)
+		if err := rows.Scan(
+			&r.InfoHash,
+			&r.BasePath,
+			&r.Bitfield,
+			&tags,
+			&custom,
+			&trackers,
+			&selectedFiles,
+			&filePaths,
+			&r.DownloadSpeedLimit,
+			&r.UploadSpeedLimit,
+			&addAt,
+			&completedAt,
+			&r.Downloaded,
+			&r.Uploaded,
+			&r.Corrupted,
+			&r.TrackerKey,
+			&r.State,
+			&r.PiecePickStrategy,
+			&r.QueueWeight,
+		); err != nil {
+			return nil, err
 		}
-		defer rows.Close()
 
-		for rows.Next() {
-			var (
-				r                  Resume
-				tags, custom       []byte
-				trackers           []byte
-				selectedFiles      []byte
-				filePaths          []byte
-				addAt, completedAt int64
-			)
-			if err := rows.Scan(
-				&r.InfoHash,
-				&r.BasePath,
-				&r.Bitfield,
-				&tags,
-				&custom,
-				&trackers,
-				&selectedFiles,
-				&filePaths,
-				&r.DownloadSpeedLimit,
-				&r.UploadSpeedLimit,
-				&addAt,
-				&completedAt,
-				&r.Downloaded,
-				&r.Uploaded,
-				&r.Corrupted,
-				&r.TrackerKey,
-				&r.State,
-				&r.PiecePickStrategy,
-				&r.QueueWeight,
-			); err != nil {
-				return err
-			}
-
-			if err := json.Unmarshal(tags, &r.Tags); err != nil {
-				return err
-			}
-			if err := json.Unmarshal(custom, &r.Custom); err != nil {
-				return err
-			}
-			if err := json.Unmarshal(trackers, &r.Trackers); err != nil {
-				return err
-			}
-			if selectedFiles != nil {
-				if err := json.Unmarshal(selectedFiles, &r.SelectedFiles); err != nil {
-					return err
-				}
-			}
-			if err := json.Unmarshal(filePaths, &r.FilePaths); err != nil {
-				return err
-			}
-
-			r.AddAt = timestamp.New(time.Unix(0, addAt))
-			r.CompletedAt = timestamp.New(time.Unix(0, completedAt))
-
-			out = append(out, r)
+		if err := json.Unmarshal(tags, &r.Tags); err != nil {
+			return nil, err
 		}
-		return rows.Err()
-	})
-	return out, err
+		if err := json.Unmarshal(custom, &r.Custom); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(trackers, &r.Trackers); err != nil {
+			return nil, err
+		}
+		if selectedFiles != nil {
+			if err := json.Unmarshal(selectedFiles, &r.SelectedFiles); err != nil {
+				return nil, err
+			}
+		}
+		if err := json.Unmarshal(filePaths, &r.FilePaths); err != nil {
+			return nil, err
+		}
+
+		r.AddAt = timestamp.New(time.Unix(0, addAt))
+		r.CompletedAt = timestamp.New(time.Unix(0, completedAt))
+
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }

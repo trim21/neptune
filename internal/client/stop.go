@@ -35,6 +35,7 @@ func (c *Client) Shutdown() {
 
 	c.session.Cancel()
 	c.session.IOContext.Close()
+	c.session.Store.Close()
 }
 
 func (c *Client) saveSessionUnsafe() *conc.Recovered {

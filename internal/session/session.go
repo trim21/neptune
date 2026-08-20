@@ -132,7 +132,10 @@ func New(cfg config.Config, sessionPath string, debug bool) *Session {
 	}
 	_ = conn // reserved for DHT, currently disabled
 
-	st := store.Open(sessionPath)
+	st, err := store.Open(sessionPath)
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to open session store")
+	}
 
 	v4, v6, _ := util.GetIPAddress()
 
