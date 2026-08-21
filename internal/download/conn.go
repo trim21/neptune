@@ -23,6 +23,11 @@ import (
 const (
 	peerConnectTimeout = 60 * time.Second
 	addrBanDuration    = 24 * time.Hour
+	// connectIdleHeartbeat is how long an idle connect loop sleeps between
+	// time-driven re-checks (failcount backoff expiry, dial budget recovery).
+	// Shorter delays outbound discovery after a quiet period; longer delays
+	// reduce wakeup storms when thousands of downloads idle simultaneously.
+	connectIdleHeartbeat = 10 * time.Second
 )
 
 // AddConn adds an incoming connection from the listener.
@@ -55,28 +60,37 @@ func (d *Download) AddConn(addr netip.AddrPort, conn net.Conn, h proto.Handshake
 // ctx bounds the loop, so closing the download releases everything (no
 // goroutine leak, no dialing flag leak).
 //
-// The periodic ticker mirrors libtorrent's on_tick connection pass: peer
+// The heartbeat mirrors libtorrent's on_tick connection pass: peer
 // candidates become eligible again purely as a function of time (failcount
 // backoff in findConnectCandidates), so time-driven retries need a periodic
 // wakeup, not just events. It also re-checks the global dial rate limiter:
-// when the per-second dial budget is exhausted, the next tick (within a
-// second) resumes where the budget allowed. The interval is long enough that
-// the loop is otherwise event-driven and stays quiet when there is nothing
-// to do.
+// when the per-second dial budget is exhausted, the next heartbeat resumes
+// where the budget allowed. The interval is long and only re-armed after a
+// turn with no work, so an idle download wakes at most once every
+// connectIdleHeartbeat instead of every second; while candidates remain the
+// loop stays hot and is paced by DialSem/ConnSem, not the timer.
 func (d *Download) connectLoop() {
-	reconnectTicker := time.NewTicker(time.Second)
-	defer reconnectTicker.Stop()
+	heartbeat := time.NewTimer(connectIdleHeartbeat)
+	defer heartbeat.Stop()
 
 	for {
 		if d.dispatchConnections() {
 			continue
 		}
 
+		if !heartbeat.Stop() {
+			select {
+			case <-heartbeat.C:
+			default:
+			}
+		}
+		heartbeat.Reset(connectIdleHeartbeat)
+
 		select {
 		case <-d.ctx.Done():
 			return
 		case <-d.connectSignal:
-		case <-reconnectTicker.C:
+		case <-heartbeat.C:
 		}
 	}
 }
@@ -87,7 +101,7 @@ func (d *Download) connectLoop() {
 // therefore occupy at most one position in each global FIFO.
 func (d *Download) dispatchConnections() bool {
 	now := time.Now().Unix()
-	if !d.IsActive() || !d.peerList.hasConnectWork(now, d.maxConnections()) {
+	if !d.IsActive() {
 		return false
 	}
 	// Seeding into a swarm with no downloaders (per explicit tracker reports):
@@ -95,14 +109,19 @@ func (d *Download) dispatchConnections() bool {
 	// reports are trusted here — current-connection state is not a valid
 	// proxy, since a missing leecher is exactly the peer we'd be dialing to
 	// find. HasNoLeechers() returns false when no tracker has reported, which
-	// keeps the conservative default of dialing.
+	// keeps the conservative default of dialing. Checked before the peer list
+	// lock so idle seeding torrents pay neither the lock nor the candidate
+	// scan on every heartbeat.
 	if d.HasState(Seeding) && d.tracker.HasNoLeechers() {
+		return false
+	}
+	if !d.peerList.hasConnectWork(now, d.maxConnections()) {
 		return false
 	}
 	// Global dial rate limit (application.connection-speed): cap outgoing
 	// connection attempts per second regardless of DialSem concurrency.
-	// When the budget is exhausted, skip this turn; the 1s ticker in
-	// connectLoop retries shortly after tokens are replenished.
+	// When the budget is exhausted, skip this turn; the connectLoop
+	// heartbeat retries after tokens are replenished.
 	if !d.session.DialLimiter.TryAcquire() {
 		return false
 	}
