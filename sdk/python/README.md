@@ -68,5 +68,4 @@ cd sdk/python
 uv venv
 uv pip install -e ".[dev]"
 uv run ty check src/
-uv run pytest tests/ -v
 ```
