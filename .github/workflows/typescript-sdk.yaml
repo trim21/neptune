@@ -2,15 +2,14 @@ name: typescript SDK
 
 on:
   push:
-    paths:
-      - "sdk/typescript/**"
+    branches:
+      - master
   pull_request:
-    paths:
-      - "sdk/typescript/**"
-  workflow_dispatch:
+    branches:
+      - master
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: "${{ github.workflow }}-${{ github.ref }}"
   cancel-in-progress: true
 
 defaults:
