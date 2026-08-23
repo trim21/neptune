@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 import json
 
-import httpx
+import httpx2
 import pytest
 import respx
 
@@ -26,11 +26,11 @@ TOKEN = "test-token"
 
 
 def _ok(result, *, id=1):
-    return httpx.Response(200, json={"jsonrpc": "2.0", "result": result, "id": id})
+    return httpx2.Response(200, json={"jsonrpc": "2.0", "result": result, "id": id})
 
 
 def _rpc_error(code=-32600, message="bad request", *, id=1):
-    return httpx.Response(
+    return httpx2.Response(
         200,
         json={"jsonrpc": "2.0", "error": {"code": code, "message": message}, "id": id},
     )

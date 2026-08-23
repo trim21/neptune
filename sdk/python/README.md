@@ -2,7 +2,7 @@
 
 Python SDK for the [Neptune](https://github.com/jesec/neptune) BitTorrent client JSON-RPC API.
 
-Built with [httpx](https://github.com/encode/httpx) and
+Built with [httpx2](https://github.com/pydantic/httpx2) and
 [pyserde](https://github.com/yukinarit/pyserde).
 
 ## Install
