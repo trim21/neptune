@@ -2,13 +2,9 @@ name: python SDK
 
 on:
   push:
-    paths:
-      - "sdk/python/**"
     branches:
       - master
   pull_request:
-    paths:
-      - "sdk/python/**"
     branches:
       - master
 
