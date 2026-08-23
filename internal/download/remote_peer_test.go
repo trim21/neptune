@@ -196,6 +196,15 @@ func (rp *remotePeer) serveRequests(cfg remoteConfig, blockSize int64, done <-ch
 			return err
 		case msg := <-messages:
 			if choked && msg.messageType != byte(proto.Interested) {
+				// BEP 6 Fast: peer 已 choke 却仍收到请求时发送 Reject，让对端
+				// 立即释放 claim 并转给其他 peer。若静默丢弃，对端的 claim 会
+				// 一直挂到 30s 请求超时，fuzz 测试的 750ms deadline 会将其误报
+				// 为 stalled。
+				if msg.messageType == byte(proto.Request) {
+					if err := proto.SendReject(rp.w, parseRequest(msg.payload)); err != nil {
+						return err
+					}
+				}
 				continue
 			}
 			if msg.messageType != byte(proto.Request) {
