@@ -446,7 +446,11 @@ func FuzzHandleResDuplicates(f *testing.F) {
 
 func waitDownloadDone(t *testing.T, d *Download, numPieces uint32, seed int64) {
 	t.Helper()
-	deadline := time.After(5 * time.Second)
+	// Go fuzz panics the worker if one input runs longer than 10s
+	// (internal/fuzz RunFuzzWorker). Keep the wait below that after setup
+	// overhead, while staying generous enough for slow -race convergence on a
+	// loaded CI runner so a recoverable download isn't misreported as a crash.
+	deadline := time.After(7 * time.Second)
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
 	for {
