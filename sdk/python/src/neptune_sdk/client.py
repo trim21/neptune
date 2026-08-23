@@ -9,7 +9,7 @@ from dataclasses import asdict
 from functools import cache
 from typing import Any, TypeVar
 
-import httpx
+import httpx2
 from serde import coerce, deserialize, from_dict
 
 from .exceptions import NeptuneConnectionError, NeptuneRPCError
@@ -87,15 +87,15 @@ class NeptuneClient:
         timeout: float = 30.0,
     ) -> None:
         if url.startswith("unix://"):
-            transport = httpx.HTTPTransport(uds=url[7:])
-            self._client = httpx.Client(
+            transport = httpx2.HTTPTransport(uds=url[7:])
+            self._client = httpx2.Client(
                 transport=transport,
                 headers={"Authorization": token},
                 timeout=timeout,
             )
             self._url = "http://neptune/json_rpc"
         else:
-            self._client = httpx.Client(
+            self._client = httpx2.Client(
                 headers={"Authorization": token},
                 timeout=timeout,
             )
@@ -135,7 +135,7 @@ class NeptuneClient:
                 headers={"Content-Type": "application/json"},
             )
             resp.raise_for_status()
-        except httpx.HTTPError as exc:
+        except httpx2.HTTPError as exc:
             raise NeptuneConnectionError(str(exc)) from exc
 
         body = resp.json()
