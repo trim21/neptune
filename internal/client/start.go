@@ -70,7 +70,7 @@ func (c *Client) Start() error {
 			err := c.saveSessionUnsafe()
 			c.m.RUnlock()
 			if err != nil {
-				fmt.Println(string(err.Stack)) //nolint: forbidigo
+				log.Error().Msg(string(err.Stack))
 			}
 		}
 	}()
