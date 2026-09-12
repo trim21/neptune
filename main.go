@@ -323,6 +323,9 @@ func setupLogger(sessionPath string) {
 		w = zerolog.MultiLevelWriter(rotation, w)
 	}
 
+	// zerolog defaults to time.RFC3339, which drops sub-second precision.
+	zerolog.TimeFieldFormat = time.RFC3339Nano
+
 	zerolog.ErrorStackMarshaler = func(err error) any {
 		s, ok := err.(errgo.Stack)
 		if ok {
