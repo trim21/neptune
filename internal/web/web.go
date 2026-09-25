@@ -46,7 +46,7 @@ func New(c *client.Client, token string, enableDebug bool) http.Handler {
 	v := validator.New()
 
 	v.RegisterTagNameFunc(func(fld reflect.StructField) string {
-		name := strings.SplitN(fld.Tag.Get("json"), ",", 2)[0]
+		name, _, _ := strings.Cut(fld.Tag.Get("json"), ",")
 		if name == "-" {
 			return ""
 		}
