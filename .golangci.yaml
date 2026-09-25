@@ -133,9 +133,6 @@ linters:
           - govet
         path: internal/pkg/gfs/
         text: "fieldalignment"
-      - linters:
-          - forbidigo
-        path: main.go
     paths:
       - third_party$
       - builtin$

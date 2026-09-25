@@ -81,9 +81,14 @@ jobs:
       - uses: trim21/actions/setup-go@master
         with:
           cache-namespace: fuzz
-      - run: go test -race -fuzz=FuzzDownloadMultiPeer_Async -fuzztime=30s ./internal/download/
-      - run: go test -race -fuzz=^FuzzHandleRes$ -fuzztime=30s ./internal/download/
-      - run: go test -race -fuzz=^FuzzHandleResDuplicates$ -fuzztime=30s ./internal/download/
+      - name: Install try
+        uses: jaxxstorm/action-install-gh-release@v3.0.0
+        with:
+          repo: trim21/try
+          tag: v0.0.17
+      - run: try --limit 2 -- go test -race -fuzz=FuzzDownloadMultiPeer_Async -fuzztime=30s ./internal/download/
+      - run: try --limit 2 -- go test -race -fuzz=^FuzzHandleRes$ -fuzztime=30s ./internal/download/
+      - run: try --limit 2 -- go test -race -fuzz=^FuzzHandleResDuplicates$ -fuzztime=30s ./internal/download/
 
   fuzz-download-2:
     runs-on: ubuntu-latest
@@ -92,9 +97,14 @@ jobs:
       - uses: trim21/actions/setup-go@master
         with:
           cache-namespace: fuzz
-      - run: go test -race -fuzz=FuzzPickerDownloadIntegration -fuzztime=30s ./internal/download/
-      - run: go test -race -fuzz=FuzzStaleRequest -fuzztime=30s ./internal/download/
-      - run: go test -race -tags assert -fuzz=^FuzzFullDownload$ -fuzztime=30s ./internal/download/
+      - name: Install try
+        uses: jaxxstorm/action-install-gh-release@v3.0.0
+        with:
+          repo: trim21/try
+          tag: v0.0.17
+      - run: try --limit 2 -- go test -race -fuzz=FuzzPickerDownloadIntegration -fuzztime=30s ./internal/download/
+      - run: try --limit 2 -- go test -race -fuzz=FuzzStaleRequest -fuzztime=30s ./internal/download/
+      - run: try --limit 2 -- go test -race -tags assert -fuzz=^FuzzFullDownload$ -fuzztime=30s ./internal/download/
 
   fuzz-piece-picker:
     runs-on: ubuntu-latest
@@ -103,7 +113,12 @@ jobs:
       - uses: trim21/actions/setup-go@master
         with:
           cache-namespace: fuzz
-      - run: go test -race -fuzz=. -fuzztime=35s ./internal/piece_picker/
+      - name: Install try
+        uses: jaxxstorm/action-install-gh-release@v3.0.0
+        with:
+          repo: trim21/try
+          tag: v0.0.17
+      - run: try --limit 2 -- go test -race -fuzz=. -fuzztime=35s ./internal/piece_picker/
 
   lint:
     permissions:

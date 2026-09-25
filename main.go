@@ -7,6 +7,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -48,11 +49,6 @@ func main() {
 	setupMetrics()
 
 	debug := viper.GetBool("debug")
-	if debug {
-		// runtime.SetBlockProfileRate(10000)
-		// runtime.SetMutexProfileFraction(10000)
-		_, _ = fmt.Fprintln(os.Stderr, "enable debug mode")
-	}
 
 	sessionPath := mustGetSessionPath()
 
@@ -66,6 +62,12 @@ func main() {
 
 	setupLogger(sessionPath)
 
+	if debug {
+		// runtime.SetBlockProfileRate(10000)
+		// runtime.SetMutexProfileFraction(10000)
+		log.Info().Msg("enable debug mode")
+	}
+
 	cfg := mustParseConfig(sessionPath)
 
 	address := viper.GetString("web")
@@ -73,7 +75,7 @@ func main() {
 
 	if webToken == "" {
 		webToken = random.URLSafeStr(32)
-		_, _ = fmt.Fprintf(os.Stderr, "web secret token is empty, generating new token: %s\n", webToken)
+		log.Warn().Str("token", webToken).Msg("web secret token is empty, generating new token")
 	}
 
 	initResourceLimit()
@@ -92,7 +94,7 @@ func main() {
 	var lc net.ListenConfig
 	listener, err := lc.Listen(context.Background(), network, address)
 	if err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "failed to start http server on %s: %v\n", address, err)
+		log.Error().Err(err).Str("address", address).Msg("failed to start http server")
 		os.Exit(1)
 	}
 
@@ -104,9 +106,9 @@ func main() {
 
 	server := web.New(app, webToken, debug)
 	if network == "unix" {
-		fmt.Println("start", "unix://"+address)
+		log.Info().Str("address", "unix://"+address).Msg("start http server")
 	} else {
-		fmt.Println("start", "http://"+address)
+		log.Info().Str("address", "http://"+address).Msg("start http server")
 	}
 
 	listener = conntrack.NewListener(listener, conntrack.TrackWithTracing(), conntrack.TrackWithName("rpc"))
@@ -116,8 +118,9 @@ func main() {
 	var done = make(chan empty.Empty, 2)
 
 	go func() {
-		if err := httpServer.Serve(listener); err != nil {
-			_, _ = fmt.Fprintln(os.Stderr, err)
+		err := httpServer.Serve(listener)
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Error().Err(err).Msg("http server stopped with error")
 		}
 		done <- empty.Empty{}
 	}()
@@ -139,9 +142,9 @@ func main() {
 	}()
 
 	<-done
-	fmt.Println("shutting down http server...")
+	log.Info().Msg("shutting down http server")
 	_ = httpServer.Shutdown(context.Background())
-	fmt.Println("shutting down...")
+	log.Info().Msg("shutting down")
 	app.Shutdown()
 }
 
@@ -274,6 +277,7 @@ func mustLockSessionDirectory(lockPath string) *flock.Flock {
 		return nil
 	}
 	if !locked {
+		// logger is initialized after the lock, to avoid two instances writing the same log file
 		_, _ = fmt.Fprintln(os.Stderr, "can't acquire lock, maybe another process is running")
 		_, _ = fmt.Fprintf(os.Stderr, "try remove %q if no other neptune instance is running\n", lockPath)
 		os.Exit(1)
@@ -322,6 +326,9 @@ func setupLogger(sessionPath string) {
 		}
 		w = zerolog.MultiLevelWriter(rotation, w)
 	}
+
+	// zerolog defaults to time.RFC3339, which drops sub-second precision.
+	zerolog.TimeFieldFormat = time.RFC3339Nano
 
 	zerolog.ErrorStackMarshaler = func(err error) any {
 		s, ok := err.(errgo.Stack)
@@ -385,15 +392,11 @@ func mustParseConfig(sessionPath string) config.Config {
 func initResourceLimit() {
 	if sys.IsLinux {
 		if _, err := maxprocs.Set(); err != nil {
-			_, _ = fmt.Fprintln(os.Stderr, "Failed to set GOMAXPROCS automatically.")
-			_, _ = fmt.Fprintln(os.Stderr, "Consider to set env manually if you are running process with cgroup.")
-			_, _ = fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			log.Warn().Err(err).Msg("failed to set GOMAXPROCS automatically, consider to set env manually if you are running process with cgroup")
 		}
 
 		if _, err := memlimit.SetGoMemLimitWithOpts(); err != nil {
-			_, _ = fmt.Fprintln(os.Stderr, "Failed to set GOMEMLIMIT automatically.")
-			_, _ = fmt.Fprintln(os.Stderr, "Consider to set env manually if you are running process with cgroup.")
-			_, _ = fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			log.Warn().Err(err).Msg("failed to set GOMEMLIMIT automatically, consider to set env manually if you are running process with cgroup")
 		}
 	}
 }
