@@ -47,7 +47,6 @@ type mockPeer struct {
 	addr                   netip.AddrPort
 	userAgent              string
 	peerIDString           string
-	lastPickDebug          string
 	lastClaims             []BlockClaim
 	queued                 []BlockClaim
 	enqueuedBlocks         []PieceBlock
@@ -74,6 +73,7 @@ type mockPeer struct {
 	dhtEnabled             bool
 	closedCalled           bool
 	incoming               bool
+	lastPickDebug          pickDebugSnapshot
 }
 
 func newMockPeer() *mockPeer {
@@ -262,8 +262,8 @@ func (m *mockPeer) Request(chunk proto.ChunkRequest, claim BlockClaim) {
 func (m *mockPeer) DesiredQueueSize() int { return int(m.desiredSize) }
 
 // ── Picker integration ──────────────────────────────────────────────.
-func (m *mockPeer) LastPickDebug() string     { return m.lastPickDebug }
-func (m *mockPeer) SetLastPickDebug(s string) { m.lastPickDebug = s }
+func (m *mockPeer) LastPickDebug() string                { return m.lastPickDebug.String() }
+func (m *mockPeer) SetLastPickDebug(s pickDebugSnapshot) { m.lastPickDebug = s }
 
 // requestABlock implements the scheduling logic for mock peers in tests.
 func (m *mockPeer) requestABlock() {
