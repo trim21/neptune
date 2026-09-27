@@ -4,7 +4,9 @@
 package piece_picker
 
 import (
+	"encoding/binary"
 	"fmt"
+	"math/bits"
 	"math/rand/v2"
 	"slices"
 	"sort"
@@ -95,15 +97,31 @@ func (bs blockStates) get(idx int) blockState {
 	return blockState((bs.data[idx>>2] >> ((idx & 3) << 1)) & 0x3)
 }
 
-// countNone counts blockStateNone blocks in [startIdx, startIdx+count).
-// Reads one byte per 4 blocks for the bulk, avoiding repeated data[idx>>2] loads.
-//
-//nolint:dupl
-func (bs blockStates) countNone(startIdx, count int) int {
+// fieldPattern repeats a 2-bit field value in every field position of a byte.
+func fieldPattern(s blockState) byte {
+	return byte(s) * 0x55
+}
+
+// countFieldsEqual8 counts the 2-bit fields equal to pattern in b.
+func countFieldsEqual8(b, pattern byte) int {
+	t := b ^ pattern
+	// bit 2k of (t | t>>1) is set iff field k is not equal to pattern
+	return 4 - bits.OnesCount8((t|(t>>1))&0x55)
+}
+
+// countFieldsEqual64 counts the 2-bit fields equal to pattern in the 8 bytes of w.
+func countFieldsEqual64(w, pattern uint64) int {
+	t := w ^ pattern
+	return 32 - bits.OnesCount64((t|(t>>1))&0x5555555555555555)
+}
+
+// count counts blocks in state s in [startIdx, startIdx+count).
+// Reads one byte per 4 blocks, 8 bytes at a time in the bulk.
+func (bs blockStates) count(startIdx, count int, s blockState) int {
 	n := 0
-	// unaligned prefix: step one block at a time until aligned
+	// unaligned prefix: step one block at a time until aligned to a byte
 	for count > 0 && startIdx&3 != 0 {
-		if bs.get(startIdx) == blockStateNone {
+		if bs.get(startIdx) == s {
 			n++
 		}
 		startIdx++
@@ -112,81 +130,36 @@ func (bs blockStates) countNone(startIdx, count int) int {
 	if count == 0 {
 		return n
 	}
-	// aligned bulk: 4 blocks per byte
+
 	byteIdx := startIdx >> 2
 	fullBytes := count >> 2
-	for i := range fullBytes {
-		b := bs.data[byteIdx+i]
-		// fast path: all zero means all 4 blocks are None
-		if b == 0 {
-			n += 4
-			continue
-		}
-		if b&0x3 == 0 {
-			n++
-		}
-		if (b>>2)&0x3 == 0 {
-			n++
-		}
-		if (b>>4)&0x3 == 0 {
-			n++
-		}
-		if (b>>6)&0x3 == 0 {
-			n++
-		}
+	pat8 := fieldPattern(s)
+	pat64 := uint64(pat8) * 0x0101010101010101
+
+	i := 0
+	for ; i+8 <= fullBytes; i += 8 {
+		w := binary.LittleEndian.Uint64(bs.data[byteIdx+i : byteIdx+i+8])
+		n += countFieldsEqual64(w, pat64)
 	}
+	for ; i < fullBytes; i++ {
+		n += countFieldsEqual8(bs.data[byteIdx+i], pat8)
+	}
+
 	// unaligned suffix
 	for i := fullBytes * 4; i < count; i++ {
-		if bs.get(startIdx+i) == blockStateNone {
+		if bs.get(startIdx+i) == s {
 			n++
 		}
 	}
 	return n
 }
 
-// countRequested counts blockStateRequested blocks in [startIdx, startIdx+count).
-//
-//nolint:dupl
+func (bs blockStates) countNone(startIdx, count int) int {
+	return bs.count(startIdx, count, blockStateNone)
+}
+
 func (bs blockStates) countRequested(startIdx, count int) int {
-	n := 0
-	for count > 0 && startIdx&3 != 0 {
-		if bs.get(startIdx) == blockStateRequested {
-			n++
-		}
-		startIdx++
-		count--
-	}
-	if count == 0 {
-		return n
-	}
-	byteIdx := startIdx >> 2
-	fullBytes := count >> 2
-	for i := range fullBytes {
-		b := bs.data[byteIdx+i]
-		// fast path: all Requested is 0b01010101 = 0x55
-		if b == 0x55 {
-			n += 4
-			continue
-		}
-		if b&0x3 == 1 {
-			n++
-		}
-		if (b>>2)&0x3 == 1 {
-			n++
-		}
-		if (b>>4)&0x3 == 1 {
-			n++
-		}
-		if (b>>6)&0x3 == 1 {
-			n++
-		}
-	}
-	for i := fullBytes * 4; i < count; i++ {
-		if bs.get(startIdx+i) == blockStateRequested {
-			n++
-		}
-	}
-	return n
+	return bs.count(startIdx, count, blockStateRequested)
 }
 
 func (bs blockStates) set(idx int, s blockState) {
