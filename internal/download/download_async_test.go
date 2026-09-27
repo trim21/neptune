@@ -8,6 +8,7 @@ package download
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -55,22 +56,69 @@ func fullPeer(d *Download, numPieces uint32, seed uint64) *mockPeer {
 	return p
 }
 
-// waitDownload polls until all pieces complete or deadline.
-func waitDownload(t *testing.T, d *Download, numPieces uint32, timeout time.Duration) bool {
-	t.Helper()
-	deadline := time.After(timeout)
-	ticker := time.NewTicker(5 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-deadline:
-			return false
-		case <-ticker.C:
-			if d.completedBm.Count() == numPieces {
-				return true
-			}
+// downloadStallDump summarizes the state behind a wait that did not finish:
+// which pieces are missing, the picker's block/claim accounting, and each
+// peer's queue.
+func downloadStallDump(d *Download, numPieces uint32) string {
+	var missing []uint32
+	for pi := range numPieces {
+		if !d.completedBm.Contains(pi) {
+			missing = append(missing, pi)
 		}
 	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "completed=%d/%d missing=%v", d.completedBm.Count(), numPieces, missing)
+
+	st := d.picker.Load().DebugStats()
+	fmt.Fprintf(&b,
+		" picker{requested=%d responded=%d free=%d activeClaims=%d dupClaims=%d queue=%d downloading=%d open=%d staleAccepts=%d staleReleases=%d}",
+		st.RequestedBlocks, st.RespondedBlocks, st.FreeBlocks, st.ActiveClaims, st.DuplicateClaims,
+		st.DownloadQueue, st.Downloading, st.OpenPieces, st.StaleAccepts, st.StaleReleases)
+
+	d.peerList.Range(func(_ uint64, p Peer) bool {
+		fmt.Fprintf(&b, " peer{%d closed=%v blocked=%d", p.ID(), p.Closed(), p.BlockedCount())
+		if mp, ok := p.(*mockPeer); ok {
+			fmt.Fprintf(&b, " queued=%d outstanding=%d", mp.QueueLen(), mp.OutstandingRequests())
+		}
+		b.WriteString("}")
+		return true
+	})
+	return b.String()
+}
+
+// waitDownload polls until all pieces complete. A download that keeps making
+// progress gets the whole timeout; one that reports no newly completed piece
+// for the stall window fails immediately with its state, so a piece that can
+// no longer be claimed is reported instead of being masked by a slow runner.
+func waitDownload(t *testing.T, d *Download, numPieces uint32, timeout time.Duration) bool {
+	t.Helper()
+	stallTimeout := min(5*time.Second, timeout)
+	deadline := time.Now().Add(timeout)
+	lastCount := d.completedBm.Count()
+	lastProgress := time.Now()
+	ticker := time.NewTicker(5 * time.Millisecond)
+	defer ticker.Stop()
+	for range ticker.C {
+		count := d.completedBm.Count()
+		if count >= numPieces {
+			return true
+		}
+		if count != lastCount {
+			lastCount = count
+			lastProgress = time.Now()
+			continue
+		}
+		if time.Since(lastProgress) >= stallTimeout {
+			t.Logf("download stalled at %d/%d pieces: %s", count, numPieces, downloadStallDump(d, numPieces))
+			return false
+		}
+		if time.Now().After(deadline) {
+			t.Logf("download timed out at %d/%d pieces: %s", count, numPieces, downloadStallDump(d, numPieces))
+			return false
+		}
+	}
+	return false
 }
 
 func waitForFailedPieces(t *testing.T, store *FailNPieceStore, count int, timeout time.Duration) bool {
@@ -168,8 +216,8 @@ func TestAsyncDownload_CorruptRecovery(t *testing.T) {
 				d.picker.Load().IncRefcount(pi)
 			}
 
-			if !waitDownload(t, d, numPieces, 5*time.Second) {
-				t.Fatalf("%s: timed out waiting for recovery, only %d/%d completed", tc.name,
+			if !waitDownload(t, d, numPieces, 30*time.Second) {
+				t.Fatalf("%s: recovery did not finish, only %d/%d completed", tc.name,
 					d.completedBm.Count(), numPieces)
 			}
 		})
