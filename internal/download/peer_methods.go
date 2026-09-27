@@ -4,7 +4,9 @@
 package download
 
 import (
+	"fmt"
 	"net/netip"
+	"sync/atomic"
 	"time"
 
 	"github.com/samber/lo"
@@ -80,18 +82,78 @@ func (p *peerImpl) DesiredQueueSize() int { return p.updateDesiredQueueSize() }
 
 // ── Picker integration ───────────────────────────────────────────────────
 
-func (p *peerImpl) LastPickDebug() string {
-	if s := p.lastPickDebug.Load(); s != nil {
-		return *s
+// pickDebugSnapshot is the outcome of a peer's last pick attempt. The
+// scheduling path records it as plain counters, so it never formats a string
+// for the debug page.
+type pickDebugSnapshot struct {
+	Skip        bool
+	NumRequests int
+	Desired     int
+	Outstanding int
+	Queued      int
+	Claimed     int
+	Enqueued    int
+}
+
+// pickDebug holds the last snapshot in per-field atomics so recording one costs
+// no allocation. The fields race with each other, which is fine for a debug view
+// of the last attempt.
+type pickDebug struct {
+	skip        atomic.Bool
+	numRequests atomic.Int64
+	desired     atomic.Int64
+	outstanding atomic.Int64
+	queued      atomic.Int64
+	claimed     atomic.Int64
+	enqueued    atomic.Int64
+}
+
+func (d *pickDebug) store(s pickDebugSnapshot) {
+	d.skip.Store(s.Skip)
+	d.numRequests.Store(int64(s.NumRequests))
+	d.desired.Store(int64(s.Desired))
+	d.outstanding.Store(int64(s.Outstanding))
+	d.queued.Store(int64(s.Queued))
+	d.claimed.Store(int64(s.Claimed))
+	d.enqueued.Store(int64(s.Enqueued))
+}
+
+func (d *pickDebug) String() string {
+	return d.load().String()
+}
+
+func (d *pickDebug) load() pickDebugSnapshot {
+	return pickDebugSnapshot{
+		Skip:        d.skip.Load(),
+		NumRequests: int(d.numRequests.Load()),
+		Desired:     int(d.desired.Load()),
+		Outstanding: int(d.outstanding.Load()),
+		Queued:      int(d.queued.Load()),
+		Claimed:     int(d.claimed.Load()),
+		Enqueued:    int(d.enqueued.Load()),
 	}
-	return "-"
+}
+
+func (s pickDebugSnapshot) String() string {
+	if s.Skip {
+		return fmt.Sprintf("skip: numReq=%d (desired=%d, myReq=%d, reqQ=%d)",
+			s.NumRequests, s.Desired, s.Outstanding, s.Queued)
+	}
+	return fmt.Sprintf("claimed=%d enqueued=%d", s.Claimed, s.Enqueued)
+}
+
+func (p *peerImpl) LastPickDebug() string {
+	if p.lastPickAt.Load() == 0 {
+		return "-"
+	}
+	return p.lastPickDebug.String()
 }
 
 // LastPickAt returns the unix timestamp of the last SetLastPickDebug call.
 func (p *peerImpl) LastPickAt() int64 { return p.lastPickAt.Load() }
 
-func (p *peerImpl) SetLastPickDebug(s string) {
-	p.lastPickDebug.Store(&s)
+func (p *peerImpl) SetLastPickDebug(s pickDebugSnapshot) {
+	p.lastPickDebug.store(s)
 	p.lastPickAt.Store(time.Now().Unix())
 }
 
