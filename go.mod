@@ -13,7 +13,7 @@ require (
 	github.com/go-faster/xor v1.0.0
 	github.com/go-playground/validator/v10 v10.30.3
 	github.com/go-resty/resty/v2 v2.17.2
-	github.com/gofrs/flock v0.13.0
+	github.com/gofrs/flock v0.13.1
 	github.com/juju/ratelimit v1.0.2
 	github.com/kelindar/bitmap v1.5.5
 	github.com/panjf2000/ants/v2 v2.12.1
