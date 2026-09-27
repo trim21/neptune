@@ -161,7 +161,7 @@ jobs:
   # Test RC4 asm on native arm64. The amd64 cross-compile only verifies
   # syntax; native execution catches logic bugs in the arm64 assembly.
   test-arm64:
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-26.04-arm
     steps:
       - uses: actions/checkout@v7.0.1
 
