@@ -32,7 +32,7 @@ require (
 	github.com/trim21/go-bencode v0.1.2
 	github.com/valyala/bytebufferpool v1.0.0
 	github.com/yuin/gopher-lua v1.1.2
-	go.uber.org/atomic v1.11.0
+	go.uber.org/atomic v1.12.0
 	go.uber.org/automaxprocs v1.6.0
 	go.uber.org/multierr v1.11.0
 	golang.org/x/net v0.58.0
