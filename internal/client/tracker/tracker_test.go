@@ -348,13 +348,23 @@ func TestLifecycleEventsPreserveCompletionBeforeLatestState(t *testing.T) {
 	trackers.Announce(EventStopped)
 	trackers.Start(0)
 
-	for _, want := range []AnnounceEvent{EventCompleted, EventStarted} {
+	// The loop dispatches a due lifecycle event as soon as it is idle, so it
+	// may send the stopped round between Announce and Start. An in-flight
+	// stopped is allowed to complete; only the ordering is guaranteed:
+	// completed first, the latest state (started) last.
+	var got []AnnounceEvent
+	for len(got) == 0 || got[len(got)-1] != EventStarted {
 		select {
 		case req := <-requests:
-			require.Equal(t, string(want), req.URL.Query().Get("event"))
+			got = append(got, AnnounceEvent(req.URL.Query().Get("event")))
 		case <-time.After(2 * time.Second):
-			t.Fatalf("timed out waiting for event %q", want)
+			t.Fatalf("timed out waiting for %q, got %v", EventStarted, got)
 		}
+	}
+
+	require.Equal(t, EventCompleted, got[0], "completed must be announced before the latest lifecycle state")
+	for _, event := range got[1 : len(got)-1] {
+		require.Equal(t, EventStopped, event, "only an already in-flight stopped may be announced in between")
 	}
 }
 

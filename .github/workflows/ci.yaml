@@ -45,7 +45,7 @@ jobs:
         shell: bash
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v7.0.0
+        uses: codecov/codecov-action@v7.1.1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
 
@@ -55,7 +55,7 @@ jobs:
         shell: bash
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v7.0.0
+        uses: codecov/codecov-action@v7.1.1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
 
@@ -137,7 +137,7 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9.3.0
         with:
-          version: v2.12.2
+          version: v2.14.0
 
       - name: govulncheck
         run: |
@@ -161,7 +161,7 @@ jobs:
   # Test RC4 asm on native arm64. The amd64 cross-compile only verifies
   # syntax; native execution catches logic bugs in the arm64 assembly.
   test-arm64:
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-26.04-arm
     steps:
       - uses: actions/checkout@v7.0.1
 
