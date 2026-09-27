@@ -395,7 +395,7 @@ func initResourceLimit() {
 			log.Warn().Err(err).Msg("failed to set GOMAXPROCS automatically, consider to set env manually if you are running process with cgroup")
 		}
 
-		if _, err := memlimit.SetGoMemLimitWithOpts(); err != nil {
+		if _, err := memlimit.Set(); err != nil {
 			log.Warn().Err(err).Msg("failed to set GOMEMLIMIT automatically, consider to set env manually if you are running process with cgroup")
 		}
 	}
