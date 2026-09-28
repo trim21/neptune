@@ -38,6 +38,7 @@ import (
 	"neptune/internal/client"
 	"neptune/internal/config"
 	"neptune/internal/pkg/empty"
+	"neptune/internal/pkg/null"
 	"neptune/internal/pkg/random"
 	"neptune/internal/pkg/sys"
 	"neptune/internal/version"
@@ -192,11 +193,11 @@ func setupFlagsAndEnvParser() {
 	}
 
 	pflag.String("session-path", "", "client session path (default ~/.neptune/)")
-	pflag.String("config", "", "path to config file (.toml or .lua, default {session-path}/config.toml)")
+	pflag.String("config", "", "path to config file (.toml or .lua, default {session-path}/config.lua, then config.toml)")
 
 	pflag.String("web", "127.0.0.1:8002", "web interface address")
 	pflag.String("web-secret-token", "", "web interface address secret token")
-	pflag.Uint16("p2p-port", 50047, "p2p listen port")
+	pflag.Uint16("p2p-port", config.DefaultConfig().App.P2PPort, "p2p listen port")
 
 	pflag.Bool("log-json", false, "log as json format")
 	pflag.String("log-level", "info", "log level")
@@ -354,39 +355,44 @@ func setupLogger(sessionPath string) {
 func mustParseConfig(sessionPath string) config.Config {
 	configPath := viper.GetString("config")
 
-	// Auto-detect: prefer config.lua, fallback to config.toml
 	if configPath == "" {
-		luaPath := filepath.Join(sessionPath, "config.lua")
-		if _, err := os.Stat(luaPath); err == nil {
-			configPath = luaPath
-		} else {
-			configPath = filepath.Join(sessionPath, "config.toml")
-		}
+		configPath = detectConfigPath(sessionPath)
 	}
 
-	var cfg config.Config
-	var err error
-
-	log.Info().Str("path", configPath).Msg("trying to load config")
-
-	switch filepath.Ext(configPath) {
-	case ".lua":
-		cfg, err = config.LoadFromLua(configPath)
-	case ".toml":
-		cfg, err = config.LoadFromTOML(configPath)
-	default:
-		errExit(fmt.Sprintf("unknown config format %q, expected .toml or .lua", configPath))
+	if configPath != "" {
+		log.Info().Str("path", configPath).Msg("trying to load config")
 	}
 
+	var overrides config.Overrides
+	if viper.IsSet("p2p-port") {
+		overrides.App.P2PPort = null.New(viper.GetUint16("p2p-port"))
+	}
+
+	cfg, err := config.Load(configPath, overrides)
 	if err != nil {
 		errExit("failed to load config", err)
 	}
 
-	cfg.App.P2PPort = viper.GetUint16("p2p-port")
-
 	log.Info().Str("path", configPath).Msg("config loaded")
 
 	return cfg
+}
+
+// detectConfigPath picks the config file to use when --config was not given:
+// config.lua wins over config.toml, and having no config file at all is a
+// valid answer that leaves the built-in defaults in place.
+func detectConfigPath(sessionPath string) string {
+	luaPath := filepath.Join(sessionPath, "config.lua")
+	if _, err := os.Stat(luaPath); err == nil {
+		return luaPath
+	}
+
+	tomlPath := filepath.Join(sessionPath, "config.toml")
+	if _, err := os.Stat(tomlPath); err == nil {
+		return tomlPath
+	}
+
+	return ""
 }
 
 func initResourceLimit() {
@@ -395,7 +401,7 @@ func initResourceLimit() {
 			log.Warn().Err(err).Msg("failed to set GOMAXPROCS automatically, consider to set env manually if you are running process with cgroup")
 		}
 
-		if _, err := memlimit.SetGoMemLimitWithOpts(); err != nil {
+		if _, err := memlimit.Set(); err != nil {
 			log.Warn().Err(err).Msg("failed to set GOMEMLIMIT automatically, consider to set env manually if you are running process with cgroup")
 		}
 	}

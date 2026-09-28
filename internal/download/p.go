@@ -248,7 +248,6 @@ type peerImpl struct {
 	Bitmap                 *bm.LockFreeBitmap
 	myRequests             *xsync.Map[proto.ChunkRequest, trackedRequest]
 	myRequestHistory       *xsync.Map[proto.ChunkRequest, empty.Empty]
-	lastPickDebug          atomic.Pointer[string]
 	Rejected               *xsync.Map[proto.ChunkRequest, empty.Empty]
 	allowFast              *bm.LockFreeBitmap
 	peerRequests           *xsync.Map[proto.ChunkRequest, uploadRequestState]
@@ -299,6 +298,7 @@ type peerImpl struct {
 	fastExtension          bool
 	dhtEnabled             bool
 	subExtensions          bool
+	lastPickDebug          pickDebug
 }
 
 func (p *peerImpl) Response(res *proto.ChunkResponse) bool {
@@ -529,9 +529,13 @@ func (p *peerImpl) requestABlockOnce() {
 	p.lastClaims = claims
 
 	if len(claims) == 0 {
-		s := fmt.Sprintf("skip: numReq=%d (desired=%d, myReq=%d, reqQ=%d)",
-			numRequests, desired, outstanding, queued)
-		p.SetLastPickDebug(s)
+		p.SetLastPickDebug(pickDebugSnapshot{
+			Skip:        true,
+			NumRequests: numRequests,
+			Desired:     desired,
+			Outstanding: outstanding,
+			Queued:      queued,
+		})
 		return
 	}
 
@@ -541,7 +545,7 @@ func (p *peerImpl) requestABlockOnce() {
 			enqueued++
 		}
 	}
-	p.SetLastPickDebug(fmt.Sprintf("claimed=%d enqueued=%d", len(claims), enqueued))
+	p.SetLastPickDebug(pickDebugSnapshot{Claimed: len(claims), Enqueued: enqueued})
 	p.SendBlockRequests()
 }
 
@@ -655,13 +659,6 @@ func (p *peerImpl) IsInQueue(chunk proto.ChunkRequest) bool {
 // isDisconnecting returns true if the peer is in the process of disconnecting.
 func (p *peerImpl) isDisconnecting() bool {
 	return p.disconnecting.Load()
-}
-
-func (p *peerImpl) lastPickDebugString() string {
-	if s := p.lastPickDebug.Load(); s != nil {
-		return *s
-	}
-	return "-"
 }
 
 func (p *peerImpl) checkRequestTimeouts() {
