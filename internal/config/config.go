@@ -51,8 +51,8 @@ type HookConfig struct {
 
 type Application struct {
 	DownloadDir                string     `toml:"download-dir"`
-	PiecePickStrategy          string     `toml:"piece-pick-strategy"`
-	Crypto                     string     `toml:"crypto"`
+	PiecePickStrategy          string     `toml:"piece-pick-strategy"           validate:"omitempty,oneof=rarest-first sequential"`
+	Crypto                     string     `toml:"crypto"                        validate:"omitempty,cryptomode"`
 	Hook                       HookConfig `toml:"hook"`
 	SlowDownloadSpeedThreshold int64      `toml:"slow-download-speed-threshold"`
 	GlobalUploadSpeedLimit     int64      `toml:"global-upload-speed-limit"`

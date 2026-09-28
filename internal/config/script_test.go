@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestLoadFromLua_SimpleSet(t *testing.T) {
+func TestLoadLua_SimpleSet(t *testing.T) {
 	dir := t.TempDir()
 	script := filepath.Join(dir, "config.lua")
 	require.NoError(t, os.WriteFile(script, []byte(`
@@ -21,28 +21,28 @@ func TestLoadFromLua_SimpleSet(t *testing.T) {
 		neptune.set("application.download-dir", "/custom/downloads")
 	`), 0644))
 
-	cfg, err := LoadFromLua(script)
+	cfg, err := Load(script, Overrides{})
 	require.NoError(t, err)
 	assert.Equal(t, uint16(12345), cfg.App.P2PPort)
 	assert.True(t, cfg.App.Fallocate)
 	assert.Equal(t, "/custom/downloads", cfg.App.DownloadDir)
 }
 
-func TestLoadFromLua_Defaults(t *testing.T) {
+func TestLoadLua_Defaults(t *testing.T) {
 	dir := t.TempDir()
 	script := filepath.Join(dir, "config.lua")
 	require.NoError(t, os.WriteFile(script, []byte(`
 		print("hello")
 	`), 0644))
 
-	cfg, err := LoadFromLua(script)
+	cfg, err := Load(script, Overrides{})
 	require.NoError(t, err)
 	assert.Equal(t, 100, cfg.App.MaxHTTPParallel)
 	assert.Equal(t, uint16(200), cfg.App.GlobalConnectionLimit)
 	assert.False(t, cfg.App.Fallocate)
 }
 
-func TestLoadFromLua_GetAndSet(t *testing.T) {
+func TestLoadLua_GetAndSet(t *testing.T) {
 	dir := t.TempDir()
 	script := filepath.Join(dir, "config.lua")
 	require.NoError(t, os.WriteFile(script, []byte(`
@@ -50,12 +50,12 @@ func TestLoadFromLua_GetAndSet(t *testing.T) {
 		neptune.set("application.global-connections-limit", math.max(conns, 300))
 	`), 0644))
 
-	cfg, err := LoadFromLua(script)
+	cfg, err := Load(script, Overrides{})
 	require.NoError(t, err)
 	assert.Equal(t, uint16(300), cfg.App.GlobalConnectionLimit)
 }
 
-func TestLoadFromLua_LastSetWins(t *testing.T) {
+func TestLoadLua_LastSetWins(t *testing.T) {
 	dir := t.TempDir()
 	script := filepath.Join(dir, "config.lua")
 	require.NoError(t, os.WriteFile(script, []byte(`
@@ -63,12 +63,12 @@ func TestLoadFromLua_LastSetWins(t *testing.T) {
 		neptune.set("application.global-upload-speed-limit", 10 * 1024 * 1024)
 	`), 0644))
 
-	cfg, err := LoadFromLua(script)
+	cfg, err := Load(script, Overrides{})
 	require.NoError(t, err)
 	assert.Equal(t, int64(10*1024*1024), cfg.App.GlobalUploadSpeedLimit)
 }
 
-func TestLoadFromLua_OsEnv(t *testing.T) {
+func TestLoadLua_OsEnv(t *testing.T) {
 	dir := t.TempDir()
 	script := filepath.Join(dir, "config.lua")
 	require.NoError(t, os.WriteFile(script, []byte(`
@@ -82,13 +82,13 @@ func TestLoadFromLua_OsEnv(t *testing.T) {
 
 	t.Setenv("NODE_NAME", "testnode")
 
-	cfg, err := LoadFromLua(script)
+	cfg, err := Load(script, Overrides{})
 	require.NoError(t, err)
 	assert.Equal(t, "/mnt/test/downloads", cfg.App.DownloadDir)
 	assert.Equal(t, uint16(200), cfg.App.GlobalConnectionLimit)
 }
 
-func TestLoadFromLua_OsEnvNotSet(t *testing.T) {
+func TestLoadLua_OsEnvNotSet(t *testing.T) {
 	dir := t.TempDir()
 	script := filepath.Join(dir, "config.lua")
 	require.NoError(t, os.WriteFile(script, []byte(`
@@ -96,12 +96,12 @@ func TestLoadFromLua_OsEnvNotSet(t *testing.T) {
 		neptune.set("application.download-dir", "/data/" .. tostring(node))
 	`), 0644))
 
-	cfg, err := LoadFromLua(script)
+	cfg, err := Load(script, Overrides{})
 	require.NoError(t, err)
 	assert.Equal(t, "/data/", cfg.App.DownloadDir)
 }
 
-func TestLoadFromLua_OsHostname(t *testing.T) {
+func TestLoadLua_OsHostname(t *testing.T) {
 	dir := t.TempDir()
 	script := filepath.Join(dir, "config.lua")
 	require.NoError(t, os.WriteFile(script, []byte(`
@@ -109,55 +109,55 @@ func TestLoadFromLua_OsHostname(t *testing.T) {
 		neptune.set("application.download-dir", "/data/" .. host)
 	`), 0644))
 
-	cfg, err := LoadFromLua(script)
+	cfg, err := Load(script, Overrides{})
 	require.NoError(t, err)
 
 	expectedHost, _ := os.Hostname()
 	assert.Equal(t, "/data/"+expectedHost, cfg.App.DownloadDir)
 }
 
-func TestLoadFromLua_OsCpus(t *testing.T) {
+func TestLoadLua_OsCpus(t *testing.T) {
 	dir := t.TempDir()
 	script := filepath.Join(dir, "config.lua")
 	require.NoError(t, os.WriteFile(script, []byte(`
 		neptune.set("application.global-connections-limit", os.cpus() * 20)
 	`), 0644))
 
-	cfg, err := LoadFromLua(script)
+	cfg, err := Load(script, Overrides{})
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, cfg.App.GlobalConnectionLimit, uint16(20))
 }
 
-func TestLoadFromLua_InvalidKey(t *testing.T) {
+func TestLoadLua_InvalidKey(t *testing.T) {
 	dir := t.TempDir()
 	script := filepath.Join(dir, "config.lua")
 	require.NoError(t, os.WriteFile(script, []byte(`
 		neptune.set("nonexistentKey", 123)
 	`), 0644))
 
-	_, err := LoadFromLua(script)
+	_, err := Load(script, Overrides{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown config key")
 }
 
-func TestLoadFromLua_InvalidValueType(t *testing.T) {
+func TestLoadLua_InvalidValueType(t *testing.T) {
 	dir := t.TempDir()
 	script := filepath.Join(dir, "config.lua")
 	require.NoError(t, os.WriteFile(script, []byte(`
 		neptune.set("application.p2p-port", "not a number")
 	`), 0644))
 
-	_, err := LoadFromLua(script)
+	_, err := Load(script, Overrides{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid value")
 }
 
-func TestLoadFromLua_SyntaxError(t *testing.T) {
+func TestLoadLua_SyntaxError(t *testing.T) {
 	dir := t.TempDir()
 	script := filepath.Join(dir, "config.lua")
 	require.NoError(t, os.WriteFile(script, []byte(`invalid lua syntax {{{`), 0644))
 
-	_, err := LoadFromLua(script)
+	_, err := Load(script, Overrides{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "execute config script")
 }

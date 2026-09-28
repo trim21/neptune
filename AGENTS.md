@@ -36,16 +36,17 @@ etc/
 
 ## Config
 - 配置来源：TOML 文件 + CLI flag + 环境变量（`NEPTUNE_` 前缀）。
-- [internal/config/config.go](../internal/config/config.go) 定义配置结构体，缺文件用默认值，未知键报错。
+- [internal/config/config.go](../internal/config/config.go) 定义配置结构体（Lua 可设置的键由它的 toml tag 派生），[load.go](../internal/config/load.go) 的 `Load` 是唯一入口：默认值 → 文件 → 显式覆盖 → 派生默认值 → `Validate()`。
+- 校验只有一个点（`Config.Validate()`，在所有来源合并之后），因此 TOML 与 Lua 接受的值集合相同。未知键报错。
 
 ## Flags & Env
 | Flag | Default | Env | 说明 |
 |---|---|---|---|
 | `--session-path` | `~/.neptune` | `NEPTUNE_SESSION_PATH` | session 目录 |
-| `--config-file` | `{session}/config.toml` | `NEPTUNE_CONFIG_FILE` | config 文件路径 |
+| `--config` | `{session}/config.lua`，否则 `{session}/config.toml` | `NEPTUNE_CONFIG` | config 文件路径（显式指定时必须存在） |
 | `--web` | `127.0.0.1:8002` | `NEPTUNE_WEB` | HTTP 监听地址 |
 | `--web-secret-token` | auto-generated | `NEPTUNE_WEB_SECRET_TOKEN` | 鉴权 token |
-| `--p2p-port` | `50047` | `NEPTUNE_P2P_PORT` | P2P 端口（可覆盖 TOML） |
+| `--p2p-port` | `50047` | `NEPTUNE_P2P_PORT` | P2P 端口（仅显式提供时覆盖配置文件） |
 | `--log-json` | false | `NEPTUNE_LOG_JSON` | JSON 格式日志 |
 | `--log-level` | `"info"` | `NEPTUNE_LOG_LEVEL` | 日志级别 |
 | `--log-save-to-file` | true | `NEPTUNE_LOG_SAVE_TO_FILE` | 是否写日志文件 |
