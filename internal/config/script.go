@@ -5,88 +5,21 @@ package config
 
 import (
 	"fmt"
+	"maps"
 	"os"
-	"path/filepath"
+	"reflect"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
-	"github.com/go-playground/validator/v10"
-	"github.com/pelletier/go-toml/v2"
 	"github.com/trim21/errgo"
 	lua "github.com/yuin/gopher-lua"
 )
 
-// DefaultConfig returns the built-in defaults used when a setting is not
-// provided by the config file. Shared by the TOML and Lua loaders.
-func DefaultConfig() Config {
-	return Config{
-		App: Application{
-			MaxHTTPParallel:        100,
-			GlobalConnectionLimit:  200,
-			TorrentConnectionLimit: 50,
-			ConnectionSpeed:        30,
-			MaxRequestBodySize:     50 << 20,
-		},
-	}
-}
-
-// LoadFromTOML loads the base config from a TOML file.
-// Moved from config.go to keep the public API clean.
-func LoadFromTOML(path string) (Config, error) {
-	cfg := DefaultConfig()
-
-	f, err := os.Open(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return cfg, nil
-		}
-
-		return Config{}, errgo.Wrap(err, "failed to read config file")
-	}
-	defer f.Close()
-
-	if err := toml.NewDecoder(f).DisallowUnknownFields().Decode(&cfg); err != nil {
-		return cfg, errgo.Wrap(err, "failed to parse config file")
-	}
-
-	applyDefaults(&cfg.App)
-
-	return cfg, nil
-}
-
-// LoadFromLua loads config entirely from a Lua script, starting with defaults.
-// TOML and Lua are mutually exclusive: if config.lua exists, config.toml is ignored.
-func LoadFromLua(path string) (Config, error) {
-	base := DefaultConfig()
-
-	cfg, err := loadFromLua(path, base)
-	if err != nil {
-		return Config{}, err
-	}
-
-	applyDefaults(&cfg.App)
-	return cfg, nil
-}
-
-func applyDefaults(app *Application) {
-	if app.DownloadDir == "" {
-		hd, err := os.UserHomeDir()
-		if err != nil {
-			panic(errgo.Wrap(err, "failed to get user homedir"))
-		}
-		app.DownloadDir = filepath.Join(hd, "downloads")
-	}
-
-	if app.GlobalUploadSlots == 0 {
-		slots := max(app.GlobalConnectionLimit*4, 64)
-		app.GlobalUploadSlots = slots
-	}
-}
-
-// loadFromLua executes a Lua config script that receives a base config (from TOML + CLI)
-// and may adjust values via neptune.set() / neptune.get().
-func loadFromLua(path string, base Config) (Config, error) {
+// loadLua runs the Lua config script at path on top of cfg via the
+// neptune.set() / neptune.get() API.
+func loadLua(path string, cfg Config) (Config, error) {
 	src, err := os.ReadFile(path)
 	if err != nil {
 		return Config{}, errgo.Wrap(err, "read config script")
@@ -107,7 +40,7 @@ func loadFromLua(path string, base Config) (Config, error) {
 	extendOS(L)
 
 	// Register neptune module with set/get.
-	registerNeptune(L, &base.App)
+	registerNeptune(L, &cfg)
 
 	// Register console.
 	registerConsole(L)
@@ -117,13 +50,7 @@ func loadFromLua(path string, base Config) (Config, error) {
 		return Config{}, errgo.Wrap(err, "execute config script")
 	}
 
-	// Validate final config.
-	validate := validator.New()
-	if err := validate.Struct(base.App); err != nil {
-		return Config{}, errgo.Wrap(err, "validate config after script")
-	}
-
-	return Config{App: base.App}, nil
+	return cfg, nil
 }
 
 // --- os module extensions ---
@@ -155,228 +82,143 @@ func luaOSCpus(L *lua.LState) int {
 
 // --- neptune module ---
 
-type configField struct {
-	setter func(app *Application, v lua.LValue) error
-	getter func(app *Application) lua.LValue
+var durationType = reflect.TypeFor[time.Duration]()
+
+// configLeafFields is the leaf field set of the Config schema: every dotted
+// toml tag path mapped to the field index path it addresses. Deriving it from
+// the struct tags instead of writing it out by hand is what keeps the Lua key
+// set in step with the TOML schema.
+var configLeafFields = collectLeafFields(reflect.TypeFor[Config](), "", nil)
+
+// collectLeafFields returns the leaf fields declared by t and its nested
+// structs, with prefix prepended to each key and index to each field path.
+func collectLeafFields(t reflect.Type, prefix string, index []int) map[string][]int {
+	keys := make(map[string][]int)
+
+	for i := range t.NumField() {
+		field := t.Field(i)
+
+		name, _, _ := strings.Cut(field.Tag.Get("toml"), ",")
+		if name == "" || name == "-" {
+			continue
+		}
+
+		path := slices.Concat(index, []int{i})
+		key := prefix + name
+
+		// Nested sections contribute their tag to the key path.
+		if field.Type.Kind() == reflect.Struct {
+			maps.Copy(keys, collectLeafFields(field.Type, key+".", path))
+			continue
+		}
+
+		keys[key] = path
+	}
+
+	return keys
 }
 
-var configFields = map[string]configField{
-	"application.download-dir": {
-		setter: func(a *Application, v lua.LValue) error { a.DownloadDir = lua.LVAsString(v); return nil },
-		getter: func(a *Application) lua.LValue { return lua.LString(a.DownloadDir) },
-	},
-	"application.max-http-parallel": {
-		setter: func(a *Application, v lua.LValue) error {
-			n, err := toGoInt(v)
-			if err != nil {
-				return err
-			}
-			a.MaxHTTPParallel = n
-			return nil
-		},
-		getter: func(a *Application) lua.LValue { return lua.LNumber(a.MaxHTTPParallel) },
-	},
-	"application.p2p-port": {
-		setter: func(a *Application, v lua.LValue) error {
-			n, err := toGoUint16(v)
-			if err != nil {
-				return err
-			}
-			a.P2PPort = n
-			return nil
-		},
-		getter: func(a *Application) lua.LValue { return lua.LNumber(a.P2PPort) },
-	},
-	"application.num-want": {
-		setter: func(a *Application, v lua.LValue) error {
-			n, err := toGoUint16(v)
-			if err != nil {
-				return err
-			}
-			a.NumWant = n
-			return nil
-		},
-		getter: func(a *Application) lua.LValue { return lua.LNumber(a.NumWant) },
-	},
-	"application.connection-speed": {
-		setter: func(a *Application, v lua.LValue) error {
-			n, err := toGoUint16(v)
-			if err != nil {
-				return err
-			}
-			a.ConnectionSpeed = n
-			return nil
-		},
-		getter: func(a *Application) lua.LValue { return lua.LNumber(a.ConnectionSpeed) },
-	},
-	"application.global-connections-limit": {
-		setter: func(a *Application, v lua.LValue) error {
-			n, err := toGoUint16(v)
-			if err != nil {
-				return err
-			}
-			a.GlobalConnectionLimit = n
-			return nil
-		},
-		getter: func(a *Application) lua.LValue { return lua.LNumber(a.GlobalConnectionLimit) },
-	},
-	"application.torrent-connection-limit": {
-		setter: func(a *Application, v lua.LValue) error {
-			n, err := toGoUint16(v)
-			if err != nil {
-				return err
-			}
-			a.TorrentConnectionLimit = n
-			return nil
-		},
-		getter: func(a *Application) lua.LValue { return lua.LNumber(a.TorrentConnectionLimit) },
-	},
-	"application.global-upload-slots": {
-		setter: func(a *Application, v lua.LValue) error {
-			n, err := toGoUint16(v)
-			if err != nil {
-				return err
-			}
-			a.GlobalUploadSlots = n
-			return nil
-		},
-		getter: func(a *Application) lua.LValue { return lua.LNumber(a.GlobalUploadSlots) },
-	},
-	"application.download-slots": {
-		setter: func(a *Application, v lua.LValue) error {
-			n, err := toGoUint16(v)
-			if err != nil {
-				return err
-			}
-			a.DownloadSlots = n
-			return nil
-		},
-		getter: func(a *Application) lua.LValue { return lua.LNumber(a.DownloadSlots) },
-	},
-	"application.slow-download-speed-threshold": {
-		setter: func(a *Application, v lua.LValue) error {
-			n, err := toGoInt64(v)
-			if err != nil {
-				return err
-			}
-			a.SlowDownloadSpeedThreshold = n
-			return nil
-		},
-		getter: func(a *Application) lua.LValue { return lua.LNumber(a.SlowDownloadSpeedThreshold) },
-	},
-	"application.global-download-speed-limit": {
-		setter: func(a *Application, v lua.LValue) error {
-			n, err := toGoInt64(v)
-			if err != nil {
-				return err
-			}
-			a.GlobalDownloadSpeedLimit = n
-			return nil
-		},
-		getter: func(a *Application) lua.LValue { return lua.LNumber(a.GlobalDownloadSpeedLimit) },
-	},
-	"application.global-upload-speed-limit": {
-		setter: func(a *Application, v lua.LValue) error {
-			n, err := toGoInt64(v)
-			if err != nil {
-				return err
-			}
-			a.GlobalUploadSpeedLimit = n
-			return nil
-		},
-		getter: func(a *Application) lua.LValue { return lua.LNumber(a.GlobalUploadSpeedLimit) },
-	},
-	"application.fallocate": {
-		setter: func(a *Application, v lua.LValue) error { a.Fallocate = lua.LVAsBool(v); return nil },
-		getter: func(a *Application) lua.LValue { return lua.LBool(a.Fallocate) },
-	},
-	"application.max-rpc-request-body-size": {
-		setter: func(a *Application, v lua.LValue) error {
-			n, err := toGoInt64(v)
-			if err != nil {
-				return err
-			}
-			a.MaxRequestBodySize = n
-			return nil
-		},
-		getter: func(a *Application) lua.LValue { return lua.LNumber(a.MaxRequestBodySize) },
-	},
-	"application.piece-pick-strategy": {
-		setter: func(a *Application, v lua.LValue) error {
-			s := lua.LVAsString(v)
-			if s != "rarest-first" && s != "sequential" {
-				return fmt.Errorf("must be 'rarest-first' or 'sequential', got %q", s)
-			}
-			a.PiecePickStrategy = s
-			return nil
-		},
-		getter: func(a *Application) lua.LValue { return lua.LString(a.PiecePickStrategy) },
-	},
-	"application.crypto": {
-		setter: func(a *Application, v lua.LValue) error {
-			s := lua.LVAsString(v)
-			if _, err := ParseCryptoMode(s); err != nil {
-				return err
-			}
-			a.Crypto = s
-			return nil
-		},
-		getter: func(a *Application) lua.LValue { return lua.LString(a.Crypto) },
-	},
-	"application.hook.on-download-started": {
-		setter: func(a *Application, v lua.LValue) error { a.Hook.OnDownloadStarted = lua.LVAsString(v); return nil },
-		getter: func(a *Application) lua.LValue { return lua.LString(a.Hook.OnDownloadStarted) },
-	},
-	"application.hook.on-download-completed": {
-		setter: func(a *Application, v lua.LValue) error { a.Hook.OnDownloadCompleted = lua.LVAsString(v); return nil },
-		getter: func(a *Application) lua.LValue { return lua.LString(a.Hook.OnDownloadCompleted) },
-	},
-	"application.hook.timeout": {
-		setter: func(a *Application, v lua.LValue) error {
-			d, err := time.ParseDuration(lua.LVAsString(v))
-			if err != nil {
-				return fmt.Errorf("invalid duration: %w", err)
-			}
-			a.Hook.Timeout = d
-			return nil
-		},
-		getter: func(a *Application) lua.LValue { return lua.LString(a.Hook.Timeout.String()) },
-	},
+// validConfigKeys lists the known keys in a stable order for error messages.
+func validConfigKeys() []string {
+	keys := make([]string, 0, len(configLeafFields))
+	for key := range configLeafFields {
+		keys = append(keys, key)
+	}
+	slices.Sort(keys)
+	return keys
 }
 
-func registerNeptune(L *lua.LState, app *Application) {
+// luaToFieldValue converts a Lua value into the Go type of a config field.
+// Only conversion lives here: whether the converted value is acceptable is
+// decided by Config.Validate(), which sees the config as a whole.
+func luaToFieldValue(v lua.LValue, t reflect.Type) (reflect.Value, error) {
+	if t == durationType {
+		d, err := time.ParseDuration(lua.LVAsString(v))
+		if err != nil {
+			return reflect.Value{}, fmt.Errorf("invalid duration: %w", err)
+		}
+		return reflect.ValueOf(d), nil
+	}
+
+	switch t.Kind() {
+	case reflect.String:
+		return reflect.ValueOf(lua.LVAsString(v)).Convert(t), nil
+	case reflect.Bool:
+		return reflect.ValueOf(lua.LVAsBool(v)).Convert(t), nil
+	case reflect.Int:
+		n, err := toGoInt(v)
+		if err != nil {
+			return reflect.Value{}, err
+		}
+		return reflect.ValueOf(n).Convert(t), nil
+	case reflect.Int64:
+		n, err := toGoInt64(v)
+		if err != nil {
+			return reflect.Value{}, err
+		}
+		return reflect.ValueOf(n).Convert(t), nil
+	case reflect.Uint16:
+		n, err := toGoUint16(v)
+		if err != nil {
+			return reflect.Value{}, err
+		}
+		return reflect.ValueOf(n).Convert(t), nil
+	default:
+		return reflect.Value{}, fmt.Errorf("unsupported config field type %s", t)
+	}
+}
+
+func fieldValueToLua(v reflect.Value) lua.LValue {
+	if v.Type() == durationType {
+		return lua.LString(time.Duration(v.Int()).String())
+	}
+
+	switch v.Kind() {
+	case reflect.String:
+		return lua.LString(v.String())
+	case reflect.Bool:
+		return lua.LBool(v.Bool())
+	case reflect.Int, reflect.Int64:
+		return lua.LNumber(v.Int())
+	case reflect.Uint16:
+		return lua.LNumber(v.Uint())
+	default:
+		panic("unsupported config field type " + v.Type().String())
+	}
+}
+
+func registerNeptune(L *lua.LState, cfg *Config) {
 	neptune := L.NewTable()
 
 	neptune.RawSetString("set", L.NewFunction(func(L *lua.LState) int {
 		key := L.CheckString(1)
-		field, ok := configFields[key]
+		index, ok := configLeafFields[key]
 		if !ok {
-			validKeys := make([]string, 0, len(configFields))
-			for k := range configFields {
-				validKeys = append(validKeys, k)
-			}
-			L.RaiseError("unknown config key %q, valid keys: %s", key, strings.Join(validKeys, ", "))
+			L.RaiseError("unknown config key %q, valid keys: %s", key, strings.Join(validConfigKeys(), ", "))
 			return 0
 		}
-		val := L.Get(2)
-		if err := field.setter(app, val); err != nil {
+
+		target := reflect.ValueOf(cfg).Elem().FieldByIndex(index)
+
+		value, err := luaToFieldValue(L.Get(2), target.Type())
+		if err != nil {
 			L.RaiseError("invalid value for %q: %v", key, err)
+			return 0
 		}
+
+		target.Set(value)
 		return 0
 	}))
 
 	neptune.RawSetString("get", L.NewFunction(func(L *lua.LState) int {
 		key := L.CheckString(1)
-		field, ok := configFields[key]
+		index, ok := configLeafFields[key]
 		if !ok {
-			validKeys := make([]string, 0, len(configFields))
-			for k := range configFields {
-				validKeys = append(validKeys, k)
-			}
-			L.RaiseError("unknown config key %q, valid keys: %s", key, strings.Join(validKeys, ", "))
+			L.RaiseError("unknown config key %q, valid keys: %s", key, strings.Join(validConfigKeys(), ", "))
 			return 0
 		}
-		L.Push(field.getter(app))
+
+		L.Push(fieldValueToLua(reflect.ValueOf(cfg).Elem().FieldByIndex(index)))
 		return 1
 	}))
 
