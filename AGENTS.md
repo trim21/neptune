@@ -110,7 +110,8 @@ etc/
 **规则**：
 - 跨模块边界（如 `Download.peers`、`peerList`）统一用 `Peer` 类型，不在代码里硬编码 `*peerImpl` 或 `PeerInterface`。
 - 新增 peer 方法时，先加到 `PeerInterface`，再在 `*peerImpl` 和 `*mockPeer` 分别实现。
-- 禁止用类型断言 `p.(*peerImpl)` 绕过接口——这会在 release build 正常工作但违背设计意图，且 `go build -tags '!release'` 下也不安全。
+- 禁止用类型断言 `p.(*peerImpl)` 绕过接口**去执行接口的职责**——这会在 release build 正常工作但违背设计意图，且 `go build -tags '!release'` 下也不安全。非 debug 场景需要 `*peerImpl` 独有的能力时，照 `scheduler`（[download.go](../internal/download/download.go)）断言到私有窄 interface。
+- 例外：debug / 诊断用途的**只读**读取可以直接断言 `*peerImpl`，并要求取不到时静默降级（如 [debug_template.go](../internal/download/debug_template.go) 的 `schedulingDebug*` 返回 `0` / `"-"`）。这类内部数值刻意不放进 `PeerInterface`，不要为了消除断言把它提上去。
 - `*mockPeer`（[mock_peer_test.go](../internal/download/mock_peer_test.go)）必须实现完整的 `PeerInterface`，新增方法加空实现即可。
 
 ## Build System
