@@ -4,12 +4,15 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"os"
 	"reflect"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -129,43 +132,199 @@ func validConfigKeys() []string {
 }
 
 // luaToFieldValue converts a Lua value into the Go type of a config field.
+// Every type accepts its own Lua type and a string, which is parsed as the
+// target type; nothing else is converted, so a value can never be silently
+// rounded, truncated or emptied.
+//
 // Only conversion lives here: whether the converted value is acceptable is
 // decided by Config.Validate(), which sees the config as a whole.
 func luaToFieldValue(v lua.LValue, t reflect.Type) (reflect.Value, error) {
 	if t == durationType {
-		d, err := time.ParseDuration(lua.LVAsString(v))
-		if err != nil {
-			return reflect.Value{}, fmt.Errorf("invalid duration: %w", err)
-		}
-		return reflect.ValueOf(d), nil
+		return durationValue(v)
 	}
 
 	switch t.Kind() {
 	case reflect.String:
-		return reflect.ValueOf(lua.LVAsString(v)).Convert(t), nil
+		return stringValue(v)
 	case reflect.Bool:
-		return reflect.ValueOf(lua.LVAsBool(v)).Convert(t), nil
+		return boolValue(v)
 	case reflect.Int:
-		n, err := toGoInt(v)
-		if err != nil {
-			return reflect.Value{}, err
-		}
-		return reflect.ValueOf(n).Convert(t), nil
+		return intValue(v)
 	case reflect.Int64:
-		n, err := toGoInt64(v)
-		if err != nil {
-			return reflect.Value{}, err
-		}
-		return reflect.ValueOf(n).Convert(t), nil
+		return int64Value(v)
 	case reflect.Uint16:
-		n, err := toGoUint16(v)
-		if err != nil {
-			return reflect.Value{}, err
-		}
-		return reflect.ValueOf(n).Convert(t), nil
+		return uint16Value(v)
 	default:
 		return reflect.Value{}, fmt.Errorf("unsupported config field type %s", t)
 	}
+}
+
+func stringValue(v lua.LValue) (reflect.Value, error) {
+	s, ok := v.(lua.LString)
+	if !ok {
+		return reflect.Value{}, unexpectedType("string", v)
+	}
+
+	return reflect.ValueOf(string(s)), nil
+}
+
+func boolValue(v lua.LValue) (reflect.Value, error) {
+	switch value := v.(type) {
+	case lua.LBool:
+		return reflect.ValueOf(bool(value)), nil
+	case lua.LString:
+		switch string(value) {
+		case "true":
+			return reflect.ValueOf(true), nil
+		case "false":
+			return reflect.ValueOf(false), nil
+		default:
+			return reflect.Value{}, fmt.Errorf(`expected "true" or "false", got %q`, string(value))
+		}
+	default:
+		return reflect.Value{}, unexpectedType("boolean or string", v)
+	}
+}
+
+func durationValue(v lua.LValue) (reflect.Value, error) {
+	s, ok := v.(lua.LString)
+	if !ok {
+		return reflect.Value{}, unexpectedType("string", v)
+	}
+
+	d, err := time.ParseDuration(string(s))
+	if err != nil {
+		return reflect.Value{}, errgo.Wrap(err, "invalid duration")
+	}
+
+	return reflect.ValueOf(d), nil
+}
+
+func intValue(v lua.LValue) (reflect.Value, error) {
+	switch value := v.(type) {
+	case lua.LNumber:
+		n, err := numberToInt(float64(value))
+		if err != nil {
+			return reflect.Value{}, err
+		}
+
+		return reflect.ValueOf(n), nil
+	case lua.LString:
+		n, err := strconv.ParseInt(string(value), 10, strconv.IntSize)
+		if err != nil {
+			return reflect.Value{}, integerTextError(string(value), "int", err)
+		}
+
+		return reflect.ValueOf(int(n)), nil
+	default:
+		return reflect.Value{}, unexpectedType("number or string", v)
+	}
+}
+
+func int64Value(v lua.LValue) (reflect.Value, error) {
+	switch value := v.(type) {
+	case lua.LNumber:
+		n, err := numberToInt64(float64(value))
+		if err != nil {
+			return reflect.Value{}, err
+		}
+
+		return reflect.ValueOf(n), nil
+	case lua.LString:
+		n, err := strconv.ParseInt(string(value), 10, 64)
+		if err != nil {
+			return reflect.Value{}, integerTextError(string(value), "int64", err)
+		}
+
+		return reflect.ValueOf(n), nil
+	default:
+		return reflect.Value{}, unexpectedType("number or string", v)
+	}
+}
+
+func uint16Value(v lua.LValue) (reflect.Value, error) {
+	switch value := v.(type) {
+	case lua.LNumber:
+		n, err := numberToUint16(float64(value))
+		if err != nil {
+			return reflect.Value{}, err
+		}
+
+		return reflect.ValueOf(n), nil
+	case lua.LString:
+		n, err := strconv.ParseUint(string(value), 10, 16)
+		if err != nil {
+			return reflect.Value{}, integerTextError(string(value), "uint16", err)
+		}
+
+		return reflect.ValueOf(uint16(n)), nil
+	default:
+		return reflect.Value{}, unexpectedType("number or string", v)
+	}
+}
+
+func numberToInt(f float64) (int, error) {
+	n, err := numberToInt64(f)
+	if err != nil {
+		return 0, err
+	}
+
+	// int is 32 bits wide on some targets.
+	if int64(int(n)) != n {
+		return 0, fmt.Errorf("value %v out of range for int", f)
+	}
+
+	return int(n), nil
+}
+
+func numberToInt64(f float64) (int64, error) {
+	if err := checkWhole(f); err != nil {
+		return 0, err
+	}
+
+	// MaxInt64 has no float64 representation, so the bound compared against is
+	// the power of two above it, which int64 cannot hold either.
+	if f < math.MinInt64 || f >= math.MaxInt64 {
+		return 0, fmt.Errorf("value %v out of range for int64", f)
+	}
+
+	return int64(f), nil
+}
+
+func numberToUint16(f float64) (uint16, error) {
+	if err := checkWhole(f); err != nil {
+		return 0, err
+	}
+
+	if f < 0 || f > math.MaxUint16 {
+		return 0, fmt.Errorf("value %v out of range for uint16", f)
+	}
+
+	return uint16(f), nil
+}
+
+// checkWhole rejects a fractional number. Lua has a single number type, so an
+// integer field states its requirement here rather than relying on a cast.
+func checkWhole(f float64) error {
+	if f != math.Trunc(f) {
+		return fmt.Errorf("expected an integer, got %v", f)
+	}
+
+	return nil
+}
+
+// integerTextError describes what is wrong with a decimal string without
+// repeating the parsing function's name back at the user.
+func integerTextError(text, typ string, err error) error {
+	if errors.Is(err, strconv.ErrRange) {
+		return fmt.Errorf("value %s out of range for %s", text, typ)
+	}
+
+	return fmt.Errorf("%q is not an integer", text)
+}
+
+func unexpectedType(expected string, v lua.LValue) error {
+	return fmt.Errorf("expected %s, got %s", expected, v.Type())
 }
 
 func fieldValueToLua(v reflect.Value) lua.LValue {
@@ -261,47 +420,4 @@ func registerConsole(L *lua.LState) {
 	}))
 
 	L.SetGlobal("console", console)
-}
-
-// --- helpers ---
-
-func toGoInt(v lua.LValue) (int, error) {
-	switch v.Type() {
-	case lua.LTNumber:
-		return int(lua.LVAsNumber(v)), nil
-	case lua.LTString:
-		var n int
-		if _, err := fmt.Sscanf(lua.LVAsString(v), "%d", &n); err != nil {
-			return 0, fmt.Errorf("cannot convert %q to integer", v.String())
-		}
-		return n, nil
-	default:
-		return 0, fmt.Errorf("expected number, got %s", v.Type())
-	}
-}
-
-func toGoUint16(v lua.LValue) (uint16, error) {
-	n, err := toGoInt(v)
-	if err != nil {
-		return 0, err
-	}
-	if n < 0 || n > 65535 {
-		return 0, fmt.Errorf("value %d out of range for uint16", n)
-	}
-	return uint16(n), nil
-}
-
-func toGoInt64(v lua.LValue) (int64, error) {
-	switch v.Type() {
-	case lua.LTNumber:
-		return int64(lua.LVAsNumber(v)), nil
-	case lua.LTString:
-		var n int64
-		if _, err := fmt.Sscanf(lua.LVAsString(v), "%d", &n); err != nil {
-			return 0, fmt.Errorf("cannot convert %q to integer", v.String())
-		}
-		return n, nil
-	default:
-		return 0, fmt.Errorf("expected number, got %s", v.Type())
-	}
 }

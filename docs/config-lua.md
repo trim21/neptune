@@ -98,9 +98,33 @@ Key 使用 kebab-case，与 TOML 完全一致 —— Lua 能设置的键就是 T
 
 取值规则：
 
-- **boolean 字段按 Lua 真值判断**：只有 `false` 和 `nil` 是假，其余一切值（包括 `0` 和 `""`）都会被当成 `true`。想关掉一个 boolean 要写 `false`。
-- **number 字段**接受 number，也接受数字字符串；`uint16` 类型的键超出 `0..65535` 会报错。
-- 可选字符串键（`application.crypto`、`application.piece-pick-strategy`）留空表示使用默认值。
+每个键只接受两种写法：**该键自己的 Lua 类型**，或者**一个字符串**（按该键的目标类型解析）。除此之外一律报错，不会做隐式转换。
+
+| 键的类型 | 接受 | 不接受 |
+|---|---|---|
+| string | `"/mnt/big/downloads"` | `42`、`true`、`nil` |
+| boolean | `true`、`false`、`"true"`、`"false"` | `0`、`1`、`"0"`、`"yes"`、`nil` |
+| 整数 | `500`、`"500"` | `500.5`、`"1e3"`、`" 500"`、`true` |
+| duration | `"30s"`、`"1m30s"` | `30`、`true` |
+
+- **整数键**：Lua 只有一种 number 类型（float64），所以值必须是精确整数 —— `500.0` 可以，`500.5` 报错。需要取整请显式写 `math.floor(x)` / `math.ceil(x)`。`uint16` 的键超出 `0..65535` 报错（number 和字符串走同一条范围检查）。
+- **string 键**：只接受 Lua string。`42` 不会变成 `"42"`，`nil` 也不会把字段清空。
+- **duration 键**：只接受字符串，用 Go duration 格式（`"30s"`、`"1m30s"`）。纯数字字符串 `"30"` 会报缺单位的错。
+- 可选字符串键（`application.crypto`、`application.piece-pick-strategy`）留空字符串表示使用默认值。
+
+### 从旧版本迁移
+
+下面这些写法以前会被静默接受（或静默产生别的值），现在会导致启动失败：
+
+| 以前的写法 | 以前的行为 | 现在改成 |
+|---|---|---|
+| `neptune.set("application.fallocate", 0)` | 静默当成 `true` | `false` |
+| `neptune.set("application.fallocate", "yes")` | 静默当成 `true` | `true` 或 `false` |
+| `neptune.set("application.download-dir", 42)` | 写入字符串 `"42"` | `"42"`（加引号） |
+| `neptune.set("application.download-dir", nil)` | 静默清空成 `""` | 显式写出想设的字符串 |
+| `neptune.set("application.p2p-port", 12345.5)` | 静默截断成 `12345` | `12345` 或 `math.floor(12345.5)` |
+
+字符串形式的整数（`"12345"`）以前和现在都接受，不需要改。
 
 
 ## 示例

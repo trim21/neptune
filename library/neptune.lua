@@ -4,8 +4,9 @@
 --- workspace.library path (see .luarc.json).
 
 ---@class Neptune
----@field set fun(key: string, value: any)
----@field get fun(key: string): any
+--- Each key takes its own Lua type or a string parsed as the target type.
+---@field set fun(key: string, value: string|number|boolean)
+---@field get fun(key: string): string|number|boolean
 neptune = {}
 
 ---@class NeptuneConsole

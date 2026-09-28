@@ -102,6 +102,101 @@ func configFieldType(t *testing.T, key string) reflect.Type {
 	return reflect.ValueOf(&cfg).Elem().FieldByIndex(index).Type()
 }
 
+// TestLuaValueConversions pins the conversion rules: a field takes its own Lua
+// type or a string parsed as the target type, and nothing else.
+func TestLuaValueConversions(t *testing.T) {
+	cases := []struct {
+		key   string
+		value string // Lua literal
+		want  string // expected error substring, empty when the value is accepted
+	}{
+		// string
+		{key: "application.download-dir", value: `"data"`},
+		{key: "application.download-dir", value: `42`, want: "expected string, got number"},
+		{key: "application.download-dir", value: `true`, want: "expected string, got boolean"},
+		{key: "application.download-dir", value: `nil`, want: "expected string, got nil"},
+
+		// boolean
+		{key: "application.fallocate", value: `true`},
+		{key: "application.fallocate", value: `false`},
+		{key: "application.fallocate", value: `"true"`},
+		{key: "application.fallocate", value: `"false"`},
+		{key: "application.fallocate", value: `0`, want: "expected boolean or string, got number"},
+		{key: "application.fallocate", value: `1`, want: "expected boolean or string, got number"},
+		{key: "application.fallocate", value: `nil`, want: "expected boolean or string, got nil"},
+		{key: "application.fallocate", value: `"0"`, want: `expected "true" or "false", got "0"`},
+		{key: "application.fallocate", value: `"yes"`, want: `expected "true" or "false", got "yes"`},
+
+		// uint16
+		{key: "application.p2p-port", value: `12345`},
+		{key: "application.p2p-port", value: `"12345"`},
+		{key: "application.p2p-port", value: `12345.0`},
+		{key: "application.p2p-port", value: `12345.5`, want: "expected an integer, got 12345.5"},
+		{key: "application.p2p-port", value: `"12345.5"`, want: `"12345.5" is not an integer`},
+		{key: "application.p2p-port", value: `"1e3"`, want: `"1e3" is not an integer`},
+		{key: "application.p2p-port", value: `"abc"`, want: `"abc" is not an integer`},
+		{key: "application.p2p-port", value: `" 12345"`, want: `" 12345" is not an integer`},
+		{key: "application.p2p-port", value: `70000`, want: "out of range for uint16"},
+		{key: "application.p2p-port", value: `"70000"`, want: "out of range for uint16"},
+		{key: "application.p2p-port", value: `-1`, want: "out of range for uint16"},
+		{key: "application.p2p-port", value: `"-1"`, want: `"-1" is not an integer`},
+		{key: "application.p2p-port", value: `true`, want: "expected number or string, got boolean"},
+		{key: "application.p2p-port", value: `nil`, want: "expected number or string, got nil"},
+
+		// int
+		{key: "application.max-http-parallel", value: `12`},
+		{key: "application.max-http-parallel", value: `"12"`},
+		{key: "application.max-http-parallel", value: `1.9`, want: "expected an integer, got 1.9"},
+
+		// int64
+		{key: "application.global-upload-speed-limit", value: `0`},
+		{key: "application.global-upload-speed-limit", value: `"0"`},
+		{key: "application.global-upload-speed-limit", value: `200 * 1024 * 1024`},
+		{key: "application.global-upload-speed-limit", value: `1e3`},
+		{key: "application.global-upload-speed-limit", value: `"1e3"`, want: `"1e3" is not an integer`},
+		{key: "application.global-upload-speed-limit", value: `0.5`, want: "expected an integer, got 0.5"},
+		{key: "application.global-upload-speed-limit", value: `"9223372036854775808"`, want: "out of range for int64"},
+
+		// duration
+		{key: "application.hook.timeout", value: `"30s"`},
+		{key: "application.hook.timeout", value: `"1m30s"`},
+		{key: "application.hook.timeout", value: `30`, want: "expected string, got number"},
+		{key: "application.hook.timeout", value: `true`, want: "expected string, got boolean"},
+		{key: "application.hook.timeout", value: `"30"`, want: "missing unit"},
+	}
+
+	for i, tt := range cases {
+		t.Run(fmt.Sprintf("%02d %s", i, tt.key), func(t *testing.T) {
+			script := writeConfig(t, "config.lua", fmt.Sprintf("neptune.set(%q, %s)", tt.key, tt.value))
+
+			_, err := Load(script, Overrides{})
+			if tt.want == "" {
+				require.NoError(t, err)
+
+				return
+			}
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.want)
+		})
+	}
+}
+
+// TestLuaGetTypes keeps neptune.get() returning the Lua type that matches the
+// field, so a script can keep working with what it reads back.
+func TestLuaGetTypes(t *testing.T) {
+	script := writeConfig(t, "config.lua", `
+assert(type(neptune.get("application.download-dir")) == "string")
+assert(type(neptune.get("application.fallocate")) == "boolean")
+assert(type(neptune.get("application.p2p-port")) == "number")
+assert(type(neptune.get("application.global-upload-speed-limit")) == "number")
+assert(type(neptune.get("application.hook.timeout")) == "string")
+`)
+
+	_, err := Load(script, Overrides{})
+	require.NoError(t, err)
+}
+
 // TestLoadLuaRecheckOnComplete is a regression test: the key was reachable from
 // TOML but missing from the hand-written Lua key table.
 func TestLoadLuaRecheckOnComplete(t *testing.T) {
