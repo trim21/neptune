@@ -9,7 +9,7 @@ require (
 	github.com/bytedance/sonic v1.15.4
 	github.com/docker/go-units v0.5.0
 	github.com/dustin/go-humanize v1.1.0
-	github.com/go-chi/chi/v5 v5.3.2
+	github.com/go-chi/chi/v5 v5.4.0
 	github.com/go-faster/xor v1.0.0
 	github.com/go-playground/validator/v10 v10.30.5
 	github.com/go-resty/resty/v2 v2.17.2
