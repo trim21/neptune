@@ -469,3 +469,38 @@ func waitDownloadDone(t *testing.T, d *Download, numPieces uint32, seed int64) {
 		}
 	}
 }
+
+// TestHandleResPendingBytesLimit verifies the per-torrent pending-byte budget
+// bounds buffered chunks even when no piece ever completes.
+func TestHandleResPendingBytesLimit(t *testing.T) {
+	const numPieces = 4
+	const blocksPerPiece = 8
+
+	d := newTestDownload(t, numPieces, blocksPerPiece, piece_store.NewMemStore)
+
+	oldLimit := pendingBytesLimit
+	pendingBytesLimit = 2 * blocksPerPiece * defaultBlockSize
+	t.Cleanup(func() { pendingBytesLimit = oldLimit })
+
+	var h heap.Heap[responseChunk]
+	doneBm := bm.NewNilSafeLockFreeBitmap(d.info.TotalBlockCount())
+	pendingBm := bm.NewNilSafeLockFreeBitmap(d.info.TotalBlockCount())
+	pc := &peerContributors{m: make(map[uint32]map[uint64]empty.Empty)}
+
+	// Skip the first block of every piece so no piece ever completes and the
+	// chunks stay in the heap until the byte budget forces a flush.
+	for pi := range uint32(numPieces) {
+		for bi := uint32(1); bi < blocksPerPiece; bi++ {
+			ch := pieceChunk(d.info, pi, int(bi))
+			handleRes(d, &h, pc, doneBm, pendingBm, claimedSubmitForTest(t, d, chunkSubmit{peerID: 0, res: &proto.ChunkResponse{
+				PieceIndex: pi,
+				Begin:      ch.Begin,
+				Data:       make([]byte, ch.Length),
+			}}))
+			assert.LessOrEqual(t, d.pendingBytes.Load(), pendingBytesLimit+defaultBlockSize,
+				"pending bytes must stay within the configured budget")
+		}
+	}
+
+	assert.Positive(t, doneBm.Count(), "exhausting the budget must flush chunks to disk")
+}
