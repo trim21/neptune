@@ -361,19 +361,27 @@ var errBodyTooLarge = errors.New("request body too large")
 // grows as the body actually arrives.
 const maxPreallocate = 1 << 20
 
+// bodyPresize returns how many bytes to reserve before reading a request body.
+func bodyPresize(contentLength, limit int64) int {
+	if contentLength <= 0 {
+		return 0
+	}
+
+	size := min(contentLength, maxPreallocate)
+	if limit > 0 {
+		size = min(size, limit+1)
+	}
+
+	return int(size)
+}
+
 func readAllLimited(r io.Reader, contentLength, limit int64) (*mempool.Buffer, error) {
 	buf := rpcPool.Get()
 	buf.B = buf.B[:0]
 
 	// Pre-size from Content-Length so a typical body is read with a single
 	// allocation instead of repeated growth.
-	if contentLength > 0 {
-		size := min(contentLength, maxPreallocate)
-		if limit > 0 {
-			size = min(size, limit+1)
-		}
-		buf.B = slices.Grow(buf.B, int(size))
-	}
+	buf.B = slices.Grow(buf.B, bodyPresize(contentLength, limit))
 
 	src := r
 	if limit > 0 {
