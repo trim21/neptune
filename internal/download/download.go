@@ -137,13 +137,18 @@ func drainHeap(d *Download, h *heap.Heap[responseChunk], pc *peerContributors, d
 	*h = heap.Heap[responseChunk]{}
 }
 
-const defaultChunkHeapSizeLimit = 5000
-
 var pieceChunksPool = gsync.NewPool(func() *mempool.Buffer {
 	return &mempool.Buffer{
 		B: make([]byte, defaultBlockSize*10),
 	}
 })
+
+// pendingBytesLimit caps the received-but-unflushed block data a single torrent
+// keeps in memory. Buffering then scales with the number of active torrents
+// instead of their piece counts, which is what used to dominate the heap on
+// large swarms. One piece always fits so a piece can usually be assembled
+// without spilling to disk halfway.
+var pendingBytesLimit = int64(16 << 20)
 
 func handleRes(d *Download, h *heap.Heap[responseChunk], pc *peerContributors, done, pending *bm.NilSafeLockFreeBitmap, submit chunkSubmit) {
 	res := submit.res
@@ -240,9 +245,11 @@ func handleRes(d *Download, h *heap.Heap[responseChunk], pc *peerContributors, d
 		return
 	}
 
-	// Flush when heap is full or oldest chunk is older than maxChunkAge.
+	// Flush when the pending data budget is exhausted or the oldest chunk is
+	// older than maxChunkAge.
 	oldestAge := time.Since(h.Data[0].recvAt)
-	if h.Len() >= defaultChunkHeapSizeLimit || oldestAge > maxChunkAge {
+	budget := max(pendingBytesLimit, d.info.PieceLength)
+	if oldestAge > maxChunkAge || d.pendingBytes.Load() >= budget {
 		flushContiguousFromHeap(d, h, pc, done, pending)
 	}
 }

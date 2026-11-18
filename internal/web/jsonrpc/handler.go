@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"reflect"
+	"slices"
 
 	"github.com/bytedance/sonic"
 	"github.com/go-playground/validator/v10"
@@ -177,7 +178,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		resp Response
 	)
 
-	bodyBuf, err := readAllLimited(r.Body, h.MaxBodySize)
+	bodyBuf, err := readAllLimited(r.Body, r.ContentLength, h.MaxBodySize)
 	defer rpcPool.Put(bodyBuf)
 	if err != nil {
 		if errors.Is(err, errBodyTooLarge) {
@@ -354,21 +355,46 @@ func (h *Handler) fail(w http.ResponseWriter, err error, code ErrorCode) {
 
 var errBodyTooLarge = errors.New("request body too large")
 
-func readAllLimited(r io.Reader, limit int64) (*mempool.Buffer, error) {
-	if limit <= 0 {
-		buf := rpcPool.Get()
-		_, err := buf.ReadFrom(r)
-		return buf, err
+// maxPreallocate caps the buffer pre-sized from Content-Length. The declared
+// length is not a promise that the bytes will arrive, so it must not turn into
+// an allocation a client can trigger with a header alone; anything larger
+// grows as the body actually arrives.
+const maxPreallocate = 1 << 20
+
+// bodyPresize returns how many bytes to reserve before reading a request body.
+func bodyPresize(contentLength, limit int64) int {
+	if contentLength <= 0 {
+		return 0
 	}
 
-	buf := mempool.GetWithCapFromPool(&rpcPool, int(limit)+1)
-	n, err := io.ReadFull(r, buf.B)
-	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) {
+	size := min(contentLength, maxPreallocate)
+	if limit > 0 {
+		size = min(size, limit+1)
+	}
+
+	return int(size)
+}
+
+func readAllLimited(r io.Reader, contentLength, limit int64) (*mempool.Buffer, error) {
+	buf := rpcPool.Get()
+	buf.B = buf.B[:0]
+
+	// Pre-size from Content-Length so a typical body is read with a single
+	// allocation instead of repeated growth.
+	buf.B = slices.Grow(buf.B, bodyPresize(contentLength, limit))
+
+	src := r
+	if limit > 0 {
+		src = io.LimitReader(r, limit+1)
+	}
+
+	n, err := buf.ReadFrom(src)
+	if err != nil {
 		return buf, err
 	}
-	if int64(n) > limit {
+	if limit > 0 && n > limit {
 		return buf, errBodyTooLarge
 	}
-	buf.B = buf.B[:n]
+
 	return buf, nil
 }
