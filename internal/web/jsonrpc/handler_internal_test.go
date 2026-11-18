@@ -4,7 +4,6 @@
 package jsonrpc
 
 import (
-	"runtime"
 	"strings"
 	"testing"
 
@@ -51,35 +50,26 @@ func TestReadAllLimited(t *testing.T) {
 	})
 }
 
-func TestReadAllLimitedDoesNotAllocateLimit(t *testing.T) {
-	var before, after runtime.MemStats
+func TestBodyPresize(t *testing.T) {
+	tests := []struct {
+		name          string
+		contentLength int64
+		limit         int64
+		want          int
+	}{
+		{"unknown length", -1, 50 << 20, 0},
+		{"empty body", 0, 50 << 20, 0},
+		{"small body", 128, 50 << 20, 128},
+		{"declared length above cap", 50 << 20, 50 << 20, maxPreallocate},
+		{"limit below declared length", 4096, 100, 101},
+		{"no limit", 4096, 0, 4096},
+	}
 
-	runtime.ReadMemStats(&before)
-	buf, err := readAllLimited(strings.NewReader(`{"jsonrpc":"2.0"}`), 0, 50<<20)
-	runtime.ReadMemStats(&after)
-
-	require.NoError(t, err)
-	require.JSONEq(t, `{"jsonrpc":"2.0"}`, string(buf.B))
-	rpcPool.Put(buf)
-
-	grown := after.TotalAlloc - before.TotalAlloc
-	require.Less(t, grown, uint64(1<<20), "a small body must not allocate the 50 MiB body limit")
-}
-
-func TestReadAllLimitedDoesNotTrustContentLength(t *testing.T) {
-	body := "ab"
-
-	var before, after runtime.MemStats
-	runtime.ReadMemStats(&before)
-	buf, err := readAllLimited(strings.NewReader(body), 50<<20, 50<<20)
-	runtime.ReadMemStats(&after)
-
-	require.NoError(t, err)
-	require.Equal(t, body, string(buf.B))
-	rpcPool.Put(buf)
-
-	grown := after.TotalAlloc - before.TotalAlloc
-	require.Less(t, grown, uint64(maxPreallocate*2), "a declared length alone must not allocate the whole body")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, bodyPresize(tt.contentLength, tt.limit))
+		})
+	}
 }
 
 func TestReadAllLimitedLargeBody(t *testing.T) {
