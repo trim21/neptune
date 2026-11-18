@@ -118,13 +118,12 @@ func (env *testEnv) sendPiece(pieceIndex uint32) {
 	env.t.Helper()
 	d := env.d
 	var h heap.Heap[responseChunk]
-	doneBm := bm.NewNilSafeLockFreeBitmap(d.info.TotalBlockCount())
-	pendingBm := bm.NewNilSafeLockFreeBitmap(d.info.TotalBlockCount())
+	states := newPieceStates(&d.info)
 	pc := &peerContributors{m: make(map[uint32]map[uint64]empty.Empty)}
 	data := make([]byte, d.info.PieceLength)
 	for bi := range d.info.PieceBlockCount(pieceIndex) {
 		ci := pieceChunk(d.info, pieceIndex, bi)
-		handleRes(d, &h, pc, doneBm, pendingBm, claimedSubmitForTest(env.t, d, chunkSubmit{peerID: 0, res: &proto.ChunkResponse{
+		handleRes(d, &h, pc, states, claimedSubmitForTest(env.t, d, chunkSubmit{peerID: 0, res: &proto.ChunkResponse{
 			PieceIndex: pieceIndex, Begin: ci.Begin,
 			Data: data[ci.Begin : ci.Begin+ci.Length],
 		}}))

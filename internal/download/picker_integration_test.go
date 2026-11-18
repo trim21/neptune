@@ -55,8 +55,7 @@ func runIntegration(t *testing.T, numPieces, blocksPerPiece uint32, seed uint64)
 
 	last := make([]BlockClaim, 0, 16)
 	var h heap.Heap[responseChunk]
-	doneBm := bm.NewNilSafeLockFreeBitmap(d.info.TotalBlockCount())
-	pendingBm := bm.NewNilSafeLockFreeBitmap(d.info.TotalBlockCount())
+	states := newPieceStates(&d.info)
 	pc := &peerContributors{m: make(map[uint32]map[uint64]empty.Empty)}
 
 	// Feed chunks until picker returns nothing or we run out of iterations.
@@ -90,7 +89,7 @@ func runIntegration(t *testing.T, numPieces, blocksPerPiece uint32, seed uint64)
 				}
 			}
 
-			handleRes(d, &h, pc, doneBm, pendingBm, chunkSubmit{peerID: 1, claim: claim, res: &proto.ChunkResponse{
+			handleRes(d, &h, pc, states, chunkSubmit{peerID: 1, claim: claim, res: &proto.ChunkResponse{
 				PieceIndex: fb.PieceIndex,
 				Begin:      fb.BlockIndex * uint32(defaultBlockSize),
 				Data:       make([]byte, chunkSize),
