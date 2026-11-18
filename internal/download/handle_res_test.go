@@ -103,14 +103,13 @@ func newTestDownload(t testing.TB, numPieces uint32, blocksPerPiece uint32, newS
 	return d
 }
 
-func resetDownload(d *Download, done, pending *bm.NilSafeLockFreeBitmap) {
+func resetDownload(d *Download, states *pieceStates) {
 	d.completedBm.Clear()
 	d.missingBm.Fill()
 	d.picker.Load().ResetAll()
 	d.completed.Store(0)
 	d.downloaded.Store(0)
-	pending.Clear()
-	done.Clear()
+	states.clear()
 	d.state.Store(uint32(Downloading))
 	d.corruptedPiecesMu.Lock()
 	d.corruptedPieces = make(map[uint32]int)
@@ -124,44 +123,38 @@ type chunkDesc struct {
 	pi         uint32
 }
 
-func dumpState(d *Download, h *heap.Heap[responseChunk], doneBm, pendingBm *bm.NilSafeLockFreeBitmap) string {
+func dumpState(d *Download, h *heap.Heap[responseChunk], states *pieceStates) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "\n=== State ===\n")
 	fmt.Fprintf(&sb, "pieces=%d chunkLen=%d", d.info.NumPieces, d.normalChunkLen)
 	if h != nil {
 		fmt.Fprintf(&sb, " heap=%d", h.Len())
 	}
+	if states != nil {
+		fmt.Fprintf(&sb, " tracked=%d", states.size())
+	}
 	sb.WriteByte('\n')
+	fmt.Fprintf(&sb, "pendingBytes=%d\n", d.pendingBytes.Load())
 
-	pendingList := make([]uint32, 0)
-	doneList := make([]uint32, 0)
-	totalChunks := d.info.NumPieces * d.normalChunkLen
-	for i := range totalChunks {
-		if pendingBm.Contains(i) {
-			pendingList = append(pendingList, i)
-		}
-		if doneBm.Contains(i) {
-			doneList = append(doneList, i)
-		}
+	if states == nil {
+		return sb.String()
 	}
-	fmt.Fprintf(&sb, "pending=%v\n", pendingList)
-	fmt.Fprintf(&sb, "done=%v\n", doneList)
-	for pi := range d.info.NumPieces {
-		total := d.info.PieceBlockCount(pi)
-		start := pi * d.normalChunkLen
-		end := start + uint32(total)
-		p := 0
-		dd := 0
-		for i := start; i < end; i++ {
-			if pendingBm.Contains(i) {
-				p++
+
+	states.rangeBlocks(func(piece uint32, pb *pieceBlocks) {
+		total := d.info.PieceBlockCount(piece)
+		pending := 0
+		done := 0
+		for i := range uint32(total) {
+			if pb.isPending(i) {
+				pending++
 			}
-			if doneBm.Contains(i) {
-				dd++
+			if pb.isDone(i) {
+				done++
 			}
 		}
-		fmt.Fprintf(&sb, "  piece %d: total=%d pending=%d done=%d\n", pi, total, p, dd)
-	}
+		fmt.Fprintf(&sb, "  piece %d: total=%d pending=%d done=%d\n", piece, total, pending, done)
+	})
+
 	return sb.String()
 }
 
@@ -169,20 +162,25 @@ func assertHandleResCompleted(
 	t *testing.T,
 	d *Download,
 	h *heap.Heap[responseChunk],
-	doneBm, pendingBm *bm.NilSafeLockFreeBitmap,
+	states *pieceStates,
 	label string,
 ) {
 	t.Helper()
 	if h.Len() != 0 {
-		t.Errorf("FAIL %s: heap=%d\n%s", label, h.Len(), dumpState(d, h, doneBm, pendingBm))
+		t.Errorf("FAIL %s: heap=%d\n%s", label, h.Len(), dumpState(d, h, states))
 		return
 	}
 
 	if !assert.Eventually(t, func() bool {
 		return d.completedBm.Count() == d.info.NumPieces && d.GetState() == Seeding
 	}, 2*time.Second, time.Millisecond, "download did not complete for %s", label) {
-		t.Log(dumpState(d, h, doneBm, pendingBm))
+		t.Log(dumpState(d, h, states))
+		return
 	}
+
+	// Every piece was verified, so no per-block state may be left behind.
+	assert.Zero(t, states.size(), "piece state leaked after completion for %s\n%s", label, dumpState(d, h, states))
+	assert.Zero(t, d.pendingBytes.Load(), "pending bytes leaked for %s", label)
 }
 
 // TestHandleResOrder sends all chunks in various orders through handleRes
@@ -261,11 +259,10 @@ func TestHandleResOrder(t *testing.T) {
 			// goroutines leaking from one test to another.
 			d := newTestDownload(t, numPieces, blocksPerPiece, piece_store.NewMemStore)
 			var h heap.Heap[responseChunk]
-			doneBm := bm.NewNilSafeLockFreeBitmap(d.info.TotalBlockCount())
-			pendingBm := bm.NewNilSafeLockFreeBitmap(d.info.TotalBlockCount())
+			states := newPieceStates(&d.info)
 			pc := &peerContributors{m: make(map[uint32]map[uint64]empty.Empty)}
 			for _, c := range order {
-				handleRes(d, &h, pc, doneBm, pendingBm, claimedSubmitForTest(t, d, chunkSubmit{
+				handleRes(d, &h, pc, states, claimedSubmitForTest(t, d, chunkSubmit{
 					res: &proto.ChunkResponse{
 						PieceIndex: c.pieceIndex, Begin: c.begin,
 						Data: make([]byte, c.length),
@@ -273,7 +270,7 @@ func TestHandleResOrder(t *testing.T) {
 					peerID: 0,
 				}))
 			}
-			assertHandleResCompleted(t, d, &h, doneBm, pendingBm, name)
+			assertHandleResCompleted(t, d, &h, states, name)
 		})
 	}
 }
@@ -285,8 +282,7 @@ func TestHandleResLargePiece(t *testing.T) {
 	d := newTestDownload(t, numPieces, blocksPerPiece, piece_store.NewMemStore)
 
 	var h heap.Heap[responseChunk]
-	doneBm := bm.NewNilSafeLockFreeBitmap(d.info.TotalBlockCount())
-	pendingBm := bm.NewNilSafeLockFreeBitmap(d.info.TotalBlockCount())
+	states := newPieceStates(&d.info)
 	pc := &peerContributors{m: make(map[uint32]map[uint64]empty.Empty)}
 
 	var all []chunkDesc
@@ -323,13 +319,88 @@ func TestHandleResLargePiece(t *testing.T) {
 	}
 
 	for _, c := range order {
-		handleRes(d, &h, pc, doneBm, pendingBm, claimedSubmitForTest(t, d, chunkSubmit{peerID: 0, res: &proto.ChunkResponse{
+		handleRes(d, &h, pc, states, claimedSubmitForTest(t, d, chunkSubmit{peerID: 0, res: &proto.ChunkResponse{
 			PieceIndex: c.pieceIndex, Begin: c.begin,
 			Data: make([]byte, c.length),
 		}}))
 	}
 
-	assertHandleResCompleted(t, d, &h, doneBm, pendingBm, "large")
+	assertHandleResCompleted(t, d, &h, states, "large")
+}
+
+// TestPieceStatesTrackOnlyTouchedPieces checks that per-block bookkeeping is
+// allocated per in-flight piece instead of for every piece of the torrent.
+func TestPieceStatesTrackOnlyTouchedPieces(t *testing.T) {
+	const numPieces = 64
+	const blocksPerPiece = 4
+
+	d := newTestDownload(t, numPieces, blocksPerPiece, piece_store.NewMemStore)
+
+	var h heap.Heap[responseChunk]
+	states := newPieceStates(&d.info)
+	pc := &peerContributors{m: make(map[uint32]map[uint64]empty.Empty)}
+
+	ch := pieceChunk(d.info, 7, 2)
+	handleRes(d, &h, pc, states, claimedSubmitForTest(t, d, chunkSubmit{peerID: 0, res: &proto.ChunkResponse{
+		PieceIndex: 7, Begin: ch.Begin,
+		Data: make([]byte, ch.Length),
+	}}))
+
+	assert.Equal(t, 1, states.size(), "only the piece that received a block may be tracked")
+	assert.Nil(t, states.peek(0))
+
+	pb := states.peek(7)
+	if assert.NotNil(t, pb) {
+		assert.True(t, pb.isPending(2))
+		assert.False(t, pb.isDone(2))
+		assert.False(t, pb.isPending(0))
+	}
+}
+
+// TestPieceStatesReleasedOnCorruption checks that a piece failing its hash
+// check drops its per-block state, so re-downloading it starts clean instead of
+// inheriting "already written" blocks.
+func TestPieceStatesReleasedOnCorruption(t *testing.T) {
+	const blocksPerPiece = 4
+
+	d := newTestDownload(t, 1, blocksPerPiece, func(info meta.Info) piece_store.PieceStore {
+		return NewFailOnceStore(piece_store.NewMemStore(info))
+	})
+
+	var h heap.Heap[responseChunk]
+	states := newPieceStates(&d.info)
+	pc := &peerContributors{m: make(map[uint32]map[uint64]empty.Empty)}
+
+	sendPiece := func() {
+		t.Helper()
+		for bi := range d.info.PieceBlockCount(0) {
+			ch := pieceChunk(d.info, 0, bi)
+			handleRes(d, &h, pc, states, claimedSubmitForTest(t, d, chunkSubmit{peerID: 0, res: &proto.ChunkResponse{
+				PieceIndex: 0, Begin: ch.Begin,
+				Data: make([]byte, ch.Length),
+			}}))
+		}
+	}
+
+	sendPiece()
+
+	// First verification fails: the piece goes back to the picker and its
+	// per-block state is dropped.
+	assert.Eventually(t, func() bool {
+		d.corruptedPiecesMu.Lock()
+		defer d.corruptedPiecesMu.Unlock()
+
+		return d.corruptedPieces[0] > 0
+	}, 2*time.Second, time.Millisecond, "piece 0 should fail its hash check")
+
+	assert.Eventually(t, func() bool {
+		return states.size() == 0
+	}, 2*time.Second, time.Millisecond, "state should be released on corruption\n%s", dumpState(d, &h, states))
+	assert.Zero(t, d.pendingBytes.Load())
+
+	// Second attempt rebuilds the state and verifies.
+	sendPiece()
+	assertHandleResCompleted(t, d, &h, states, "corrupt-then-retry")
 }
 
 // FuzzHandleRes uses Go's fuzzing engine to randomize chunk arrival order
@@ -458,7 +529,7 @@ func waitDownloadDone(t *testing.T, d *Download, numPieces uint32, seed int64) {
 		case <-deadline:
 			d.cancel()
 			time.Sleep(10 * time.Millisecond)
-			t.Errorf("seed=%d timeout\n%s", seed, dumpState(d, nil, nil, nil))
+			t.Errorf("seed=%d timeout\n%s", seed, dumpState(d, nil, nil))
 			return
 		case <-ticker.C:
 			if d.completedBm.Count() == numPieces {
@@ -483,8 +554,7 @@ func TestHandleResPendingBytesLimit(t *testing.T) {
 	t.Cleanup(func() { pendingBytesLimit = oldLimit })
 
 	var h heap.Heap[responseChunk]
-	doneBm := bm.NewNilSafeLockFreeBitmap(d.info.TotalBlockCount())
-	pendingBm := bm.NewNilSafeLockFreeBitmap(d.info.TotalBlockCount())
+	states := newPieceStates(&d.info)
 	pc := &peerContributors{m: make(map[uint32]map[uint64]empty.Empty)}
 
 	// Skip the first block of every piece so no piece ever completes and the
@@ -492,7 +562,7 @@ func TestHandleResPendingBytesLimit(t *testing.T) {
 	for pi := range uint32(numPieces) {
 		for bi := uint32(1); bi < blocksPerPiece; bi++ {
 			ch := pieceChunk(d.info, pi, int(bi))
-			handleRes(d, &h, pc, doneBm, pendingBm, claimedSubmitForTest(t, d, chunkSubmit{peerID: 0, res: &proto.ChunkResponse{
+			handleRes(d, &h, pc, states, claimedSubmitForTest(t, d, chunkSubmit{peerID: 0, res: &proto.ChunkResponse{
 				PieceIndex: pi,
 				Begin:      ch.Begin,
 				Data:       make([]byte, ch.Length),
@@ -502,5 +572,16 @@ func TestHandleResPendingBytesLimit(t *testing.T) {
 		}
 	}
 
-	assert.Positive(t, doneBm.Count(), "exhausting the budget must flush chunks to disk")
+	// Flushed blocks are recorded as done per piece; the skipped first blocks
+	// never were, so the budget must have forced a flush.
+	written := 0
+	states.rangeBlocks(func(piece uint32, pb *pieceBlocks) {
+		assert.False(t, pb.isDone(0), "piece %d block 0 was never received", piece)
+		for i := uint32(1); i < blocksPerPiece; i++ {
+			if pb.isDone(i) {
+				written++
+			}
+		}
+	})
+	assert.Positive(t, written, "exhausting the budget must flush chunks to disk")
 }

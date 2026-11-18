@@ -13,7 +13,6 @@ import (
 	"neptune/internal/client/tracker"
 	"neptune/internal/meta"
 	"neptune/internal/pkg/as"
-	"neptune/internal/pkg/bm"
 	"neptune/internal/pkg/empty"
 	"neptune/internal/pkg/global/tasks"
 	"neptune/internal/pkg/gsync"
@@ -84,8 +83,7 @@ func (d *Download) backgroundResHandler() {
 	defer d.log.Info().Msg("backgroundResHandler: exiting")
 	var h heap.Heap[responseChunk]
 	pc := &peerContributors{m: make(map[uint32]map[uint64]empty.Empty)}
-	done := bm.NewNilSafeLockFreeBitmap(d.info.TotalBlockCount())
-	pending := bm.NewNilSafeLockFreeBitmap(d.info.TotalBlockCount())
+	states := newPieceStates(&d.info)
 	for {
 		select {
 		case <-d.ctx.Done():
@@ -95,29 +93,22 @@ func (d *Download) backgroundResHandler() {
 			// State changed (e.g. pause). If we are no longer downloading,
 			// drain any remaining chunks so they are not lost.
 			if d.GetState() != Downloading && h.Len() > 0 {
-				drainHeap(d, &h, pc, done, pending)
-			}
-			// Re-init bitmaps if re-entering Downloading (e.g. after
-			// recheck found corruption in a previously seeding torrent).
-			if d.IsDownloading() {
-				totalBlocks := d.info.TotalBlockCount()
-				done.Init(totalBlocks)
-				pending.Init(totalBlocks)
+				drainHeap(d, &h, pc, states)
 			}
 		case res := <-d.resChan:
 			if !d.IsDownloading() {
 				d.picker.Load().ReleaseClaim(res.claim)
 				proto.PiecePool.Put(res.res)
-				drainHeap(d, &h, pc, done, pending)
+				drainHeap(d, &h, pc, states)
 				continue
 			}
 
-			handleRes(d, &h, pc, done, pending, res)
+			handleRes(d, &h, pc, states, res)
 
 			// Queued downloads accept in-flight responses but flush them
 			// immediately instead of retaining an in-memory response heap.
 			if d.GetState() != Downloading && h.Len() > 0 {
-				drainHeap(d, &h, pc, done, pending)
+				drainHeap(d, &h, pc, states)
 			}
 		}
 	}
@@ -125,11 +116,11 @@ func (d *Download) backgroundResHandler() {
 
 // drainHeap flushes all remaining chunks in the heap to disk.
 // All callers are on the backgroundResHandler goroutine.
-func drainHeap(d *Download, h *heap.Heap[responseChunk], pc *peerContributors, done, pending *bm.NilSafeLockFreeBitmap) {
+func drainHeap(d *Download, h *heap.Heap[responseChunk], pc *peerContributors, states *pieceStates) {
 	heapLen := h.Len()
 	d.log.Info().Int("chunks", heapLen).Msg("drainHeap: start flushing remaining chunks")
 	for h.Len() > 0 {
-		flushContiguousFromHeap(d, h, pc, done, pending)
+		flushContiguousFromHeap(d, h, pc, states)
 	}
 	d.log.Info().Int("chunks", heapLen).Msg("drainHeap: done")
 	// Reset heap to release backing array. download completed → seeding,
@@ -150,7 +141,7 @@ var pieceChunksPool = gsync.NewPool(func() *mempool.Buffer {
 // without spilling to disk halfway.
 var pendingBytesLimit = int64(16 << 20)
 
-func handleRes(d *Download, h *heap.Heap[responseChunk], pc *peerContributors, done, pending *bm.NilSafeLockFreeBitmap, submit chunkSubmit) {
+func handleRes(d *Download, h *heap.Heap[responseChunk], pc *peerContributors, states *pieceStates, submit chunkSubmit) {
 	res := submit.res
 	d.log.Trace().
 		Int("length", len(res.Data)).
@@ -192,8 +183,9 @@ func handleRes(d *Download, h *heap.Heap[responseChunk], pc *peerContributors, d
 
 	// Discard duplicate blocks that have already been flushed to disk
 	// (endgame race). Overwriting would replace the first peer's data.
-	cPi := res.Begin/defaultBlockSize + res.PieceIndex*d.normalChunkLen
-	if done.Contains(cPi) {
+	blockIndex := res.Begin / defaultBlockSize
+	cPi := blockIndex + res.PieceIndex*d.normalChunkLen
+	if pb := states.peek(res.PieceIndex); pb != nil && pb.isDone(blockIndex) {
 		d.wastedDupe.Add(int64(len(res.Data)))
 		d.picker.Load().ReleaseClaim(submit.claim)
 		proto.PiecePool.Put(res)
@@ -223,25 +215,23 @@ func handleRes(d *Download, h *heap.Heap[responseChunk], pc *peerContributors, d
 	peers[submit.peerID] = empty.Empty{}
 	pc.mu.Unlock()
 
-	pending.Set(c.pi)
+	pb := states.get(res.PieceIndex)
+	pb.setPending(blockIndex)
 	d.pendingBytes.Add(int64(len(res.Data)))
 
 	h.Push(c)
 
 	// Check if this chunk completes a piece — extract and flush early.
-	piecePiStart := res.PieceIndex * d.normalChunkLen
-	piecePiEnd := piecePiStart + uint32(d.info.PieceBlockCount(res.PieceIndex))
+	blocksInPiece := uint32(d.info.PieceBlockCount(res.PieceIndex))
 	allAccounted := true
-	for i := piecePiStart; i < piecePiEnd; i++ {
-		p := pending.Contains(i)
-		done := done.Contains(i)
-		if !p && !done {
+	for i := range blocksInPiece {
+		if !pb.isPending(i) && !pb.isDone(i) {
 			allAccounted = false
 			break
 		}
 	}
 	if allAccounted {
-		handlePieceFromHeap(d, h, pc, done, pending, res.PieceIndex)
+		handlePieceFromHeap(d, h, pc, states, res.PieceIndex)
 		return
 	}
 
@@ -250,14 +240,14 @@ func handleRes(d *Download, h *heap.Heap[responseChunk], pc *peerContributors, d
 	oldestAge := time.Since(h.Data[0].recvAt)
 	budget := max(pendingBytesLimit, d.info.PieceLength)
 	if oldestAge > maxChunkAge || d.pendingBytes.Load() >= budget {
-		flushContiguousFromHeap(d, h, pc, done, pending)
+		flushContiguousFromHeap(d, h, pc, states)
 	}
 }
 
 // flushContiguousFromHeap pops the head of the chunk heap and merges as many
 // contiguous blocks as possible (up to maxMergeBlocks), then writes them to
 // disk in a single call. Completed pieces are checked after the write.
-func flushContiguousFromHeap(d *Download, h *heap.Heap[responseChunk], pc *peerContributors, done, pending *bm.NilSafeLockFreeBitmap) {
+func flushContiguousFromHeap(d *Download, h *heap.Heap[responseChunk], pc *peerContributors, states *pieceStates) {
 	head := h.Pop()
 	headPi := head.pi
 	headPiece := head.res.PieceIndex
@@ -269,8 +259,7 @@ func flushContiguousFromHeap(d *Download, h *heap.Heap[responseChunk], pc *peerC
 
 	headLen := int64(len(head.res.Data))
 
-	done.Set(headPi)
-	pending.Unset(headPi)
+	markWritten(states, d.normalChunkLen, headPi)
 	d.pendingBytes.Add(-headLen)
 
 	tailPi := headPi
@@ -295,8 +284,7 @@ func flushContiguousFromHeap(d *Download, h *heap.Heap[responseChunk], pc *peerC
 
 		tailPi++
 
-		done.Set(tailPi)
-		pending.Unset(tailPi)
+		markWritten(states, d.normalChunkLen, tailPi)
 		d.pendingBytes.Add(-peakLen)
 
 		mergedChunk.Write(peak.res.Data)
@@ -317,7 +305,7 @@ func flushContiguousFromHeap(d *Download, h *heap.Heap[responseChunk], pc *peerC
 	for pi := headPi; pi <= tailPi; pi++ {
 		pieceIdx := pi / d.normalChunkLen
 
-		if d.checkPieceBitmapDone(pieceIdx, done) {
+		if d.checkPieceBlocksDone(pieceIdx, states) {
 			// avoid duplicates
 			already := slices.Contains(completedPieces, pieceIdx)
 			if !already {
@@ -328,13 +316,13 @@ func flushContiguousFromHeap(d *Download, h *heap.Heap[responseChunk], pc *peerC
 
 	for _, pieceIndex := range completedPieces {
 		tasks.SubmitIO(func() {
-			err := d.checkPiece(pieceIndex, pc, done)
+			err := d.checkPiece(pieceIndex, pc, states)
 			if err != nil {
 				d.setError(err)
 				return
 			}
 
-			d.checkDone(done, pending)
+			d.checkDone(states)
 		})
 	}
 }
@@ -363,19 +351,21 @@ func (d *Download) mergeLimit() uint32 {
 //   - all chunks are pending (in heap): writes the full piece in one call.
 //   - some chunks were already flushed by flushContiguousFromHeap: writes only
 //     the pending chunks at their respective offsets, then verifies the piece.
-func handlePieceFromHeap(d *Download, h *heap.Heap[responseChunk], pc *peerContributors, done, pending *bm.NilSafeLockFreeBitmap, index uint32) {
+func handlePieceFromHeap(d *Download, h *heap.Heap[responseChunk], pc *peerContributors, states *pieceStates, index uint32) {
 	// Collect unique chunks for this piece from the heap.
 	// In endgame mode duplicate chunks may arrive; dedup by pi.
 	piecePiStart := index * d.normalChunkLen
 	piecePiEnd := piecePiStart + uint32(d.info.PieceBlockCount(index))
 
+	state := states.peek(index)
+
 	var pendingChunks []*proto.ChunkResponse
-	// seen tracks which block pis we already have (from heap OR done bitmap).
-	// Pre-populate from done bitmap so endgame duplicates don't cause
+	// seen tracks which blocks we already have (from heap OR written state).
+	// Pre-populate from the done state so endgame duplicates don't cause
 	// double-counting when a block is both done and pending.
 	seen := make([]bool, piecePiEnd-piecePiStart)
-	for i := piecePiStart; i < piecePiEnd; i++ {
-		seen[i-piecePiStart] = done.Contains(i)
+	for i := range seen {
+		seen[i] = state != nil && state.isDone(uint32(i))
 	}
 	doneCount := 0
 	for _, s := range seen {
@@ -434,9 +424,7 @@ func handlePieceFromHeap(d *Download, h *heap.Heap[responseChunk], pc *peerContr
 		for _, res := range pendingChunks {
 			resLen := int64(len(res.Data))
 			buf.Write(res.Data)
-			pi := res.Begin/defaultBlockSize + index*d.normalChunkLen
-			done.Set(pi)
-			pending.Unset(pi)
+			markWritten(states, d.normalChunkLen, res.Begin/defaultBlockSize+index*d.normalChunkLen)
 			d.pendingBytes.Add(-resLen)
 			proto.PiecePool.Put(res)
 		}
@@ -456,31 +444,41 @@ func handlePieceFromHeap(d *Download, h *heap.Heap[responseChunk], pc *peerContr
 				d.setError(err)
 				return
 			}
-			pi := res.Begin/defaultBlockSize + index*d.normalChunkLen
-			done.Set(pi)
-			pending.Unset(pi)
+			markWritten(states, d.normalChunkLen, res.Begin/defaultBlockSize+index*d.normalChunkLen)
 			d.pendingBytes.Add(-resLen)
 			proto.PiecePool.Put(res)
 		}
 	}
 
 	tasks.SubmitIO(func() {
-		err := d.checkPiece(index, pc, done)
+		err := d.checkPiece(index, pc, states)
 		if err != nil {
 			d.setError(err)
 			return
 		}
 
-		d.checkDone(done, pending)
+		d.checkDone(states)
 	})
 }
 
-func (d *Download) checkPieceBitmapDone(index uint32, done *bm.NilSafeLockFreeBitmap) bool {
-	pieceCidStart := index * d.normalChunkLen
-	pieceCidEnd := pieceCidStart + uint32(d.info.PieceBlockCount(index))
+// markWritten records that the block at pi has been written to disk.
+func markWritten(states *pieceStates, normalChunkLen, pi uint32) {
+	piece := pi / normalChunkLen
+	block := pi % normalChunkLen
 
-	for i := pieceCidStart; i < pieceCidEnd; i++ {
-		if !done.Contains(i) {
+	pb := states.get(piece)
+	pb.setDone(block)
+	pb.clearPending(block)
+}
+
+func (d *Download) checkPieceBlocksDone(index uint32, states *pieceStates) bool {
+	pb := states.peek(index)
+	if pb == nil {
+		return false
+	}
+
+	for i := range uint32(d.info.PieceBlockCount(index)) {
+		if !pb.isDone(i) {
 			return false
 		}
 	}
@@ -488,7 +486,7 @@ func (d *Download) checkPieceBitmapDone(index uint32, done *bm.NilSafeLockFreeBi
 	return true
 }
 
-func (d *Download) checkPiece(pieceIndex uint32, pc *peerContributors, done *bm.NilSafeLockFreeBitmap) error {
+func (d *Download) checkPiece(pieceIndex uint32, pc *peerContributors, states *pieceStates) error {
 	ok, err := d.store.VerifyPiece(d.ctx, pieceIndex, d.info.Pieces[pieceIndex])
 	if err != nil {
 		return errgo.Wrap(err, "failed to verify piece")
@@ -503,11 +501,8 @@ func (d *Download) checkPiece(pieceIndex uint32, pc *peerContributors, done *bm.
 		d.corruptedPieces[pieceIndex]++
 		d.corruptedPiecesMu.Unlock()
 		d.corrupted.Add(pieceSize)
-		start := pieceIndex * d.normalChunkLen
-		end := start + uint32(d.info.PieceBlockCount(pieceIndex))
-		for i := start; i < end; i++ {
-			done.Unset(i)
-		}
+		// Drop the written state: the piece is downloaded again from scratch.
+		states.release(pieceIndex)
 
 		// Penalize peers that contributed blocks to this corrupt piece.
 		d.penalizePiecePeers(pieceIndex, false, pc)
@@ -522,6 +517,10 @@ func (d *Download) checkPiece(pieceIndex uint32, pc *peerContributors, done *bm.
 
 	// Mark piece as fully owned in the picker
 	d.picker.Load().WeHave(pieceIndex)
+
+	// The piece's blocks are accounted for by completedBm and the picker from
+	// here on, so its per-block state is no longer needed.
+	states.release(pieceIndex)
 
 	// Reward peers that contributed to this successful piece.
 	d.penalizePiecePeers(pieceIndex, true, pc)
@@ -638,7 +637,7 @@ func (d *Download) gradualUnblockPiece(pieceIndex uint32) {
 	}
 }
 
-func (d *Download) checkDone(done, pending *bm.NilSafeLockFreeBitmap) {
+func (d *Download) checkDone(states *pieceStates) {
 	if !d.isComplete() {
 		return
 	}
@@ -659,9 +658,8 @@ func (d *Download) checkDone(done, pending *bm.NilSafeLockFreeBitmap) {
 		d.log.Error().Err(err).Msg("failed to transition state in checkDone")
 		return
 	}
-	// Release per-block bitmaps — no longer needed once seeding.
-	done.Release()
-	pending.Release()
+	// Release the per-piece state — no longer needed once seeding.
+	states.clear()
 	d.finalizeDownloadCompletion()
 }
 
