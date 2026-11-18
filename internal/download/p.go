@@ -196,10 +196,7 @@ func newPeer(
 		scheduleRequestSignal: make(chan empty.Empty, 1),
 
 		//ResChan:   make(chan req.Response, 1),
-		myRequests:       xsync.NewMap[proto.ChunkRequest, trackedRequest](),
-		myRequestHistory: xsync.NewMap[proto.ChunkRequest, empty.Empty](),
-
-		Rejected: xsync.NewMap[proto.ChunkRequest, empty.Empty](),
+		myRequests: xsync.NewMap[proto.ChunkRequest, trackedRequest](),
 
 		peerRequests: xsync.NewMap[proto.ChunkRequest, uploadRequestState](),
 
@@ -247,8 +244,6 @@ type peerImpl struct {
 	cancel                 context.CancelFunc
 	Bitmap                 *bm.LockFreeBitmap
 	myRequests             *xsync.Map[proto.ChunkRequest, trackedRequest]
-	myRequestHistory       *xsync.Map[proto.ChunkRequest, empty.Empty]
-	Rejected               *xsync.Map[proto.ChunkRequest, empty.Empty]
 	allowFast              *bm.LockFreeBitmap
 	peerRequests           *xsync.Map[proto.ChunkRequest, uploadRequestState]
 	pieceDownloadRate      *flowrate.Monitor
@@ -1009,7 +1004,6 @@ func (p *peerImpl) start(skipHandshake bool) {
 			p.CancelPeerRequest(event.Req)
 		case proto.Reject:
 			p.log.Trace().Msgf("reject %+v", event.Req)
-			p.Rejected.Store(event.Req, empty.Empty{})
 			p.requestMu.Lock()
 			tracked, ok := p.myRequests.LoadAndDelete(event.Req)
 			p.requestMu.Unlock()
