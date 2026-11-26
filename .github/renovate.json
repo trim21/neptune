@@ -2,7 +2,8 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "local>trim21/renovate-config",
-    "local>trim21/renovate-config:go"
+    "local>trim21/renovate-config:go",
+    "local>trim21/renovate-config:app"
   ],
   "rebaseWhen": "conflicted",
   "schedule": [
@@ -14,19 +15,6 @@
   ],
   "prConcurrentLimit": 3,
   "packageRules": [
-    {
-      "matchManagers": ["gomod"],
-      "matchDatasources": ["golang-version"],
-      "separateMinorPatch": true,
-      "rangeStrategy": "bump"
-    },
-    {
-      "matchManagers": ["gomod"],
-      "matchDatasources": ["golang-version"],
-      "matchCurrentVersion": "1.26",
-      "matchUpdateTypes": ["minor"],
-      "enabled": false
-    },
     {
       "description": "Python SDK: pin dev dependency groups",
       "matchFileNames": ["sdk/python/**"],
