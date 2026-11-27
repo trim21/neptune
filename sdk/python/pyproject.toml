@@ -9,8 +9,8 @@ description = "Python SDK for Neptune BitTorrent client JSON-RPC API"
 requires-python = ">=3.10"
 license = "MIT"
 dependencies = [
-  "httpx2>=2.12.0",
-  "pyserde>=0.31.7",
+  "httpx2==2.14.0",
+  "pyserde==0.32.2",
 ]
 
 [dependency-groups]
