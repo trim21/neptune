@@ -3,7 +3,7 @@
   "extends": [
     "local>trim21/renovate-config",
     "local>trim21/renovate-config:go",
-    "local>trim21/renovate-config:app"
+    "local>trim21/renovate-config:lib"
   ],
   "rebaseWhen": "conflicted",
   "schedule": [
@@ -15,6 +15,19 @@
   ],
   "prConcurrentLimit": 3,
   "packageRules": [
+    {
+      "description": "Go client is an application, not a library: pin dependencies",
+      "matchManagers": ["gomod"],
+      "matchDatasources": ["go"],
+      "rangeStrategy": "pin"
+    },
+    {
+      "description": "Go toolchain version",
+      "matchManagers": ["gomod"],
+      "matchDatasources": ["golang-version"],
+      "rangeStrategy": "bump",
+      "separateMinorPatch": true
+    },
     {
       "description": "Python SDK: pin dev dependency groups",
       "matchFileNames": ["sdk/python/**"],
